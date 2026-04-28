@@ -25,6 +25,11 @@
     "progress": {
       "empty": "Non démarré",
       "running": "{{visited}} / {{total}} cellules"
+    },
+    "results": {
+      "empty": "Aucune correspondance.",
+      "count": "{{count}} segment(s) trouvé(s)",
+      "item": "Segment {{id}}"
     }
   }
 }

@@ -8,24 +8,34 @@ import type { WalkController } from "../controller/WalkController";
 import type { WalkState } from "../controller/walkStates";
 
 /**
- * Sidebar panel for Palier 2.
+ * Sidebar panel for Palier 3.
  *
  * Presentation-only: no business logic, no SDK calls beyond map navigation.
- * It renders track info, a status badge, and action buttons, then keeps itself
- * in sync with the WalkController via onStateChange.
+ * It renders track info, a status badge, action buttons, a progress counter,
+ * and a live results list that populates as segments are matched.
  *
  * DOM is created with createElement/textContent only — no innerHTML with
- * external data, which avoids XSS vectors even though this runs as a
- * userscript.
+ * external data (avoids XSS even in userscript context).
  */
 export class MatchPanel {
   private tabPane: HTMLElement | null = null;
-  private unsubscribeState: (() => void) | null = null;
 
-  // Elements that need to be updated on state change
+  // Unsubscribe handles — cleaned up in unmount()
+  private unsubscribeState: (() => void) | null = null;
+  private unsubscribeProgress: (() => void) | null = null;
+  private unsubscribeMatchFound: (() => void) | null = null;
+
+  // Elements updated after mount
   private badgeEl: HTMLElement | null = null;
   private startBtn: HTMLButtonElement | null = null;
   private stopBtn: HTMLButtonElement | null = null;
+  private progressEl: HTMLElement | null = null;
+  private resultsCountEl: HTMLElement | null = null;
+  private resultsEmptyEl: HTMLElement | null = null;
+  private resultsList: HTMLUListElement | null = null;
+
+  /** Total matched segment count across all cells. */
+  private matchedCount = 0;
 
   constructor(
     private readonly wmeSDK: WmeSDK,
@@ -36,8 +46,7 @@ export class MatchPanel {
 
   /**
    * Register a sidebar tab, populate it, and wire up controller events.
-   * Safe to call only once; a second call is a no-op (SDK throws on duplicate
-   * scriptId registration anyway).
+   * Safe to call only once; a second call is a no-op.
    */
   async mount(): Promise<void> {
     if (this.tabPane) {
@@ -48,36 +57,53 @@ export class MatchPanel {
     let tabPane: HTMLElement;
 
     try {
-      ({ tabLabel, tabPane } =
-        await this.wmeSDK.Sidebar.registerScriptTab());
+      ({ tabLabel, tabPane } = await this.wmeSDK.Sidebar.registerScriptTab());
     } catch (err) {
       logger.error("MatchPanel.mount: failed to register sidebar tab", err);
       return;
     }
 
-    // Label is a short abbreviation so it fits in the tab strip
     tabLabel.textContent = "GeoJ";
-
     this.tabPane = tabPane;
     this.buildDOM(tabPane);
 
-    // Keep the badge and buttons in sync with controller transitions
+    // State changes → badge + button visibility, and reset the results list
+    // when a new walk starts so stale items from a prior run don't accumulate.
     this.unsubscribeState = this.controller.onStateChange((s) => {
+      if (s === "walking") {
+        this.resetResults();
+      }
       this.updateState(s);
+    });
+
+    // Progress updates → live counter
+    this.unsubscribeProgress = this.controller.onProgress((visited, total, _newIds) => {
+      if (this.progressEl) {
+        this.progressEl.textContent = i18next.t("panel.progress.running", {
+          visited,
+          total,
+        });
+      }
+    });
+
+    // Match-found events → append list item
+    this.unsubscribeMatchFound = this.controller.onMatchFound((id, _geometry) => {
+      this.appendResultItem(id);
     });
 
     logger.info("MatchPanel mounted");
   }
 
   /**
-   * Remove all DOM content from the tab pane and unsubscribe from the
-   * controller.  Called when the track is unloaded or the script tears down.
+   * Remove all DOM content and unsubscribe from the controller.
    */
   unmount(): void {
-    if (this.unsubscribeState) {
-      this.unsubscribeState();
-      this.unsubscribeState = null;
-    }
+    this.unsubscribeState?.();
+    this.unsubscribeProgress?.();
+    this.unsubscribeMatchFound?.();
+    this.unsubscribeState = null;
+    this.unsubscribeProgress = null;
+    this.unsubscribeMatchFound = null;
 
     if (this.tabPane) {
       while (this.tabPane.firstChild) {
@@ -89,6 +115,10 @@ export class MatchPanel {
     this.badgeEl = null;
     this.startBtn = null;
     this.stopBtn = null;
+    this.progressEl = null;
+    this.resultsCountEl = null;
+    this.resultsEmptyEl = null;
+    this.resultsList = null;
 
     logger.info("MatchPanel unmounted");
   }
@@ -117,14 +147,14 @@ export class MatchPanel {
     // Buttons
     container.appendChild(this.buildButtons());
 
-    // Progress area (empty at Palier 2)
+    // Progress area
     const progress = document.createElement("p");
     progress.textContent = i18next.t("panel.progress.empty");
     container.appendChild(progress);
+    this.progressEl = progress;
 
-    // Results list (empty at Palier 2)
-    const resultsList = document.createElement("ul");
-    container.appendChild(resultsList);
+    // Results section
+    container.appendChild(this.buildResultsSection());
   }
 
   private buildTrackInfo(): HTMLElement {
@@ -133,27 +163,15 @@ export class MatchPanel {
     const idLine = document.createElement("p");
     const trackIdValue =
       this.track.trackId !== null ? String(this.track.trackId) : "—";
-    idLine.textContent = i18next.t("panel.trackInfo.id", {
-      id: trackIdValue,
-    });
+    idLine.textContent = i18next.t("panel.trackInfo.id", { id: trackIdValue });
     section.appendChild(idLine);
 
     const lengthLine = document.createElement("p");
-    // turfLength returns kilometres by default (units: "kilometers" is the
-    // default), rounded to two decimal places for display.
-    // turfLength expects a Feature or FeatureCollection, not a bare geometry,
-    // so we wrap the MultiLineString in a Feature shell.
     const lengthKm = turfLength(
-      {
-        type: "Feature",
-        geometry: this.track.geometry,
-        properties: null,
-      },
+      { type: "Feature", geometry: this.track.geometry, properties: null },
       { units: "kilometers" },
     ).toFixed(2);
-    lengthLine.textContent = i18next.t("panel.trackInfo.length", {
-      km: lengthKm,
-    });
+    lengthLine.textContent = i18next.t("panel.trackInfo.length", { km: lengthKm });
     section.appendChild(lengthLine);
 
     return section;
@@ -162,10 +180,7 @@ export class MatchPanel {
   private buildButtons(): HTMLElement {
     const wrapper = document.createElement("div");
 
-    // "Center on track" — always enabled, genuinely functional at Palier 2.
-    // Uses Map.zoomToExtent (SDK line 4042) which accepts a GeoJSON BBox
-    // [minLon, minLat, maxLon, maxLat].  This is the preferred method over
-    // setMapCenter + setZoomLevel because it accounts for non-square bboxes.
+    // "Center on track" — always enabled; uses Map.zoomToExtent (SDK line 4042).
     const centerBtn = document.createElement("button");
     centerBtn.textContent = i18next.t("panel.buttons.centerOnTrack");
     centerBtn.addEventListener("click", () => {
@@ -173,16 +188,22 @@ export class MatchPanel {
     });
     wrapper.appendChild(centerBtn);
 
-    // "Start matching" — enabled in idle and done states
+    // "Start matching" — enabled in idle, done, cancelled, error states.
     const startBtn = document.createElement("button");
     startBtn.textContent = i18next.t("panel.buttons.start");
     startBtn.addEventListener("click", () => {
-      this.controller.start();
+      // start() is async; fire-and-forget here — progress events drive the UI.
+      // A .catch is required because `void` would silently swallow rejections
+      // and the controller transitions to `error` rather than throw, but a
+      // catastrophic crash before the first transition still bubbles here.
+      this.controller.start().catch((err: unknown) => {
+        logger.error("MatchPanel: controller.start rejected", err);
+      });
     });
     wrapper.appendChild(startBtn);
     this.startBtn = startBtn;
 
-    // "Stop" — visible only in walking state
+    // "Stop" — visible only while walking.
     const stopBtn = document.createElement("button");
     stopBtn.textContent = i18next.t("panel.buttons.stop");
     stopBtn.addEventListener("click", () => {
@@ -191,37 +212,112 @@ export class MatchPanel {
     wrapper.appendChild(stopBtn);
     this.stopBtn = stopBtn;
 
-    // "Select all matched" — disabled at Palier 2 (no matches yet)
+    // "Select all matched" — disabled at Palier 3 (Palier 5 wires this).
     const selectAllBtn = document.createElement("button");
     selectAllBtn.textContent = i18next.t("panel.buttons.selectAll");
     selectAllBtn.disabled = true;
     wrapper.appendChild(selectAllBtn);
 
-    // Apply initial button visibility for the "idle" state
+    // Apply initial visibility for idle state.
     this.applyButtonState(this.controller.state);
 
     return wrapper;
   }
 
+  private buildResultsSection(): HTMLElement {
+    const section = document.createElement("section");
+
+    // Count header — hidden initially (shown once first match arrives).
+    const countEl = document.createElement("p");
+    countEl.textContent = i18next.t("panel.results.count", { count: 0 });
+    countEl.style.display = "none";
+    section.appendChild(countEl);
+    this.resultsCountEl = countEl;
+
+    // "No matches yet" placeholder.
+    const emptyEl = document.createElement("p");
+    emptyEl.textContent = i18next.t("panel.results.empty");
+    section.appendChild(emptyEl);
+    this.resultsEmptyEl = emptyEl;
+
+    // The actual results list.
+    const list = document.createElement("ul");
+    section.appendChild(list);
+    this.resultsList = list;
+
+    return section;
+  }
+
+  /**
+   * Append a single result item for a newly-matched segment.
+   * The item is a <button> element (clicking does nothing at Palier 3;
+   * Palier 4 wires click-to-recenter).
+   */
+  private appendResultItem(id: number): void {
+    this.matchedCount++;
+
+    // Hide the "empty" placeholder once the first item arrives.
+    if (this.resultsEmptyEl) {
+      this.resultsEmptyEl.style.display = "none";
+    }
+
+    // Update the count header.
+    if (this.resultsCountEl) {
+      this.resultsCountEl.style.display = "";
+      this.resultsCountEl.textContent = i18next.t("panel.results.count", {
+        count: this.matchedCount,
+      });
+    }
+
+    if (!this.resultsList) return;
+
+    const li = document.createElement("li");
+    // Render as a button so Palier 4 can attach a click handler easily.
+    // The button does nothing at this palier — clicking is intentionally a no-op.
+    const btn = document.createElement("button");
+    btn.textContent = i18next.t("panel.results.item", { id });
+    btn.setAttribute("data-segment-id", String(id));
+    li.appendChild(btn);
+    this.resultsList.appendChild(li);
+  }
+
   /**
    * Center the map on the bounding box of the loaded track.
-   *
-   * SDK method: Map.zoomToExtent (index.d.ts line 4042) — sets zoom to the
-   * level that fits the given bbox, then calls setMapCenter implicitly.
-   * This is cleaner than manually computing zoom from the bbox span.
+   * SDK: Map.zoomToExtent (index.d.ts line 4042).
    */
   private centerOnTrack(): void {
-    // turfBbox returns [minLon, minLat, maxLon, maxLat] — exactly what
-    // SDK's zoomToExtent expects as a GeoJSON BBox.
     const box = turfBbox(this.track.geometry);
     this.wmeSDK.Map.zoomToExtent({ bbox: box });
     logger.info("MatchPanel: centered on track bbox", box);
   }
 
   /**
-   * Called on every state transition.  Updates the badge text and the
-   * enabled/visible state of the action buttons.
+   * Wipe the results list, count header, and matched counter back to their
+   * post-mount empty state. Called whenever the controller transitions into
+   * `walking` so a re-run doesn't append onto leftover items.
    */
+  private resetResults(): void {
+    this.matchedCount = 0;
+
+    if (this.resultsList) {
+      while (this.resultsList.firstChild) {
+        this.resultsList.removeChild(this.resultsList.firstChild);
+      }
+    }
+    if (this.resultsCountEl) {
+      this.resultsCountEl.style.display = "none";
+      this.resultsCountEl.textContent = i18next.t("panel.results.count", {
+        count: 0,
+      });
+    }
+    if (this.resultsEmptyEl) {
+      this.resultsEmptyEl.style.display = "";
+    }
+    if (this.progressEl) {
+      this.progressEl.textContent = i18next.t("panel.progress.empty");
+    }
+  }
+
   private updateState(state: WalkState): void {
     if (this.badgeEl) {
       this.badgeEl.textContent = i18next.t(`panel.status.${state}`);
@@ -234,8 +330,6 @@ export class MatchPanel {
       return;
     }
 
-    // Start is available when no walk is currently in progress.
-    // After cancel/error the user must be able to retry without reloading.
     const canStart =
       state === "idle" ||
       state === "done" ||
@@ -243,7 +337,6 @@ export class MatchPanel {
       state === "error";
     this.startBtn.disabled = !canStart;
 
-    // Stop is meaningful only while walking
     const isWalking = state === "walking";
     this.stopBtn.style.display = isWalking ? "" : "none";
   }

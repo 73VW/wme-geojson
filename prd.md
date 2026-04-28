@@ -223,6 +223,13 @@ This section gets appended to as paliers are implemented. Each entry records an 
 - `Sidebar.registerScriptTab()` resolves to `{ tabLabel, tabPane }` as already-mounted `HTMLElement`s. The label element accepts `textContent`; tab labels are short, so no localisation is necessary at this stage.
 - The state-machine transition table needed to be more permissive than the obvious `idle → walking → done → idle`: Stop puts the controller in `cancelled`, and the user must be able to retry without reloading. So `cancelled → walking` and `error → walking` were added. Worth keeping in mind for Palier 3 — when the real walk starts, the same retry path applies.
 
+**Palier 3**
+
+- SDK signatures used: `Map.getMapExtent()` returns a `BBox` (line ~4007). `Map.setMapCenter({ lonLat, zoomLevel? })` — `LonLat` is `{ lat, lon }` (note `lon`, not `lng`). `DataModel.Segments.getAll()` returns `Segment[]` with `id: number` and `geometry: LineString`. `State.isMapLoading()` exists and is reliable; `waitForMapIdle` polls it (100ms interval) with a 10s hard timeout that *resolves* (does not reject) so the walk continues on slow tiles.
+- The PRD layout puts `viewportSize.ts` under `src/matching/`, but the live measurement requires the SDK. Split into two files to keep the SDK-free invariant of `matching/` intact: `src/matching/viewportSize.ts` is a pure helper that converts a `BBox` to `{ lonSpan, latSpan }`; `src/utils/measureViewport.ts` does the SDK navigation and delegates. Future paliers should not move SDK code into `matching/`.
+- Cell ordering in `GridWalker.planWalk` uses greedy nearest-neighbour from the first track vertex. O(N²) but N < 200 for realistic tracks at z17, so cost is sub-millisecond. Handles doubled-back tracks and disconnected MultiLineStrings naturally.
+- Re-runs (clicking Start after Done/Cancelled/Error) clear the controller's `matchedIds` + `geometryCache` and the panel's results list at the `walking` transition, so a second walk does not accumulate stale items.
+
 ---
 
 ## Part 2 — Paliers

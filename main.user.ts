@@ -38,7 +38,7 @@ async function initScript(): Promise<void> {
     layer.draw(track);
     logger.info(`Track drawn (id=${track.trackId ?? "unknown"})`);
 
-    const controller = new WalkController();
+    const controller = new WalkController(wmeSDK, track.geometry);
     const panel = new MatchPanel(wmeSDK, controller, track, layer);
     await panel.mount();
   } catch (err) {
