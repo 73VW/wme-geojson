@@ -2,5 +2,29 @@
   "errors": {
     "fetchFailed": "Impossible de charger le tracé GeoJSON depuis l'URL.",
     "invalidGeometry": "Le GeoJSON a un type de géométrie invalide ou non supporté."
+  },
+  "panel": {
+    "title": "WME GeoJSON",
+    "trackInfo": {
+      "id": "ID du tracé : {{id}}",
+      "length": "Longueur : {{km}} km"
+    },
+    "status": {
+      "idle": "En attente",
+      "walking": "Parcours en cours…",
+      "done": "Terminé",
+      "cancelled": "Annulé",
+      "error": "Erreur"
+    },
+    "buttons": {
+      "centerOnTrack": "Centrer sur le tracé",
+      "start": "Lancer la correspondance",
+      "stop": "Arrêter",
+      "selectAll": "Tout sélectionner"
+    },
+    "progress": {
+      "empty": "Non démarré",
+      "running": "{{visited}} / {{total}} cellules"
+    }
   }
 }

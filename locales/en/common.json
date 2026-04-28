@@ -2,5 +2,29 @@
   "errors": {
     "fetchFailed": "Failed to fetch GeoJSON track from URL.",
     "invalidGeometry": "GeoJSON has invalid or unsupported geometry type."
+  },
+  "panel": {
+    "title": "WME GeoJSON",
+    "trackInfo": {
+      "id": "Track ID: {{id}}",
+      "length": "Length: {{km}} km"
+    },
+    "status": {
+      "idle": "Idle",
+      "walking": "Walking…",
+      "done": "Done",
+      "cancelled": "Cancelled",
+      "error": "Error"
+    },
+    "buttons": {
+      "centerOnTrack": "Center on track",
+      "start": "Start matching",
+      "stop": "Stop",
+      "selectAll": "Select all matched"
+    },
+    "progress": {
+      "empty": "Not started",
+      "running": "{{visited}} / {{total}} cells"
+    }
   }
 }

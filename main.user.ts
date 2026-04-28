@@ -2,6 +2,8 @@ import type { WmeSDK } from "wme-sdk-typings";
 import { initI18n } from "./locales/i18n";
 import { loadTrack } from "./src/geojson/Loader";
 import { TrackLayer } from "./src/layers/TrackLayer";
+import { WalkController } from "./src/controller/WalkController";
+import { MatchPanel } from "./src/ui/MatchPanel";
 import { getGeojsonUrlFromLocation } from "./src/utils/queryParams";
 import { logger } from "./src/utils/logger";
 
@@ -10,7 +12,11 @@ import { logger } from "./src/utils/logger";
 unsafeWindow.SDK_INITIALIZED.then(initScript);
 
 async function initScript(): Promise<void> {
-  const wmeSDK: WmeSDK = unsafeWindow.getWmeSdk!({
+  if (!unsafeWindow.getWmeSdk) {
+    logger.error("getWmeSdk not available on unsafeWindow; aborting.");
+    return;
+  }
+  const wmeSDK: WmeSDK = unsafeWindow.getWmeSdk({
     scriptId: "wme-geojson",
     scriptName: "WME GeoJSON",
   });
@@ -31,6 +37,10 @@ async function initScript(): Promise<void> {
     const layer = new TrackLayer(wmeSDK);
     layer.draw(track);
     logger.info(`Track drawn (id=${track.trackId ?? "unknown"})`);
+
+    const controller = new WalkController();
+    const panel = new MatchPanel(wmeSDK, controller, track, layer);
+    await panel.mount();
   } catch (err) {
     logger.error("Failed to load and draw track", err);
   }

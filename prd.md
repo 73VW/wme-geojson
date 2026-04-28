@@ -217,6 +217,12 @@ This section gets appended to as paliers are implemented. Each entry records an 
 - `context7` MCP did not index the official `wme-sdk-typings` package (only a third-party SDK extension). SDK signatures were verified by reading `node_modules/wme-sdk-typings/index.d.ts` directly. Apply the same fallback in future paliers.
 - `i18next-parser@9.x` is npm-deprecated in favour of `i18next-cli`. Kept as-is for now; revisit only if it breaks.
 
+**Palier 2**
+
+- The SDK exposes `Map.zoomToExtent({ bbox })` (typings line 4042), not `fitBounds`. It accepts a GeoJSON `BBox` `[minLon, minLat, maxLon, maxLat]` directly, which is exactly what `turf.bbox()` returns — no conversion needed.
+- `Sidebar.registerScriptTab()` resolves to `{ tabLabel, tabPane }` as already-mounted `HTMLElement`s. The label element accepts `textContent`; tab labels are short, so no localisation is necessary at this stage.
+- The state-machine transition table needed to be more permissive than the obvious `idle → walking → done → idle`: Stop puts the controller in `cancelled`, and the user must be able to retry without reloading. So `cancelled → walking` and `error → walking` were added. Worth keeping in mind for Palier 3 — when the real walk starts, the same retry path applies.
+
 ---
 
 ## Part 2 — Paliers
