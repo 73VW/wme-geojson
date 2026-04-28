@@ -1,0 +1,6 @@
+{
+  "errors": {
+    "fetchFailed": "Impossible de charger le tracé GeoJSON depuis l'URL.",
+    "invalidGeometry": "Le GeoJSON a un type de géométrie invalide ou non supporté."
+  }
+}

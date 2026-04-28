@@ -1,16 +1,18 @@
 // ==UserScript==
-// @name        TODO: WME Example Script
-// @namespace   wme-sdk-scripts
-// @version     1.0.0
-// @description TODO: Add a useful description here, what does your script do?
-// @updateURL	https://TODO/myscript.user.js
-// @downloadURL https://TODO/myscript.user.js
-// @author      TODO @ Waze
-// @match       https://www.waze.com/editor*
-// @match       https://beta.waze.com/editor*
-// @match       https://www.waze.com/*/editor*
-// @match       https://beta.waze.com/*/editor*
-// @exclude     https://www.waze.com/user/editor*
-// @exclude     https://beta.waze.com/user/editor*
-// @grant       none
+// @name         WME GeoJSON
+// @namespace    wme-sdk-scripts
+// @version      0.1.0
+// @description  Load a GeoJSON track from a URL query parameter and identify matching Waze segments.
+// @author       <user fills in>
+// @match        https://www.waze.com/editor*
+// @match        https://beta.waze.com/editor*
+// @match        https://www.waze.com/*/editor*
+// @match        https://beta.waze.com/*/editor*
+// @exclude      https://www.waze.com/user/editor*
+// @exclude      https://beta.waze.com/user/editor*
+// @grant        GM.xmlHttpRequest
+// @grant        unsafeWindow
+// @connect      *
+// @updateURL    <user fills in>
+// @downloadURL  <user fills in>
 // ==/UserScript==

@@ -1,0 +1,21 @@
+export default {
+  contextSeparator: "_",
+  createOldCatalogs: true,
+  defaultNamespace: "common",
+  defaultValue: "",
+  indentation: 2,
+  keepRemoved: false,
+  keySeparator: ".",
+  lexers: {
+    ts: ["JavascriptLexer"],
+    default: ["JavascriptLexer"],
+  },
+  lineEnding: "auto",
+  locales: ["en", "fr"],
+  namespaceSeparator: ":",
+  output: "locales/$LOCALE/$NAMESPACE.json",
+  pluralSeparator: "_",
+  input: ["main.user.ts", "src/**/*.ts", "locales/i18n.ts"],
+  sort: true,
+  verbose: false,
+};

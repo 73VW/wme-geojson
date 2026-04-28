@@ -1,23 +1,41 @@
 {
-  "version": "1.0.0",
-  "name": "wme-sdk-example",
+  "version": "0.1.0",
+  "name": "wme-geojson",
   "devDependencies": {
+    "@rollup/plugin-commonjs": "^28.0.0",
+    "@rollup/plugin-json": "^6.1.0",
+    "@rollup/plugin-node-resolve": "^15.3.0",
     "@rollup/plugin-typescript": "^12.1.0",
+    "@types/geojson": "^7946.0.14",
+    "concurrently": "^9.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "i18next-parser": "^9.0.0",
+    "prettier": "^3.4.0",
     "tslib": "^2.7.0",
     "typescript": "^5.6.3",
+    "vitest": "^2.0.0",
     "wme-sdk-typings": "https://web-assets.waze.com/wme_sdk_docs/production/latest/wme-sdk-typings.tgz"
   },
   "scripts": {
     "compile": "rollup -c",
-    "watch": "rollup -c --watch",
-    "concat": "cross-env concat -o releases\\release-%npm_package_version%.user.js header.js .out/main.user.js",
+    "concat": "node -e \"const fs=require('fs');const h=fs.readFileSync('header.js','utf8');const b=fs.readFileSync('.out/main.user.js','utf8');fs.mkdirSync('releases',{recursive:true});fs.writeFileSync('releases/release-'+process.env.npm_package_version+'.user.js',h+'\\n'+b);console.log('Release written.')\"",
     "build": "npm run compile && npm run concat",
-    "release": "cross-env replace-in-files --regex='\\d+\\.\\d+\\.\\d+' --replacement=%npm_package_version% header.js && npm run build"
+    "release": "node -e \"const fs=require('fs');let h=fs.readFileSync('header.js','utf8');h=h.replace(/\\\\d+\\\\.\\\\d+\\\\.\\\\d+/,process.env.npm_package_version);fs.writeFileSync('header.js',h)\" && npm run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint . --fix",
+    "format": "prettier --write .",
+    "watch": "concurrently -n rollup,i18n,fmt,lint \"rollup -c --watch\" \"i18next --watch\" \"prettier --write . --watch\" \"eslint . --fix --watch\"",
+    "makemessages": "i18next"
   },
   "dependencies": {
+    "@turf/turf": "^7.0.0",
     "@types/tampermonkey": "^5.0.3",
     "concat": "^1.0.3",
     "cross-env": "^7.0.3",
+    "i18next": "^24.0.0",
     "replace-in-files-cli": "^3.0.0"
   }
 }

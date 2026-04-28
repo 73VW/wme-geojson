@@ -1,79 +1,37 @@
-import { WmeSDK } from "wme-sdk-typings";
+import type { WmeSDK } from "wme-sdk-typings";
+import { initI18n } from "./locales/i18n";
+import { loadTrack } from "./src/geojson/Loader";
+import { TrackLayer } from "./src/layers/TrackLayer";
+import { getGeojsonUrlFromLocation } from "./src/utils/queryParams";
+import { logger } from "./src/utils/logger";
 
+// Only the SDK_INITIALIZED hook runs at module top-level.
+// All script behaviour is inside initScript, which is called by the SDK runtime.
+unsafeWindow.SDK_INITIALIZED.then(initScript);
 
-// the sdk initScript function will be called after the SDK is initialized
-window.SDK_INITIALIZED.then(initScript);
+async function initScript(): Promise<void> {
+  const wmeSDK: WmeSDK = unsafeWindow.getWmeSdk!({
+    scriptId: "wme-geojson",
+    scriptName: "WME GeoJSON",
+  });
 
-function initScript() {
-    // initialize the sdk, these should remain here at the top of the script
-    if (!window.getWmeSdk) {
-        // This block is required for type checking, but it is guaranteed that the function exists.
-        throw new Error("SDK not available");
-    }
-    const wmeSDK: WmeSDK = window.getWmeSdk(
-        {
-            scriptId: "example-ts-id", // TODO: replace with your script id and script name
-            scriptName: "Typescript example" // TODO
-        }
-    )
+  await initI18n(wmeSDK);
 
-    console.debug(`SDK v. ${wmeSDK.getSDKVersion()} on ${wmeSDK.getWMEVersion()} initialized`)
+  const url = getGeojsonUrlFromLocation();
+  if (!url) {
+    logger.info("No geojson query param, idle.");
+    return;
+  }
 
-    /* Example functions, define your functions in this section */
-    function setKeyboardShortcuts() {
-        wmeSDK.Shortcuts.createShortcut({
-            callback: () => {
-                alert("Shortcut is working!");
-            },
-            description: "typescript shortcut",
-            shortcutId: "test-shortcut-id",
-            shortcutKeys: "A+s",
-        });
-    }
+  // Wait for WME to be fully ready before accessing the data model or map
+  await wmeSDK.Events.once({ eventName: "wme-ready" });
 
-    function addLayer() {
-        const layer = wmeSDK.Map.addLayer({
-            layerName: "TS Layer"
-        });
-
-        wmeSDK.LayerSwitcher.addLayerCheckbox({
-            name: "TS Layer",
-        })
-
-        // Draw a feature
-        wmeSDK.Map.addFeatureToLayer(
-            {
-                layerName: "TS Layer",
-                feature: {
-                    id: "test-feature",
-                    geometry: {
-                        coordinates: [wmeSDK.Map.getMapCenter().lon, wmeSDK.Map.getMapCenter().lat],
-                        type: "Point"
-                    },
-                    type: "Feature",
-                }
-            }
-        )
-    }
-
-    function addEventListeners() {
-        // ...
-    }
-
-    async function addScriptTab() {
-        const { tabLabel, tabPane } = await wmeSDK.Sidebar.registerScriptTab()
-        tabLabel.innerText = "Typescript Tab" // TODO
-        tabPane.innerHTML = "<h1>Typescript Tab</h1>" // TODO
-    }
-
-    function init(): void {
-        // Call the functions you need to run initialize / run your script here
-        addScriptTab()
-        setKeyboardShortcuts()
-        addLayer()
-        addEventListeners()
-        alert("Your script is running! - TODO remove this line :)")
-    }
-
-    init()
+  try {
+    const track = await loadTrack(url);
+    const layer = new TrackLayer(wmeSDK);
+    layer.draw(track);
+    logger.info(`Track drawn (id=${track.trackId ?? "unknown"})`);
+  } catch (err) {
+    logger.error("Failed to load and draw track", err);
+  }
 }

@@ -1,0 +1,6 @@
+{
+  "errors": {
+    "fetchFailed": "Failed to fetch GeoJSON track from URL.",
+    "invalidGeometry": "GeoJSON has invalid or unsupported geometry type."
+  }
+}
