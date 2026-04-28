@@ -230,6 +230,15 @@ This section gets appended to as paliers are implemented. Each entry records an 
 - Cell ordering in `GridWalker.planWalk` uses greedy nearest-neighbour from the first track vertex. O(N²) but N < 200 for realistic tracks at z17, so cost is sub-millisecond. Handles doubled-back tracks and disconnected MultiLineStrings naturally.
 - Re-runs (clicking Start after Done/Cancelled/Error) clear the controller's `matchedIds` + `geometryCache` and the panel's results list at the `walking` transition, so a second walk does not accumulate stale items.
 
+**Palier 4**
+
+- `wmeSDK.Editing.setSelection` expects `{ selection: { ids: number[], objectType: "segment" } }`. The string literal `"segment"` is the value of `ObjectType.SEGMENT` (typings line 173). The type discriminant `Selection$1` at line 299–326 confirms the exact shape. No import of `ObjectType` is required — passing the string literal directly satisfies TypeScript.
+- `wmeSDK.DataModel.Segments.findSegment({ segmentId: number })` is **async** — returns `Promise<Segment>` (typings line 2391–2396). Must be awaited.
+- `wme-selection-changed` event payload is `undefined` per `SdkEvents` (typings line 4982). To read the selection after the event fires, use `wmeSDK.Editing.getSelection()` (typings line 3812), **not** `wmeSDK.State.getSelection()` — `State` does not expose `getSelection`. The initial implementation incorrectly called `State.getSelection()` and was caught by the TypeScript compiler during build.
+- `wmeSDK.Events.on({ eventName, eventHandler })` returns a cleanup function (`() => void`) — use it directly as the `unsubscribeSelectionChanged` handle; no need for `Events.off`.
+- Architecture choice: `focusSegment(id)` was added to `WalkController` rather than implementing the SDK calls inline in the panel. Rationale: it calls `setMapCenter`, `waitForMapIdle`, `setSelection`, and `findSegment` — all SDK-layer concerns that must not live in `ui/` per the repo architecture contract.
+- Highlight marker choice: CSS class `wme-geojson-active` only (no text mutation). The `panel.results.active` i18n key is present in the locale files as specified; if a visible text label is ever wanted, a CSS `::after` rule can render it without any JS change.
+
 ---
 
 ## Part 2 — Paliers

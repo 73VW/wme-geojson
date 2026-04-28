@@ -29,7 +29,9 @@
     "results": {
       "empty": "No matches yet.",
       "count": "{{count}} segment(s) matched",
-      "item": "Segment {{id}}"
+      "item": "Segment {{id}}",
+      "unavailable": "Segment unavailable",
+      "active": "(active)"
     }
   }
 }

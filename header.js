@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME GeoJSON
 // @namespace    wme-sdk-scripts
-// @version      0.3.0
+// @version      0.4.0
 // @description  Load a GeoJSON track from a URL query parameter and identify matching Waze segments.
 // @author       <user fills in>
 // @match        https://www.waze.com/editor*

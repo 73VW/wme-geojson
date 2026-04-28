@@ -24,6 +24,7 @@ export class MatchPanel {
   private unsubscribeState: (() => void) | null = null;
   private unsubscribeProgress: (() => void) | null = null;
   private unsubscribeMatchFound: (() => void) | null = null;
+  private unsubscribeSelectionChanged: (() => void) | null = null;
 
   // Elements updated after mount
   private badgeEl: HTMLElement | null = null;
@@ -91,6 +92,16 @@ export class MatchPanel {
       this.appendResultItem(id);
     });
 
+    // Selection-changed events → highlight the matching list item.
+    // The event payload is `undefined` per the SDK typings; we read the current
+    // selection with getSelection() when the event fires.
+    this.unsubscribeSelectionChanged = this.wmeSDK.Events.on({
+      eventName: "wme-selection-changed",
+      eventHandler: () => {
+        this.syncActiveItem();
+      },
+    });
+
     logger.info("MatchPanel mounted");
   }
 
@@ -101,9 +112,11 @@ export class MatchPanel {
     this.unsubscribeState?.();
     this.unsubscribeProgress?.();
     this.unsubscribeMatchFound?.();
+    this.unsubscribeSelectionChanged?.();
     this.unsubscribeState = null;
     this.unsubscribeProgress = null;
     this.unsubscribeMatchFound = null;
+    this.unsubscribeSelectionChanged = null;
 
     if (this.tabPane) {
       while (this.tabPane.firstChild) {
@@ -250,8 +263,7 @@ export class MatchPanel {
 
   /**
    * Append a single result item for a newly-matched segment.
-   * The item is a <button> element (clicking does nothing at Palier 3;
-   * Palier 4 wires click-to-recenter).
+   * The item is a clickable <button> that navigates to and selects the segment.
    */
   private appendResultItem(id: number): void {
     this.matchedCount++;
@@ -272,13 +284,78 @@ export class MatchPanel {
     if (!this.resultsList) return;
 
     const li = document.createElement("li");
-    // Render as a button so Palier 4 can attach a click handler easily.
-    // The button does nothing at this palier — clicking is intentionally a no-op.
     const btn = document.createElement("button");
     btn.textContent = i18next.t("panel.results.item", { id });
     btn.setAttribute("data-segment-id", String(id));
+    btn.addEventListener("click", () => {
+      this.onItemClick(id, li);
+    });
     li.appendChild(btn);
     this.resultsList.appendChild(li);
+  }
+
+  /**
+   * Handle a click on a result item button.
+   *
+   * Delegates SDK work to controller.focusSegment (which owns Map + Editing
+   * calls), then handles the per-item error display if focus fails.
+   * The try/catch ensures a single broken item does not affect the rest of
+   * the list.
+   */
+  private onItemClick(id: number, li: HTMLElement): void {
+    // Fire-and-forget; use explicit .catch to surface errors to the item.
+    this.controller.focusSegment(id).catch((err: unknown) => {
+      logger.warn(`MatchPanel: focusSegment failed for id=${id}`, err);
+      this.showItemError(li);
+    });
+  }
+
+  /**
+   * Show a per-item "unavailable" error label inside the given list element.
+   * Safe to call multiple times: a second call on the same item is a no-op.
+   */
+  private showItemError(li: HTMLElement): void {
+    // Guard against duplicate error nodes if the user clicks the failing item
+    // multiple times before the first error renders.
+    if (li.querySelector(".wme-geojson-item-error")) return;
+
+    const errSpan = document.createElement("span");
+    errSpan.className = "wme-geojson-item-error";
+    errSpan.textContent = ` ${i18next.t("panel.results.unavailable")}`;
+    li.appendChild(errSpan);
+  }
+
+  /**
+   * Read the current selection and apply the `wme-geojson-active` CSS class
+   * to the list item(s) whose segment ID is in the selection.  Remove the
+   * class from all other items.
+   *
+   * CSS-class-only approach: avoids mutating button text (which would require
+   * careful cleanup) and keeps the highlight purely presentational.  If the
+   * i18n `(active)` label is ever needed, it can be injected via a CSS
+   * `::after` rule without touching this code.
+   */
+  private syncActiveItem(): void {
+    if (!this.resultsList) return;
+
+    const selection = this.wmeSDK.Editing.getSelection();
+
+    // Build the set of currently-selected segment IDs for fast lookup.
+    const selectedIds = new Set<number>();
+    if (selection && selection.objectType === "segment") {
+      for (const id of selection.ids) {
+        selectedIds.add(id);
+      }
+    }
+
+    const items = this.resultsList.querySelectorAll<HTMLElement>("[data-segment-id]");
+    for (const btn of items) {
+      const rawId = btn.getAttribute("data-segment-id");
+      if (!rawId) continue;
+      const segId = Number(rawId);
+      const isActive = selectedIds.has(segId);
+      btn.classList.toggle("wme-geojson-active", isActive);
+    }
   }
 
   /**

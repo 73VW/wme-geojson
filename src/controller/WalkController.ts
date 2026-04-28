@@ -19,7 +19,7 @@
  */
 import type { WmeSDK } from "wme-sdk-typings";
 import type { LineString, MultiLineString } from "geojson";
-import { buffer as turfBuffer } from "@turf/turf";
+import { buffer as turfBuffer, center as turfCenter } from "@turf/turf";
 import { logger } from "../utils/logger";
 import { measureViewportAtZ17 } from "../utils/measureViewport";
 import { waitForMapIdle } from "../utils/waitForMapIdle";
@@ -171,6 +171,56 @@ export class WalkController {
    */
   getCachedGeometry(id: number): LineString | null {
     return this.geometryCache.get(id) ?? null;
+  }
+
+  /**
+   * Navigate the map to a matched segment and select it in WME.
+   *
+   * Architecture note: this method lives in the controller (not the panel)
+   * because it calls multiple SDK APIs (Map.setMapCenter, Editing.setSelection,
+   * DataModel.Segments.findSegment) that must stay outside ui/.  The panel
+   * calls this from its click handler, remaining presentation-only.
+   *
+   * Flow:
+   *  1. Resolve geometry: prefer the walk cache; fall back to findSegment.
+   *  2. Compute the centroid and move the map to it.
+   *  3. Wait for the map to finish loading.
+   *  4. Select the segment via setSelection.
+   *
+   * Throws if the segment cannot be located at all (cache miss + findSegment
+   * failure), so callers can show a per-item error message.
+   */
+  async focusSegment(id: number): Promise<void> {
+    let geometry = this.geometryCache.get(id) ?? null;
+
+    if (!geometry) {
+      // Cache miss: the segment may have been matched in a prior walk or the
+      // walk hasn't run yet.  Ask the data model to fetch it.
+      logger.info(`WalkController.focusSegment: cache miss for id=${id}, calling findSegment`);
+      const segment = await this.wmeSDK.DataModel.Segments.findSegment({ segmentId: id });
+      geometry = segment.geometry;
+    }
+
+    const centroidFeature = turfCenter({
+      type: "Feature",
+      geometry,
+      properties: null,
+    });
+    const [lon, lat] = centroidFeature.geometry.coordinates;
+
+    this.wmeSDK.Map.setMapCenter({
+      lonLat: { lon, lat },
+      zoomLevel: SEGMENT_ZOOM_LEVEL,
+    });
+
+    await waitForMapIdle(this.wmeSDK);
+
+    // setSelection throws DataModelNotFoundError if the segment is not in the
+    // current viewport after the map move.  Let the error propagate so the
+    // panel can show a per-item "unavailable" message.
+    this.wmeSDK.Editing.setSelection({
+      selection: { ids: [id], objectType: "segment" },
+    });
   }
 
   // ---------------------------------------------------------------------------

@@ -29,7 +29,9 @@
     "results": {
       "empty": "Aucune correspondance.",
       "count": "{{count}} segment(s) trouvé(s)",
-      "item": "Segment {{id}}"
+      "item": "Segment {{id}}",
+      "unavailable": "Segment indisponible",
+      "active": "(actif)"
     }
   }
 }
