@@ -14,14 +14,13 @@ export type WalkState = "idle" | "walking" | "done" | "cancelled" | "error";
  * paths visible at a glance and prevents silent "anything → anything"
  * mistakes when new states are added.
  */
-const ALLOWED_TRANSITIONS: ReadonlyMap<WalkState, ReadonlySet<WalkState>> =
-  new Map([
-    ["idle", new Set<WalkState>(["walking"])],
-    ["walking", new Set<WalkState>(["done", "cancelled", "error"])],
-    ["done", new Set<WalkState>(["idle", "walking"])],
-    ["cancelled", new Set<WalkState>(["idle", "walking"])],
-    ["error", new Set<WalkState>(["idle", "walking"])],
-  ]);
+const ALLOWED_TRANSITIONS: ReadonlyMap<WalkState, ReadonlySet<WalkState>> = new Map([
+  ["idle", new Set<WalkState>(["walking"])],
+  ["walking", new Set<WalkState>(["done", "cancelled", "error"])],
+  ["done", new Set<WalkState>(["idle", "walking"])],
+  ["cancelled", new Set<WalkState>(["idle", "walking"])],
+  ["error", new Set<WalkState>(["idle", "walking"])],
+]);
 
 /**
  * Returns true only when moving `from` → `to` is a permitted transition.

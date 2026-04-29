@@ -34,12 +34,7 @@ function cellBbox(
   halfLonSpan: number,
   halfLatSpan: number,
 ): [number, number, number, number] {
-  return [
-    lon - halfLonSpan,
-    lat - halfLatSpan,
-    lon + halfLonSpan,
-    lat + halfLatSpan,
-  ];
+  return [lon - halfLonSpan, lat - halfLatSpan, lon + halfLonSpan, lat + halfLatSpan];
 }
 
 /**

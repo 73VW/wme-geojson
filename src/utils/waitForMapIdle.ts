@@ -29,10 +29,7 @@ export interface WaitForMapIdleOptions {
  * Wait until WME reports the map is no longer loading, then settle briefly.
  * Always resolves (never rejects); on timeout it logs a warning and continues.
  */
-export function waitForMapIdle(
-  wmeSDK: WmeSDK,
-  opts: WaitForMapIdleOptions = {},
-): Promise<void> {
+export function waitForMapIdle(wmeSDK: WmeSDK, opts: WaitForMapIdleOptions = {}): Promise<void> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   return new Promise<void>((resolve) => {

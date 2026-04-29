@@ -41,8 +41,7 @@ export class TrackLayer {
       ],
     });
 
-    const baseId =
-      track.trackId !== null ? String(track.trackId) : `track-${Date.now()}`;
+    const baseId = track.trackId !== null ? String(track.trackId) : `track-${Date.now()}`;
 
     // Add one LineString feature per sub-line in the MultiLineString
     track.geometry.coordinates.forEach((lineCoords, index) => {

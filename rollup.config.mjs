@@ -9,12 +9,7 @@ export default {
     file: ".out/main.user.js",
     format: "es",
   },
-  plugins: [
-    nodeResolve({ browser: true }),
-    commonjs(),
-    json(),
-    typescript(),
-  ],
+  plugins: [nodeResolve({ browser: true }), commonjs(), json(), typescript()],
   // Do not bundle these — they are provided by the userscript runtime or global context
   external: [],
 };

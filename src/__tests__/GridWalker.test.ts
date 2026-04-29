@@ -61,11 +61,11 @@ const disconnectedLines: MultiLineString = {
   type: "MultiLineString",
   coordinates: [
     [
-      [8.40, 47.37],
+      [8.4, 47.37],
       [8.413, 47.37],
     ],
     [
-      [8.60, 47.37],
+      [8.6, 47.37],
       [8.613, 47.37],
     ],
   ],
@@ -79,11 +79,9 @@ const disconnectedLines: MultiLineString = {
  * Build the buffered track feature used as the "ground truth" footprint.
  */
 function bufferedTrack(track: MultiLineString): Feature<Polygon | MultiPolygon> {
-  const f = turfBuffer(
-    { type: "Feature", geometry: track, properties: null },
-    BUFFER_METERS,
-    { units: "meters" },
-  );
+  const f = turfBuffer({ type: "Feature", geometry: track, properties: null }, BUFFER_METERS, {
+    units: "meters",
+  });
   if (!f) throw new Error("turfBuffer returned falsy");
   return f;
 }
@@ -105,7 +103,11 @@ describe("planWalk", () => {
 
     // All cell centers should be longitudinally close to the line
     // (within one viewport width left/right of the endpoints).
-    const [minLon, , maxLon] = turfBbox({ type: "Feature", geometry: horizontalLine, properties: null });
+    const [minLon, , maxLon] = turfBbox({
+      type: "Feature",
+      geometry: horizontalLine,
+      properties: null,
+    });
     for (const cell of cells) {
       expect(cell.center.lon).toBeGreaterThanOrEqual(minLon - VIEWPORT.lonSpan);
       expect(cell.center.lon).toBeLessThanOrEqual(maxLon + VIEWPORT.lonSpan);
@@ -134,13 +136,11 @@ describe("planWalk", () => {
     // Every cell should intersect the buffered track (this is the filter).
     // We verify by checking that no cell sits entirely in the gap lon range.
     const gapMinLon = 8.413 + VIEWPORT.lonSpan;
-    const gapMaxLon = 8.60 - VIEWPORT.lonSpan;
+    const gapMaxLon = 8.6 - VIEWPORT.lonSpan;
 
     // There should be NO cell whose center is strictly inside the gap
     // (i.e. away from either sub-line footprint).
-    const gapCells = cells.filter(
-      (c) => c.center.lon > gapMinLon && c.center.lon < gapMaxLon,
-    );
+    const gapCells = cells.filter((c) => c.center.lon > gapMinLon && c.center.lon < gapMaxLon);
     expect(gapCells.length).toBe(0);
 
     // But cells must cover both extremes

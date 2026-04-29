@@ -34,11 +34,7 @@ function fetchJson(url: string): Promise<unknown> {
       onload(response) {
         const isSuccess = response.status >= 200 && response.status < 300;
         if (!isSuccess) {
-          reject(
-            new TrackLoadError(
-              `HTTP ${response.status} fetching GeoJSON from ${hostname}.`,
-            ),
-          );
+          reject(new TrackLoadError(`HTTP ${response.status} fetching GeoJSON from ${hostname}.`));
           return;
         }
         resolve(response.response);

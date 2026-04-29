@@ -14,8 +14,8 @@ const TRACK_LINE = {
     type: "MultiLineString" as const,
     coordinates: [
       [
-        [6.14, 46.20],
-        [6.16, 46.20],
+        [6.14, 46.2],
+        [6.16, 46.2],
       ],
     ],
   },
@@ -54,8 +54,8 @@ describe("matchSegments", () => {
   it("matches a segment fully inside the buffer", () => {
     // A very short segment that lies right on the track centerline.
     const inside = seg(1, [
-      [6.148, 46.20],
-      [6.150, 46.20],
+      [6.148, 46.2],
+      [6.15, 46.2],
     ]);
     const result = matchSegments({ segments: [inside], bufferedTrack });
 
@@ -90,15 +90,15 @@ describe("matchSegments", () => {
 
   it("returns only matching IDs from a mixed batch", () => {
     const inside = seg(10, [
-      [6.148, 46.20],
-      [6.150, 46.20],
+      [6.148, 46.2],
+      [6.15, 46.2],
     ]);
     const outsideFar = seg(20, [
       [6.14, 46.203],
       [6.16, 46.203],
     ]);
     const outsideFar2 = seg(30, [
-      [6.10, 46.21],
+      [6.1, 46.21],
       [6.11, 46.21],
     ]);
     const alsoCrossing = seg(40, [
@@ -126,8 +126,8 @@ describe("matchSegments", () => {
 
   it("handles duplicate segment IDs without growing the Set beyond one entry", () => {
     const seg1 = seg(99, [
-      [6.148, 46.20],
-      [6.150, 46.20],
+      [6.148, 46.2],
+      [6.15, 46.2],
     ]);
     // Same geometry, same id — should still only appear once in the result Set.
     const result = matchSegments({ segments: [seg1, seg1], bufferedTrack });
