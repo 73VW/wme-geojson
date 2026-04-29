@@ -20,7 +20,15 @@
       "centerOnTrack": "Center on track",
       "start": "Start matching",
       "stop": "Stop",
-      "selectAll": "Select all matched"
+      "selectAll": "Select all matched",
+      "selectAllConfirm": "Select all",
+      "cancel": "Cancel"
+    },
+    "modal": {
+      "largeSelectionWarning": "You are about to select {{count}} segments. Large selections may be slow or fail. Continue?"
+    },
+    "errors": {
+      "selectionFailed": "Selection failed: {{error}}"
     },
     "progress": {
       "empty": "Not started",

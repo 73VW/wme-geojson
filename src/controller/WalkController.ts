@@ -174,6 +174,48 @@ export class WalkController {
   }
 
   /**
+   * Return a snapshot of all matched segment IDs accumulated during the walk.
+   *
+   * Returns a readonly array so callers cannot mutate the internal set.
+   * The snapshot is taken at call time; subsequent walk events will not be
+   * reflected in the returned array.
+   */
+  getMatchedIds(): readonly number[] {
+    return Array.from(this.matchedIds);
+  }
+
+  /**
+   * Select all matched segments in WME via the Editing.setSelection SDK call.
+   *
+   * Architecture note: the actual SDK call lives here (controller) so that
+   * the panel (ui/) stays SDK-free.  The panel owns modal-prompting and error
+   * rendering; this method owns the selection call and throws on failure so
+   * the panel can surface a typed error message.
+   *
+   * Throws an Error if the SDK call fails; the caller is responsible for
+   * showing the error in the UI.
+   */
+  selectAll(): void {
+    const ids = Array.from(this.matchedIds);
+
+    if (ids.length === 0) {
+      logger.warn("WalkController.selectAll: no matched IDs, nothing to select");
+      return;
+    }
+
+    try {
+      this.wmeSDK.Editing.setSelection({
+        selection: { ids, objectType: "segment" },
+      });
+      logger.info(`WalkController.selectAll: selected ${ids.length} segment(s)`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error("WalkController.selectAll: SDK setSelection failed", err);
+      throw new Error(message);
+    }
+  }
+
+  /**
    * Navigate the map to a matched segment and select it in WME.
    *
    * Architecture note: this method lives in the controller (not the panel)

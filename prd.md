@@ -225,10 +225,15 @@ This section gets appended to as paliers are implemented. Each entry records an 
 
 **Palier 3**
 
-- SDK signatures used: `Map.getMapExtent()` returns a `BBox` (line ~4007). `Map.setMapCenter({ lonLat, zoomLevel? })` — `LonLat` is `{ lat, lon }` (note `lon`, not `lng`). `DataModel.Segments.getAll()` returns `Segment[]` with `id: number` and `geometry: LineString`. `State.isMapLoading()` exists and is reliable; `waitForMapIdle` polls it (100ms interval) with a 10s hard timeout that *resolves* (does not reject) so the walk continues on slow tiles.
+- SDK signatures used: `Map.getMapExtent()` returns a `BBox` (line ~4007). `Map.setMapCenter({ lonLat, zoomLevel? })` — `LonLat` is `{ lat, lon }` (note `lon`, not `lng`). `DataModel.Segments.getAll()` returns `Segment[]` with `id: number` and `geometry: LineString`. `State.isMapLoading()` exists and is reliable; `waitForMapIdle` polls it (100ms interval) with a 10s hard timeout that _resolves_ (does not reject) so the walk continues on slow tiles.
 - The PRD layout puts `viewportSize.ts` under `src/matching/`, but the live measurement requires the SDK. Split into two files to keep the SDK-free invariant of `matching/` intact: `src/matching/viewportSize.ts` is a pure helper that converts a `BBox` to `{ lonSpan, latSpan }`; `src/utils/measureViewport.ts` does the SDK navigation and delegates. Future paliers should not move SDK code into `matching/`.
 - Cell ordering in `GridWalker.planWalk` uses greedy nearest-neighbour from the first track vertex. O(N²) but N < 200 for realistic tracks at z17, so cost is sub-millisecond. Handles doubled-back tracks and disconnected MultiLineStrings naturally.
 - Re-runs (clicking Start after Done/Cancelled/Error) clear the controller's `matchedIds` + `geometryCache` and the panel's results list at the `walking` transition, so a second walk does not accumulate stale items.
+
+**Palier 5**
+
+- `Editing.setSelection` is synchronous in the SDK typings and accepts an arbitrary-length `ids: number[]`. Empirically it should still be wrapped in `try/catch` because dense selections may surface internal WME exceptions; the controller throws on failure so the panel can render a per-attempt inline error.
+- The 200-segment confirmation threshold lives as `LARGE_SELECTION_THRESHOLD` exported from `src/ui/MatchPanel.ts`. Promotion to a UI-configurable setting is explicitly Palier 6.
 
 **Palier 4**
 
@@ -285,6 +290,7 @@ Outcome: confirmed that `https://schweizmobil.ch/api/6/tracks/{id}` returns a va
 #### Module contracts
 
 `src/geojson/types.ts`:
+
 ```ts
 import type { MultiLineString } from "geojson";
 
@@ -295,7 +301,10 @@ export interface NormalizedTrack {
 }
 
 export class TrackLoadError extends Error {
-  constructor(message: string, public readonly cause?: unknown) {
+  constructor(
+    message: string,
+    public readonly cause?: unknown,
+  ) {
     super(message);
     this.name = "TrackLoadError";
   }
@@ -309,6 +318,7 @@ export class TrackLoadError extends Error {
 `src/geojson/normalize.ts`: pure functions. Takes a validated GeoJSON Feature, returns a `NormalizedTrack`.
 
 `src/layers/TrackLayer.ts`:
+
 ```ts
 export class TrackLayer {
   static readonly LAYER_NAME = "wme-geojson-track";
@@ -317,11 +327,13 @@ export class TrackLayer {
   destroy(): void;
 }
 ```
+
 `destroy()` must never throw; wrap in try/catch and log warnings.
 
 `src/utils/queryParams.ts`: `getGeojsonUrlFromLocation(): string | null`. Reads `URLSearchParams`, returns decoded value if present and parseable as URL; else `null` (with `logger.warn` if invalid URL).
 
 `main.user.ts`:
+
 ```ts
 unsafeWindow.SDK_INITIALIZED.then(initScript);
 
@@ -330,7 +342,10 @@ async function initScript() {
   await initI18n(wmeSDK);
 
   const url = getGeojsonUrlFromLocation();
-  if (!url) { logger.info("No geojson query param, idle."); return; }
+  if (!url) {
+    logger.info("No geojson query param, idle.");
+    return;
+  }
 
   await wmeSDK.Events.once({ eventName: "wme-ready" });
 
@@ -348,6 +363,7 @@ async function initScript() {
 #### Tests required (vitest)
 
 `src/__tests__/normalize.test.ts`:
+
 - LineString input → MultiLineString output with one line, coordinates preserved.
 - MultiLineString input → passthrough, all sublines preserved.
 - 3D coordinates → preserved (third element intact).
@@ -392,6 +408,7 @@ Bootstrap only. No user-facing strings yet. Place placeholder error keys for fut
 #### Validation checkpoint (user verifies before Palier 2)
 
 Before declaring Palier 1 done, the user manually verifies:
+
 1. Track displays on the example URL.
 2. Custom track URLs (any GeoJSON LineString or MultiLineString in WGS84) work.
 3. Invalid URLs / non-WGS84 / non-Feature payloads produce clear console errors with actionable messages.
@@ -420,6 +437,7 @@ Before declaring Palier 1 done, the user manually verifies:
    - **Results list**: empty. Will populate in Palier 4.
 
 3. Wiring: the sidebar is a "view" of an internal `WalkController` that doesn't exist yet. For Palier 2, create a minimal stub controller in `src/controller/WalkController.ts` exposing:
+
    ```ts
    export type WalkState = "idle" | "walking" | "done" | "cancelled" | "error";
    export class WalkController {
@@ -429,6 +447,7 @@ Before declaring Palier 1 done, the user manually verifies:
      onStateChange(cb: (s: WalkState) => void): () => void { ... }
    }
    ```
+
    The stub validates the wiring without yet doing the real work.
 
 4. The "Center on track" button **does work** at Palier 2 — it's pure SDK + turf, no walking involved. Verify the SDK method for centering on a bbox via context7 (likely `Map.setMapCenter` with computed center, or a `fitBounds`-equivalent).
@@ -440,6 +459,7 @@ Before declaring Palier 1 done, the user manually verifies:
 `src/controller/WalkController.ts`: stub at this palier. Real implementation in Palier 3.
 
 `src/ui/MatchPanel.ts`:
+
 ```ts
 export class MatchPanel {
   constructor(
@@ -452,6 +472,7 @@ export class MatchPanel {
   unmount(): void;
 }
 ```
+
 DOM-only, no business logic. Listens to `controller.onStateChange` to update its display.
 
 #### i18n keys (Palier 2)
@@ -517,20 +538,22 @@ User verifies: panel visible, layout sensible, "Center on track" works, state tr
 1. **`viewportSize.ts`** — measures the viewport size in degrees at zoom 17. Strategy: at the first walk, snapshot `wmeSDK.Map.getMapExtent()` after `setMapCenter` to a known point at z17 and after `wme-map-data-loaded`. Cache the result for the session. The size depends on screen resolution, so it must be measured dynamically rather than hardcoded.
 
 2. **`GridWalker.ts`** — pure module:
+
    ```ts
    export interface Cell {
      index: number;
      center: { lat: number; lon: number };
-     bbox: BBox;  // [west, south, east, north]
+     bbox: BBox; // [west, south, east, north]
    }
    export interface PlanWalkArgs {
      track: MultiLineString;
      viewportSizeDeg: { lonSpan: number; latSpan: number };
-     bufferMeters: number;        // default 15
-     overlapRatio: number;        // default 0.2 (20% overlap between adjacent cells)
+     bufferMeters: number; // default 15
+     overlapRatio: number; // default 0.2 (20% overlap between adjacent cells)
    }
    export function planWalk(args: PlanWalkArgs): Cell[];
    ```
+
    Algorithm:
    - Compute track bbox via `turf.bbox`.
    - Buffer the track by `bufferMeters` via `turf.buffer`.
@@ -540,13 +563,15 @@ User verifies: panel visible, layout sensible, "Center on track" works, state tr
    - Return ordered list.
 
 3. **`SegmentMatcher.ts`** — pure module:
+
    ```ts
    export interface MatchArgs {
      segments: Segment[];
      bufferedTrack: Feature<Polygon | MultiPolygon>;
    }
-   export function matchSegments(args: MatchArgs): Set<number>;  // segment IDs
+   export function matchSegments(args: MatchArgs): Set<number>; // segment IDs
    ```
+
    For each segment, test `turf.booleanIntersects(segment.geometry, bufferedTrack)`. Return matching IDs as a Set (deduplication is implicit).
 
 4. **`WalkController.ts`** — full implementation, replaces Palier 2 stub:
@@ -587,6 +612,7 @@ User verifies: panel visible, layout sensible, "Center on track" works, state tr
 `src/utils/waitForMapIdle.ts`: port from Switzerland-Helper. Polls `wmeSDK.State.isMapLoading()` with a fallback timeout. Should also wait briefly after loading completes to let `wme-map-data-loaded` propagate.
 
 `src/controller/WalkController.ts` real implementation. Define event API:
+
 ```ts
 onProgress(cb: (visited: number, total: number, newIds: number[]) => void): () => void;
 onMatchFound(cb: (id: number, geometry: LineString) => void): () => void;
@@ -596,12 +622,14 @@ onStateChange(cb: (state: WalkState) => void): () => void;
 #### Tests required
 
 `src/__tests__/GridWalker.test.ts`:
+
 - Simple horizontal LineString (1 km) → cells cover only along the line.
 - LineString that doubles back → cells deduplicated, no duplicate visits.
 - MultiLineString with 2 disconnected sublines → cells cover both, none in between.
 - Bbox of cells, when unioned, contains the buffered track.
 
 `src/__tests__/SegmentMatcher.test.ts`:
+
 - Segment fully inside buffer → matched.
 - Segment fully outside buffer → not matched.
 - Segment crossing the buffer at one point → matched.
@@ -667,10 +695,12 @@ User verifies on at least 2 real tracks: short urban track (~2 km) and longer ru
 #### Module contracts (additions)
 
 `MatchPanel`:
+
 - Add `onItemClick(id: number)` handler.
 - Subscribe to `wme-selection-changed` to highlight active item.
 
 `WalkController`:
+
 - Expose `getCachedGeometry(id: number): LineString | null`.
 
 #### Tests required
@@ -759,7 +789,7 @@ None new. SDK-coupled, manually validated.
 
 - [ ] Button enabled when ≥1 match.
 - [ ] ≤200 segments: instant selection, no modal.
-- [ ] >200 segments: modal warning, confirm proceeds, cancel does nothing.
+- [ ] > 200 segments: modal warning, confirm proceeds, cancel does nothing.
 - [ ] Selection failures are caught and displayed without breaking the panel.
 - [ ] `npm test` passes.
 - [ ] Manual validation on a real track with >50 matched segments.

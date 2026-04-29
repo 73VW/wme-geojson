@@ -20,7 +20,15 @@
       "centerOnTrack": "Centrer sur le tracé",
       "start": "Lancer la correspondance",
       "stop": "Arrêter",
-      "selectAll": "Tout sélectionner"
+      "selectAll": "Tout sélectionner",
+      "selectAllConfirm": "Tout sélectionner",
+      "cancel": "Annuler"
+    },
+    "modal": {
+      "largeSelectionWarning": "Vous êtes sur le point de sélectionner {{count}} segments. Les grandes sélections peuvent être lentes ou échouer. Continuer ?"
+    },
+    "errors": {
+      "selectionFailed": "Échec de la sélection : {{error}}"
     },
     "progress": {
       "empty": "Non démarré",

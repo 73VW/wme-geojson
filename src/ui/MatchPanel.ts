@@ -6,6 +6,15 @@ import type { NormalizedTrack } from "../geojson/types";
 import type { TrackLayer } from "../layers/TrackLayer";
 import type { WalkController } from "../controller/WalkController";
 import type { WalkState } from "../controller/walkStates";
+import { confirmModal } from "./modal";
+
+/**
+ * If the user tries to select more than this many segments at once, we show
+ * a confirmation modal to warn that large selections may be slow or fail.
+ * This is a code-level constant; it is NOT configurable through the UI
+ * (Palier 6 scope if ever needed).
+ */
+export const LARGE_SELECTION_THRESHOLD = 200;
 
 /**
  * Sidebar panel for Palier 3.
@@ -30,10 +39,12 @@ export class MatchPanel {
   private badgeEl: HTMLElement | null = null;
   private startBtn: HTMLButtonElement | null = null;
   private stopBtn: HTMLButtonElement | null = null;
+  private selectAllBtn: HTMLButtonElement | null = null;
   private progressEl: HTMLElement | null = null;
   private resultsCountEl: HTMLElement | null = null;
   private resultsEmptyEl: HTMLElement | null = null;
   private resultsList: HTMLUListElement | null = null;
+  private selectionErrorEl: HTMLElement | null = null;
 
   /** Total matched segment count across all cells. */
   private matchedCount = 0;
@@ -128,10 +139,12 @@ export class MatchPanel {
     this.badgeEl = null;
     this.startBtn = null;
     this.stopBtn = null;
+    this.selectAllBtn = null;
     this.progressEl = null;
     this.resultsCountEl = null;
     this.resultsEmptyEl = null;
     this.resultsList = null;
+    this.selectionErrorEl = null;
 
     logger.info("MatchPanel unmounted");
   }
@@ -174,8 +187,7 @@ export class MatchPanel {
     const section = document.createElement("section");
 
     const idLine = document.createElement("p");
-    const trackIdValue =
-      this.track.trackId !== null ? String(this.track.trackId) : "—";
+    const trackIdValue = this.track.trackId !== null ? String(this.track.trackId) : "—";
     idLine.textContent = i18next.t("panel.trackInfo.id", { id: trackIdValue });
     section.appendChild(idLine);
 
@@ -225,11 +237,20 @@ export class MatchPanel {
     wrapper.appendChild(stopBtn);
     this.stopBtn = stopBtn;
 
-    // "Select all matched" — disabled at Palier 3 (Palier 5 wires this).
+    // "Select all matched" — enabled once at least one match has been found.
+    // The click handler shows a confirmation modal for large selections, then
+    // delegates the actual SDK call to controller.selectAll().
     const selectAllBtn = document.createElement("button");
     selectAllBtn.textContent = i18next.t("panel.buttons.selectAll");
     selectAllBtn.disabled = true;
+    selectAllBtn.addEventListener("click", () => {
+      // Fire-and-forget; errors are rendered inline by the async handler.
+      this.onSelectAllClick().catch((err: unknown) => {
+        logger.error("MatchPanel: onSelectAllClick rejected unexpectedly", err);
+      });
+    });
     wrapper.appendChild(selectAllBtn);
+    this.selectAllBtn = selectAllBtn;
 
     // Apply initial visibility for idle state.
     this.applyButtonState(this.controller.state);
@@ -264,6 +285,7 @@ export class MatchPanel {
   /**
    * Append a single result item for a newly-matched segment.
    * The item is a clickable <button> that navigates to and selects the segment.
+   * Also enables the "Select all matched" button on the first match.
    */
   private appendResultItem(id: number): void {
     this.matchedCount++;
@@ -279,6 +301,11 @@ export class MatchPanel {
       this.resultsCountEl.textContent = i18next.t("panel.results.count", {
         count: this.matchedCount,
       });
+    }
+
+    // Enable "Select all matched" now that at least one segment is available.
+    if (this.selectAllBtn) {
+      this.selectAllBtn.disabled = false;
     }
 
     if (!this.resultsList) return;
@@ -323,6 +350,96 @@ export class MatchPanel {
     errSpan.className = "wme-geojson-item-error";
     errSpan.textContent = ` ${i18next.t("panel.results.unavailable")}`;
     li.appendChild(errSpan);
+  }
+
+  /**
+   * Handle the "Select all matched" button click.
+   *
+   * Architecture note (Palier 5):
+   *  - Modal-prompting logic lives HERE (UI concern): we decide whether to ask
+   *    the user based on count, and we render the error on failure.
+   *  - The actual SDK setSelection call lives in controller.selectAll()
+   *    (controller concern): it stays SDK-coupled and outside ui/.
+   *
+   * The method is async to await the confirmation modal for large selections.
+   */
+  private async onSelectAllClick(): Promise<void> {
+    const ids = this.controller.getMatchedIds();
+    const count = ids.length;
+
+    if (count === 0) {
+      // Button should already be disabled; guard defensively.
+      logger.warn("MatchPanel: selectAll clicked with 0 matches");
+      return;
+    }
+
+    // For large selections, ask the user to confirm before proceeding.
+    const needsConfirmation = count > LARGE_SELECTION_THRESHOLD;
+    if (needsConfirmation) {
+      const confirmed = await confirmModal({
+        message: i18next.t("panel.modal.largeSelectionWarning", { count }),
+        confirmLabel: i18next.t("panel.buttons.selectAllConfirm"),
+        cancelLabel: i18next.t("panel.buttons.cancel"),
+      });
+
+      if (!confirmed) {
+        // User cancelled — do nothing. Leave the results list intact.
+        return;
+      }
+    }
+
+    // Delegate the SDK call to the controller and render any error inline.
+    try {
+      this.clearSelectionError();
+      this.controller.selectAll();
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      logger.error("MatchPanel: selectAll failed", err);
+      this.showSelectionError(errorMessage);
+    }
+  }
+
+  /**
+   * Render an inline error message below the button row.
+   * Does NOT clear or destroy the results list so the user can still click
+   * individual items after a failed "select all" attempt.
+   *
+   * If an error element already exists, updates its text in-place.
+   */
+  private showSelectionError(errorMessage: string): void {
+    if (!this.tabPane) return;
+
+    const text = i18next.t("panel.errors.selectionFailed", { error: errorMessage });
+
+    if (this.selectionErrorEl) {
+      this.selectionErrorEl.textContent = text;
+      return;
+    }
+
+    const errEl = document.createElement("p");
+    errEl.className = "wme-geojson-selection-error";
+    errEl.textContent = text;
+    errEl.style.color = "#c0392b";
+
+    // Insert the error paragraph after the progress element (before the
+    // results section) so it is visible without scrolling the panel.
+    if (this.progressEl && this.progressEl.nextSibling) {
+      this.tabPane.insertBefore(errEl, this.progressEl.nextSibling);
+    } else {
+      this.tabPane.appendChild(errEl);
+    }
+
+    this.selectionErrorEl = errEl;
+  }
+
+  /**
+   * Remove the inline selection error element if it exists.
+   */
+  private clearSelectionError(): void {
+    if (this.selectionErrorEl) {
+      this.selectionErrorEl.parentNode?.removeChild(this.selectionErrorEl);
+      this.selectionErrorEl = null;
+    }
   }
 
   /**
@@ -393,6 +510,14 @@ export class MatchPanel {
     if (this.progressEl) {
       this.progressEl.textContent = i18next.t("panel.progress.empty");
     }
+
+    // Disable "Select all matched" until new matches accumulate.
+    if (this.selectAllBtn) {
+      this.selectAllBtn.disabled = true;
+    }
+
+    // Clear any leftover selection error from a previous attempt.
+    this.clearSelectionError();
   }
 
   private updateState(state: WalkState): void {
@@ -408,10 +533,7 @@ export class MatchPanel {
     }
 
     const canStart =
-      state === "idle" ||
-      state === "done" ||
-      state === "cancelled" ||
-      state === "error";
+      state === "idle" || state === "done" || state === "cancelled" || state === "error";
     this.startBtn.disabled = !canStart;
 
     const isWalking = state === "walking";
