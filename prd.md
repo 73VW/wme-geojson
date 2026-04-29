@@ -235,6 +235,10 @@ This section gets appended to as paliers are implemented. Each entry records an 
 - `Editing.setSelection` is synchronous in the SDK typings and accepts an arbitrary-length `ids: number[]`. Empirically it should still be wrapped in `try/catch` because dense selections may surface internal WME exceptions; the controller throws on failure so the panel can render a per-attempt inline error.
 - The 200-segment confirmation threshold lives as `LARGE_SELECTION_THRESHOLD` exported from `src/ui/MatchPanel.ts`. Promotion to a UI-configurable setting is explicitly Palier 6.
 
+**Post-release fix (0.5.1)**
+
+- The Palier 1 assumption "the SDK ignores the third dimension when rendering in 2D" was wrong: `Map.addFeatureToLayer` rejects 3D coordinates with `Only 2D points are supported` (observed live on a SchweizMobil track with elevation). `TrackLayer.draw` now strips the elevation to `[lon, lat]` before the SDK call, while `NormalizedTrack.geometry` still carries the original 3D data for turf consumers.
+
 **Palier 4**
 
 - `wmeSDK.Editing.setSelection` expects `{ selection: { ids: number[], objectType: "segment" } }`. The string literal `"segment"` is the value of `ObjectType.SEGMENT` (typings line 173). The type discriminant `Selection$1` at line 299–326 confirms the exact shape. No import of `ObjectType` is required — passing the string literal directly satisfies TypeScript.

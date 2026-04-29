@@ -47,6 +47,12 @@ export class TrackLayer {
     track.geometry.coordinates.forEach((lineCoords, index) => {
       const featureId = `${baseId}-${index}`;
 
+      // The SDK rejects 3D coords with "Only 2D points are supported".
+      // SchweizMobil tracks include elevation as `[lon, lat, ele]`, so we strip
+      // the third dimension before feeding the SDK while keeping the original
+      // 3D data intact in NormalizedTrack for turf consumers downstream.
+      const coords2d: Position[] = lineCoords.map((c) => [c[0], c[1]]);
+
       this.wmeSDK.Map.addFeatureToLayer({
         layerName: TrackLayer.LAYER_NAME,
         feature: {
@@ -54,9 +60,7 @@ export class TrackLayer {
           type: "Feature",
           geometry: {
             type: "LineString",
-            // 3D coords (lon, lat, ele) are passed through untouched; OpenLayers
-            // and the SDK ignore the third dimension when rendering in 2D.
-            coordinates: lineCoords as Position[],
+            coordinates: coords2d,
           },
         },
       });
