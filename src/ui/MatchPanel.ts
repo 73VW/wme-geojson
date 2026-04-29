@@ -173,6 +173,9 @@ export class MatchPanel {
     // Buttons
     container.appendChild(this.buildButtons());
 
+    // Distance range slider (filters which portion of the track is drawn)
+    container.appendChild(this.buildRangeSlider());
+
     // Progress area
     const progress = document.createElement("p");
     progress.textContent = i18next.t("panel.progress.empty");
@@ -198,6 +201,87 @@ export class MatchPanel {
     ).toFixed(2);
     lengthLine.textContent = i18next.t("panel.trackInfo.length", { km: lengthKm });
     section.appendChild(lengthLine);
+
+    return section;
+  }
+
+  /**
+   * Two-handle range slider that controls which kilometre window of the track
+   * is rendered on the map. Implemented as two stacked native range inputs
+   * since HTML lacks a built-in dual slider; the handlers enforce that the
+   * lower handle stays ≤ the upper one.
+   */
+  private buildRangeSlider(): HTMLElement {
+    const section = document.createElement("section");
+    section.style.marginTop = "8px";
+
+    const totalKm = this.trackLayer.getTotalKm();
+    if (totalKm <= 0) {
+      // Nothing meaningful to filter on (e.g. degenerate single-point track)
+      return section;
+    }
+
+    const heading = document.createElement("p");
+    heading.style.margin = "0 0 4px 0";
+    heading.style.fontSize = "12px";
+    heading.style.fontWeight = "600";
+    heading.textContent = i18next.t("panel.range.title");
+    section.appendChild(heading);
+
+    const valueLabel = document.createElement("p");
+    valueLabel.style.margin = "0 0 6px 0";
+    valueLabel.style.fontSize = "12px";
+    valueLabel.textContent = i18next.t("panel.range.window", {
+      min: "0.00",
+      max: totalKm.toFixed(2),
+    });
+    section.appendChild(valueLabel);
+
+    // Use a hundredth-of-a-km step regardless of total length; the input
+    // coerces to a sensible number of stops automatically.
+    const step = "0.01";
+
+    const minInput = document.createElement("input");
+    minInput.type = "range";
+    minInput.min = "0";
+    minInput.max = String(totalKm);
+    minInput.step = step;
+    minInput.value = "0";
+    minInput.style.width = "100%";
+
+    const maxInput = document.createElement("input");
+    maxInput.type = "range";
+    maxInput.min = "0";
+    maxInput.max = String(totalKm);
+    maxInput.step = step;
+    maxInput.value = String(totalKm);
+    maxInput.style.width = "100%";
+
+    const apply = () => {
+      let lo = Number(minInput.value);
+      let hi = Number(maxInput.value);
+      // Keep handles ordered: the one the user just dragged wins.
+      if (lo > hi) {
+        if (document.activeElement === minInput) {
+          hi = lo;
+          maxInput.value = String(hi);
+        } else {
+          lo = hi;
+          minInput.value = String(lo);
+        }
+      }
+      valueLabel.textContent = i18next.t("panel.range.window", {
+        min: lo.toFixed(2),
+        max: hi.toFixed(2),
+      });
+      this.trackLayer.setVisibleRange(lo, hi);
+    };
+
+    minInput.addEventListener("input", apply);
+    maxInput.addEventListener("input", apply);
+
+    section.appendChild(minInput);
+    section.appendChild(maxInput);
 
     return section;
   }

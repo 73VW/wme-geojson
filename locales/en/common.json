@@ -30,6 +30,10 @@
     "errors": {
       "selectionFailed": "Selection failed: {{error}}"
     },
+    "range": {
+      "title": "Visible distance range",
+      "window": "{{min}} km – {{max}} km"
+    },
     "progress": {
       "empty": "Not started",
       "running": "{{visited}} / {{total}} cells"

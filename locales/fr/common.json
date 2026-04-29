@@ -30,6 +30,10 @@
     "errors": {
       "selectionFailed": "Échec de la sélection : {{error}}"
     },
+    "range": {
+      "title": "Plage de distance visible",
+      "window": "{{min}} km – {{max}} km"
+    },
     "progress": {
       "empty": "Non démarré",
       "running": "{{visited}} / {{total}} cellules"
