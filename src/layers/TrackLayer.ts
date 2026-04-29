@@ -61,7 +61,18 @@ export class TrackLayer {
 
     this.wmeSDK.Map.addLayer({
       layerName: TrackLayer.LAYER_NAME,
-      styleRules: this.buildStyleRules(this.allLabels),
+      // styleContext resolves "${key}" placeholders inside style values at
+      // render time. We use it to derive each label's text from its own
+      // properties — without it, FeatureStyle.label is a fixed string and we
+      // would need one styleRule per label point (1000+ rules on a dense
+      // SchweizMobil track), which made the slider take seconds per tick.
+      styleContext: {
+        getLabel: ({ feature }) => {
+          const km = feature?.properties.km;
+          return typeof km === "number" ? formatLabelKm(km) : "";
+        },
+      },
+      styleRules: this.buildStyleRules(),
     });
 
     this.drawFeatures(track, this.allLabels);
@@ -92,7 +103,10 @@ export class TrackLayer {
 
     const visibleLabels = this.allLabels.filter((l) => l.km >= lo && l.km <= hi);
 
-    this.removeLayerFeatures();
+    // Clearing features instead of dropping the whole layer keeps the
+    // styleContext + styleRules registered, so re-adding the visible portion
+    // costs only the per-feature insert (no layer recreation, no style rebuild).
+    this.wmeSDK.Map.removeAllFeaturesFromLayer({ layerName: TrackLayer.LAYER_NAME });
     this.drawTrackInRange(lo, hi);
     this.drawLabels(visibleLabels);
   }
@@ -195,46 +209,27 @@ export class TrackLayer {
     });
   }
 
-  private removeLayerFeatures(): void {
-    // The SDK has no "clear all features" API exposed by name we know of, so
-    // we drop the whole layer and re-add it with the same styleRules. Cheaper
-    // than tracking and removing individual feature IDs and reliable in case
-    // a previous draw failed mid-way.
-    try {
-      this.wmeSDK.Map.removeLayer({ layerName: TrackLayer.LAYER_NAME });
-    } catch (err) {
-      logger.warn("TrackLayer.removeLayerFeatures: removeLayer failed", err);
-    }
-    this.wmeSDK.Map.addLayer({
-      layerName: TrackLayer.LAYER_NAME,
-      styleRules: this.buildStyleRules(this.allLabels),
-    });
-  }
-
   /**
-   * Build the styleRules array: one rule for the track stroke and one rule per
-   * label point so each can carry its own `label` text. Predicates match by the
-   * unique `featureId` property, which we set on every feature.
+   * Two styleRules total: one for the track stroke (LineStrings tagged
+   * `kind: "line"`), one for the labels (Points tagged `kind: "label"`). The
+   * label text comes from `${getLabel}` which the SDK resolves per-feature
+   * against the styleContext registered at draw().
    */
-  private buildStyleRules(labels: DistanceLabel[]) {
-    const rules = [];
-
-    rules.push({
-      predicate: (props: { kind?: string | number | null }) => props.kind === LINE_KIND,
-      style: {
-        strokeColor: TRACK_STROKE_COLOR,
-        strokeWidth: TRACK_STROKE_WIDTH,
-        strokeOpacity: TRACK_STROKE_OPACITY,
-        strokeLinecap: "round" as const,
-      },
-    });
-
-    for (const label of labels) {
-      const featureId = labelFeatureId(label);
-      rules.push({
-        predicate: (props: { featureId?: string | number | null }) => props.featureId === featureId,
+  private buildStyleRules() {
+    return [
+      {
+        predicate: (props: { kind?: string | number | null }) => props.kind === LINE_KIND,
         style: {
-          label: formatLabelKm(label.km),
+          strokeColor: TRACK_STROKE_COLOR,
+          strokeWidth: TRACK_STROKE_WIDTH,
+          strokeOpacity: TRACK_STROKE_OPACITY,
+          strokeLinecap: "round" as const,
+        },
+      },
+      {
+        predicate: (props: { kind?: string | number | null }) => props.kind === LABEL_KIND,
+        style: {
+          label: "${getLabel}",
           fontSize: LABEL_FONT_SIZE,
           fontColor: LABEL_FONT_COLOR,
           fontFamily: "sans-serif",
@@ -247,10 +242,8 @@ export class TrackLayer {
           strokeColor: LABEL_OUTLINE_COLOR,
           strokeWidth: 1,
         },
-      });
-    }
-
-    return rules;
+      },
+    ];
   }
 }
 

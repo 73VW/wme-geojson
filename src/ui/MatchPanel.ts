@@ -257,6 +257,15 @@ export class MatchPanel {
     maxInput.value = String(totalKm);
     maxInput.style.width = "100%";
 
+    // requestAnimationFrame coalesces rapid input events: dragging the slider
+    // fires `input` ~60×/s, but each redraw can take 50–200 ms on a long
+    // track, so without coalescing the queue grows unbounded and the UI
+    // freezes. We update the text label synchronously (cheap) and schedule
+    // exactly one trackLayer.setVisibleRange per frame.
+    let pendingFrame = 0;
+    let pendingLo = 0;
+    let pendingHi = totalKm;
+
     const apply = () => {
       let lo = Number(minInput.value);
       let hi = Number(maxInput.value);
@@ -270,11 +279,18 @@ export class MatchPanel {
           minInput.value = String(lo);
         }
       }
+      pendingLo = lo;
+      pendingHi = hi;
       valueLabel.textContent = i18next.t("panel.range.window", {
         min: lo.toFixed(2),
         max: hi.toFixed(2),
       });
-      this.trackLayer.setVisibleRange(lo, hi);
+      if (pendingFrame === 0) {
+        pendingFrame = requestAnimationFrame(() => {
+          pendingFrame = 0;
+          this.trackLayer.setVisibleRange(pendingLo, pendingHi);
+        });
+      }
     };
 
     minInput.addEventListener("input", apply);
