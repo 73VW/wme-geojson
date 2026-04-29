@@ -40,8 +40,12 @@
       "placeholder": "ex. 0.5, 1.2, 3.4",
       "matched": "{{visible}} visibles / {{requested}} demandés",
       "clear": "Vider la liste",
-      "viewsHeading": "Vues ({{count}})",
-      "viewButton": "Vue {{index}} — z{{zoom}}",
+      "runProcess": "Calculer les vues",
+      "stopProcess": "Arrêter",
+      "processing": "Calcul de la vue {{done}}/{{total}}…",
+      "stale": "Liste périmée — relancer",
+      "viewButton": "Vue pour {{distance}} km",
+      "viewButtonIndexed": "Vue {{index}} pour {{distance}} km",
       "viewCenter": "lon={{lon}}&lat={{lat}}"
     },
     "progress": {

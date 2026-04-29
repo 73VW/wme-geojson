@@ -8,7 +8,8 @@ import type { WalkController } from "../controller/WalkController";
 import type { WalkState } from "../controller/walkStates";
 import { confirmModal } from "./modal";
 import { parseDistanceList } from "../utils/parseDistances";
-import { computeBboxViews } from "../matching/bboxViews";
+import { computePortions, sliceMultiLineByDistance, bboxOfMultiLineString } from "../matching/trackPortions";
+import { waitForMapIdle } from "../utils/waitForMapIdle";
 
 /**
  * If the user tries to select more than this many segments at once, we show
@@ -19,12 +20,15 @@ import { computeBboxViews } from "../matching/bboxViews";
 export const LARGE_SELECTION_THRESHOLD = 200;
 
 /**
- * Zoom range used when computing bbox views. WME loads segment data reliably
- * from z14 upward, and z18 is the maximum useful detail before the editor
- * stops adding information. Clamp every computed view into this band.
+ * Minimum zoom level at which a portion bbox is accepted without further
+ * bisection. Set to 15 per spec (was 14 in the old greedy-cluster approach).
  */
-const MIN_BBOX_ZOOM = 14;
-const MAX_BBOX_ZOOM = 18;
+const MIN_BBOX_ZOOM = 15;
+
+/** Maximum recursion depth for bbox bisection. Guards against degenerate cases
+ *  where a portion never reaches z15 (e.g. a very long straight road at the
+ *  edge of the Swiss zoom envelope). */
+const MAX_BISECT_DEPTH = 8;
 
 /**
  * Sidebar panel for Palier 3.
@@ -56,9 +60,16 @@ export class MatchPanel {
   private resultsList: HTMLUListElement | null = null;
   private selectionErrorEl: HTMLElement | null = null;
 
-  // Bbox-views list — created by buildDistanceFilter, refreshed by refreshBboxList
+  // Bbox-views list — created by buildDistanceFilter, populated by runBboxProcess
   private bboxListEl: HTMLUListElement | null = null;
-  private bboxHeadingEl: HTMLElement | null = null;
+  private bboxProcessBtn: HTMLButtonElement | null = null;
+  private bboxStopBtn: HTMLButtonElement | null = null;
+  private bboxStatusEl: HTMLElement | null = null;
+  private bboxStaleEl: HTMLElement | null = null;
+
+  // Process-runner state
+  private bboxProcessAborted = false;
+  private bboxProcessRunning = false;
 
   /** Total matched segment count across all cells. */
   private matchedCount = 0;
@@ -160,7 +171,10 @@ export class MatchPanel {
     this.resultsList = null;
     this.selectionErrorEl = null;
     this.bboxListEl = null;
-    this.bboxHeadingEl = null;
+    this.bboxProcessBtn = null;
+    this.bboxStopBtn = null;
+    this.bboxStatusEl = null;
+    this.bboxStaleEl = null;
 
     logger.info("MatchPanel unmounted");
   }
@@ -308,9 +322,9 @@ export class MatchPanel {
         pendingFrame = requestAnimationFrame(() => {
           pendingFrame = 0;
           this.trackLayer.setVisibleRange(pendingLo, pendingHi);
-          // The range filter changed which labels are visible; the bbox
-          // clusters are derived from the visible set, so refresh them too.
-          this.refreshBboxList();
+          // After a "Lancer" run, moving the slider invalidates the computed
+          // views; mark the list as stale so the user knows to re-run.
+          this._onRangeChanged?.();
         });
       }
     };
@@ -325,16 +339,14 @@ export class MatchPanel {
   }
 
   /**
-   * Collapsible textarea where the user pastes a list of kilometre distances
-   * (e.g. waypoints from a roadbook). When non-empty, only labels whose
-   * cumulative distance — rounded to the nearest 100 m — matches an entry are
-   * shown. Empty list = every label in the slider's range, like before.
+   * Collapsible <details> section where the user pastes kilometre waypoints,
+   * filters which labels are shown on the map, and triggers the "compute views"
+   * process that navigates the map to each track portion and records zoom views.
    *
-   * The filter composes with the range slider as an intersection. The track
-   * stroke itself is unaffected; only labels are filtered.
-   *
-   * Below the status line, a dynamically-updated list of bbox-view buttons lets
-   * the user jump to each cluster of matching labels in one click.
+   * Label filtering (textarea + range slider) still updates live on every
+   * keystroke / slider tick. The view list is only rebuilt when the user clicks
+   * "Lancer le processus" — stale list is shown with a warning note until
+   * the next run.
    */
   private buildDistanceFilter(): HTMLElement {
     const details = document.createElement("details");
@@ -363,186 +375,310 @@ export class MatchPanel {
     textarea.style.fontSize = "12px";
     details.appendChild(textarea);
 
-    const status = document.createElement("p");
-    status.style.margin = "4px 0";
-    status.style.fontSize = "11px";
-    status.textContent = i18next.t("panel.distanceFilter.matched", {
+    const matchStatus = document.createElement("p");
+    matchStatus.style.margin = "4px 0";
+    matchStatus.style.fontSize = "11px";
+    matchStatus.textContent = i18next.t("panel.distanceFilter.matched", {
       visible: 0,
       requested: 0,
     });
-    details.appendChild(status);
+    details.appendChild(matchStatus);
 
-    // Bbox-views heading — hidden until clusters are available
-    const viewsHeading = document.createElement("p");
-    viewsHeading.style.margin = "6px 0 2px 0";
-    viewsHeading.style.fontSize = "11px";
-    viewsHeading.style.fontWeight = "600";
-    viewsHeading.style.display = "none";
-    details.appendChild(viewsHeading);
-    this.bboxHeadingEl = viewsHeading;
+    // "Stale list" notice — shown when the textarea/slider changed since last run
+    const staleEl = document.createElement("p");
+    staleEl.style.margin = "2px 0";
+    staleEl.style.fontSize = "11px";
+    staleEl.style.color = "#c0392b";
+    staleEl.style.display = "none";
+    staleEl.textContent = i18next.t("panel.distanceFilter.stale");
+    details.appendChild(staleEl);
+    this.bboxStaleEl = staleEl;
 
-    // Bbox-views list — populated by refreshBboxList()
+    // Process status line (shown while running)
+    const statusEl = document.createElement("p");
+    statusEl.style.margin = "2px 0";
+    statusEl.style.fontSize = "11px";
+    statusEl.style.display = "none";
+    details.appendChild(statusEl);
+    this.bboxStatusEl = statusEl;
+
+    // Button row: "Lancer" + "Stop"
+    const btnRow = document.createElement("div");
+    btnRow.style.marginTop = "4px";
+
+    const runBtn = document.createElement("button");
+    runBtn.type = "button";
+    runBtn.textContent = i18next.t("panel.distanceFilter.runProcess");
+    btnRow.appendChild(runBtn);
+    this.bboxProcessBtn = runBtn;
+
+    const stopBtn = document.createElement("button");
+    stopBtn.type = "button";
+    stopBtn.textContent = i18next.t("panel.distanceFilter.stopProcess");
+    stopBtn.style.display = "none";
+    stopBtn.style.marginLeft = "4px";
+    btnRow.appendChild(stopBtn);
+    this.bboxStopBtn = stopBtn;
+
+    details.appendChild(btnRow);
+
+    // Bbox-views list — populated by runBboxProcess()
     const bboxList = document.createElement("ul");
     bboxList.style.listStyleType = "none";
     bboxList.style.padding = "0";
-    bboxList.style.margin = "0 0 4px 0";
+    bboxList.style.margin = "4px 0 4px 0";
     details.appendChild(bboxList);
     this.bboxListEl = bboxList;
 
     const clearBtn = document.createElement("button");
     clearBtn.type = "button";
     clearBtn.textContent = i18next.t("panel.distanceFilter.clear");
+    details.appendChild(clearBtn);
 
-    // rAF-coalesce: parse + filter + redraw can be heavy on a long track, but
-    // keystrokes fire faster. The status counter updates synchronously (cheap)
-    // while the layer redraw is scheduled at most once per frame.
+    // ── Label-filter logic (live, rAF-coalesced) ───────────────────────────
     let pendingFrame = 0;
     let pendingDistances: number[] = [];
 
-    const updateStatus = (visible: number, requested: number) => {
-      status.textContent = i18next.t("panel.distanceFilter.matched", {
+    const updateMatchStatus = (visible: number, requested: number) => {
+      matchStatus.textContent = i18next.t("panel.distanceFilter.matched", {
         visible,
         requested,
       });
     };
 
-    const apply = () => {
+    const markStale = () => {
+      if (this.bboxStaleEl && this.bboxListEl && this.bboxListEl.children.length > 0) {
+        this.bboxStaleEl.style.display = "";
+      }
+    };
+
+    const applyLabelFilter = () => {
       const distances = parseDistanceList(textarea.value);
       pendingDistances = distances;
-      // Pre-compute the visible count synchronously so the counter feels live.
-      // It re-asks the layer once the redraw runs, in case the rounding to
-      // 100 m bucketed multiple inputs onto the same label.
-      updateStatus(distances.length, distances.length);
+      updateMatchStatus(distances.length, distances.length);
+      markStale();
       if (pendingFrame === 0) {
         pendingFrame = requestAnimationFrame(() => {
           pendingFrame = 0;
           this.trackLayer.setVisibleDistances(
             pendingDistances.length === 0 ? null : pendingDistances,
           );
-          updateStatus(this.trackLayer.countVisibleLabels(), pendingDistances.length);
-          this.refreshBboxList();
+          updateMatchStatus(this.trackLayer.countVisibleLabels(), pendingDistances.length);
         });
       }
     };
 
-    textarea.addEventListener("input", apply);
+    textarea.addEventListener("input", applyLabelFilter);
 
     clearBtn.addEventListener("click", () => {
       textarea.value = "";
-      apply();
+      applyLabelFilter();
     });
-    details.appendChild(clearBtn);
+
+    // ── "Lancer" button ────────────────────────────────────────────────────
+    runBtn.addEventListener("click", () => {
+      const distances = parseDistanceList(textarea.value);
+      if (distances.length === 0) return;
+      const totalKm = this.trackLayer.getTotalKm();
+      this.runBboxProcess(distances, totalKm).catch((err: unknown) => {
+        logger.error("MatchPanel: runBboxProcess rejected", err);
+      });
+    });
+
+    // ── "Stop" button ──────────────────────────────────────────────────────
+    stopBtn.addEventListener("click", () => {
+      this.bboxProcessAborted = true;
+    });
+
+    // Hook the range slider's apply() into markStale so changing the slider
+    // after a run also shows the stale notice. We expose a setter on the
+    // instance that buildRangeSlider can call.
+    this._onRangeChanged = markStale;
 
     return details;
   }
 
   /**
-   * Recompute bbox-view clusters from the current visible labels and rebuild
-   * the bbox-list UI.  Called after every textarea change and every range-slider
-   * apply() so both filter dimensions keep the view list in sync.
-   *
-   * Reads `Map.getMapExtent()` + `Map.getZoomLevel()` directly (same pattern
-   * as `Editing.getSelection()` — presentation-level SDK state reads are
-   * acceptable in the panel).  If the SDK has not initialised the extent yet,
-   * logs a warning and leaves the list empty.
+   * Called by buildRangeSlider after every slider apply() so the stale notice
+   * appears if the user moves the slider after a "Lancer" run.
+   * Assigned in buildDistanceFilter; null before that method runs.
    */
-  private refreshBboxList(): void {
-    if (!this.bboxListEl || !this.bboxHeadingEl) return;
+  private _onRangeChanged: (() => void) | null = null;
 
-    // Clear previous entries
-    while (this.bboxListEl.firstChild) {
-      this.bboxListEl.removeChild(this.bboxListEl.firstChild);
+  /**
+   * Navigate the map to each track portion, recursively bisecting any portion
+   * whose bbox zoom < MIN_BBOX_ZOOM, and populate the bbox-list UI with one
+   * button per recorded view.
+   *
+   * Flow per portion:
+   *   zoomToExtent(bbox) → waitForMapIdle → getZoomLevel
+   *     ≥ MIN_BBOX_ZOOM  → record view
+   *     < MIN_BBOX_ZOOM  → bisect into two halves, recurse on each
+   *
+   * Recursion is capped at MAX_BISECT_DEPTH; on overflow a warning is logged
+   * and the last tried bbox view is accepted.
+   *
+   * The process can be aborted between portions by setting bboxProcessAborted.
+   */
+  private async runBboxProcess(distancesKm: number[], totalKm: number): Promise<void> {
+    if (this.bboxProcessRunning) return;
+
+    // Reset abort flag and flip into running state. Wrap the entire body in a
+    // try/finally so a thrown SDK call doesn't leave the panel locked with the
+    // "Lancer" button greyed out and "Stop" stuck visible.
+    this.bboxProcessAborted = false;
+    this.bboxProcessRunning = true;
+
+    if (this.bboxProcessBtn) this.bboxProcessBtn.disabled = true;
+    if (this.bboxStopBtn) this.bboxStopBtn.style.display = "";
+    if (this.bboxStatusEl) this.bboxStatusEl.style.display = "";
+    if (this.bboxStaleEl) this.bboxStaleEl.style.display = "none";
+
+    try {
+
+    // Clear the previous list
+    if (this.bboxListEl) {
+      while (this.bboxListEl.firstChild) {
+        this.bboxListEl.removeChild(this.bboxListEl.firstChild);
+      }
     }
 
-    // Only show views when a distance-list filter is active and returns labels
-    if (!this.trackLayer.hasDistanceFilter()) {
-      this.bboxHeadingEl.style.display = "none";
-      return;
+    const portions = computePortions(distancesKm, totalKm);
+
+    // Recorded views to render afterwards
+    interface RecordedView {
+      centerLon: number;
+      centerLat: number;
+      zoom: ZoomLevel;
+      inputDistance: number;
+      indexInGroup: number;
+      totalInGroup: number;
     }
 
-    const labels = this.trackLayer.getVisibleLabels();
-    if (labels.length === 0) {
-      this.bboxHeadingEl.style.display = "none";
-      return;
-    }
+    const allViews: RecordedView[] = [];
 
-    // Read current viewport extent analytically — no map navigation needed
-    const rawExtent = this.wmeSDK.Map.getMapExtent();
-    const currentZoom = this.wmeSDK.Map.getZoomLevel();
+    // Inner recursive helper
+    const bisect = async (
+      inputDistance: number,
+      kmA: number,
+      kmB: number,
+      depth: number,
+      collector: Array<{ centerLon: number; centerLat: number; zoom: ZoomLevel }>,
+    ): Promise<void> => {
+      if (this.bboxProcessAborted) return;
 
-    // getMapExtent() returns BBox [minLon, minLat, maxLon, maxLat] or may be
-    // unavailable before the map is fully initialised.
-    if (
-      !Array.isArray(rawExtent) ||
-      rawExtent.length < 4 ||
-      !Number.isFinite(rawExtent[0])
-    ) {
-      logger.warn("refreshBboxList: map extent not yet available, skipping bbox views");
-      this.bboxHeadingEl.style.display = "none";
-      return;
-    }
+      const sliced = sliceMultiLineByDistance(this.track.geometry, kmA, kmB);
+      const box = bboxOfMultiLineString(sliced);
 
-    const [minLon, minLat, maxLon, maxLat] = rawExtent as [number, number, number, number];
-    const viewportLonSpan = maxLon - minLon;
-    const viewportLatSpan = maxLat - minLat;
+      if (!box) {
+        logger.warn(`runBboxProcess: empty bbox for portion [${kmA}, ${kmB}] — skipping`);
+        return;
+      }
 
-    // Degenerate extent (map not panned yet, or both corners coincide) would
-    // make every label its own single-point cluster — misleading. Skip until
-    // the map reports a real viewport.
-    if (viewportLonSpan <= 0 || viewportLatSpan <= 0) {
-      logger.warn("refreshBboxList: zero-area map extent, skipping bbox views");
-      this.bboxHeadingEl.style.display = "none";
-      return;
-    }
+      this.wmeSDK.Map.zoomToExtent({ bbox: box });
+      await waitForMapIdle(this.wmeSDK);
 
-    const views = computeBboxViews({
-      labels,
-      viewportLonSpanAtCurrentZoom: viewportLonSpan,
-      viewportLatSpanAtCurrentZoom: viewportLatSpan,
-      currentZoom,
-      minZoom: MIN_BBOX_ZOOM,
-      maxZoom: MAX_BBOX_ZOOM,
-    });
+      if (this.bboxProcessAborted) return;
 
-    if (views.length === 0) {
-      this.bboxHeadingEl.style.display = "none";
-      return;
-    }
+      const zoom = this.wmeSDK.Map.getZoomLevel();
 
-    this.bboxHeadingEl.textContent = i18next.t("panel.distanceFilter.viewsHeading", {
-      count: views.length,
-    });
-    this.bboxHeadingEl.style.display = "";
+      if (zoom >= MIN_BBOX_ZOOM || depth >= MAX_BISECT_DEPTH) {
+        if (depth >= MAX_BISECT_DEPTH && zoom < MIN_BBOX_ZOOM) {
+          logger.warn(
+            `runBboxProcess: depth cap reached for portion [${kmA}, ${kmB}] at z${zoom} — accepting`,
+          );
+        }
+        // Read the center from the bbox (mid-point)
+        const centerLon = (box[0] + box[2]) / 2;
+        const centerLat = (box[1] + box[3]) / 2;
+        collector.push({ centerLon, centerLat, zoom: zoom as ZoomLevel });
+        return;
+      }
 
-    views.forEach((view, i) => {
-      const li = document.createElement("li");
-      li.style.marginBottom = "2px";
+      // Zoom too low — bisect
+      const mid = (kmA + kmB) / 2;
+      await bisect(inputDistance, kmA, mid, depth + 1, collector);
+      if (this.bboxProcessAborted) return;
+      await bisect(inputDistance, mid, kmB, depth + 1, collector);
+    };
 
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.textContent = i18next.t("panel.distanceFilter.viewButton", {
-        index: i + 1,
-        zoom: view.zoom,
-      });
-      btn.addEventListener("click", () => {
-        this.wmeSDK.Map.setMapCenter({
-          lonLat: { lon: view.centerLon, lat: view.centerLat },
-          zoomLevel: view.zoom as ZoomLevel,
+    let done = 0;
+    const total = portions.length;
+
+    for (const portion of portions) {
+      if (this.bboxProcessAborted) break;
+
+      if (this.bboxStatusEl) {
+        this.bboxStatusEl.textContent = i18next.t("panel.distanceFilter.processing", {
+          done,
+          total,
         });
-      });
-      li.appendChild(btn);
+      }
 
-      const small = document.createElement("small");
-      small.style.marginLeft = "6px";
-      small.style.color = "#555";
-      small.textContent = i18next.t("panel.distanceFilter.viewCenter", {
-        lon: view.centerLon.toFixed(5),
-        lat: view.centerLat.toFixed(5),
-      });
-      li.appendChild(small);
+      const groupViews: Array<{ centerLon: number; centerLat: number; zoom: ZoomLevel }> = [];
+      await bisect(portion.inputDistance, portion.kmA, portion.kmB, 0, groupViews);
 
-      this.bboxListEl!.appendChild(li);
-    });
+      const groupSize = groupViews.length;
+      for (let idx = 0; idx < groupSize; idx++) {
+        const v = groupViews[idx];
+        allViews.push({
+          ...v,
+          inputDistance: portion.inputDistance,
+          indexInGroup: idx + 1,
+          totalInGroup: groupSize,
+        });
+      }
+
+      done++;
+    }
+
+    // ── Render results ─────────────────────────────────────────────────────
+    if (this.bboxListEl) {
+      for (const view of allViews) {
+        const li = document.createElement("li");
+        li.style.marginBottom = "2px";
+
+        const btn = document.createElement("button");
+        btn.type = "button";
+        // The i18n template already appends " km", so pass just the number.
+        const distLabel = view.inputDistance.toFixed(1);
+        if (view.totalInGroup === 1) {
+          btn.textContent = i18next.t("panel.distanceFilter.viewButton", {
+            distance: distLabel,
+          });
+        } else {
+          btn.textContent = i18next.t("panel.distanceFilter.viewButtonIndexed", {
+            index: view.indexInGroup,
+            distance: distLabel,
+          });
+        }
+        btn.addEventListener("click", () => {
+          this.wmeSDK.Map.setMapCenter({
+            lonLat: { lon: view.centerLon, lat: view.centerLat },
+            zoomLevel: view.zoom,
+          });
+        });
+        li.appendChild(btn);
+
+        const small = document.createElement("small");
+        small.style.marginLeft = "6px";
+        small.style.color = "#555";
+        small.textContent = i18next.t("panel.distanceFilter.viewCenter", {
+          lon: view.centerLon.toFixed(5),
+          lat: view.centerLat.toFixed(5),
+        });
+        li.appendChild(small);
+
+        this.bboxListEl.appendChild(li);
+      }
+    }
+    } finally {
+      // ── Restore UI state, even if an SDK call threw mid-run ──────────────
+      this.bboxProcessRunning = false;
+      if (this.bboxProcessBtn) this.bboxProcessBtn.disabled = false;
+      if (this.bboxStopBtn) this.bboxStopBtn.style.display = "none";
+      if (this.bboxStatusEl) this.bboxStatusEl.style.display = "none";
+    }
   }
 
   private buildButtons(): HTMLElement {
