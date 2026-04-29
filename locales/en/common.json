@@ -34,6 +34,16 @@
       "title": "Visible distance range",
       "window": "{{min}} km – {{max}} km"
     },
+    "distanceFilter": {
+      "title": "Filter labels by distance list",
+      "help": "Show only labels matching the listed kilometres (rounded to 100 m). Separate by comma, space or newline.",
+      "placeholder": "e.g. 0.5, 1.2, 3.4",
+      "matched": "{{visible}} visible / {{requested}} requested",
+      "clear": "Clear list",
+      "viewsHeading": "Views ({{count}})",
+      "viewButton": "View {{index}} — z{{zoom}}",
+      "viewCenter": "lon={{lon}}&lat={{lat}}"
+    },
     "progress": {
       "empty": "Not started",
       "running": "{{visited}} / {{total}} cells"
