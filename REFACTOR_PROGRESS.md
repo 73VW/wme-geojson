@@ -57,7 +57,7 @@ Same as `HANDOFF.md` §2:
 | **0 — bootstrap** | DONE | `2bf442b`, `5f7bddf`, `4eca4eb`, *this commit* | WKT util, matching WIP, AI docs, `.mcp.json` ignored, `REFACTOR_PROGRESS.md` | Clean tree. Old `releases/*.user.js` were prettier-mangled and restored from HEAD per `HANDOFF.md` §5. |
 | **1 — store + CSV foundations** | DONE | `d57f811` | `src/state/SessionStore.ts`, `src/csv/parseSchedule.ts`, `src/csv/serializeSchedule.ts`, `src/persistence/sessionStorage.ts` + 3 test files | 78 tests green, tsc clean, boundary check passes (no SDK/DOM imports in `src/state/` or `src/csv/`). FNV-1a hashing for localStorage keys. **Note for Lot 3:** `validateRow` does NOT advance `currentIndex` when called with `index !== currentIndex` — re-validation of an earlier row is allowed but pushes duplicate `ClosureRange` entries. If the UI lets the user re-validate, dedup must happen in Lot 4 or be guarded in the caller. |
 | **2 — UI refactor (Waze WC)** | DONE | `4232030` | `src/ui/MatchPanel.ts` (1169 → 683 lines), `src/ui/components/wz.ts` (new, 163 lines), `src/bootstrap/loadAndAttachTrack.ts` (new), `src/layers/TrackLayer.ts` (labels-off default), `main.user.ts` (always mount), 8 locale keys (EN+FR) | 98 tests green, tsc clean, releases/ untouched. **Implementation note for Lot 3:** the circular import between `MatchPanel` and `loadAndAttachTrack` is broken via `panel.setLoadFn(fn)` injected from `main.user.ts`. Lot 3 will replace the start-matching button click handler — currently a stub that just sets phase to "matching" and logs a warning. The download-closures button currently emits a header-only file with `reason: "stub"`. |
-| **3 — guided pipeline** | TODO | — | `src/controller/MatchingPipeline.ts`, `src/ui/tabSwitch.ts`, `src/ui/MatchPanel.ts` (guided sub-panel), `src/controller/WalkController.ts` (helpers) | Depends on Lots 1 + 2. |
+| **3 — guided pipeline** | IN PROGRESS | — | `src/controller/MatchingPipeline.ts` (new), `src/ui/MatchPanel.ts` (guided sub-panel + wire stubs), locale keys under `panel.matching` | Delegated to Sonnet agent with prompt A.3. Tab return uses `tabLabel.click()` (no programmatic SDK API). |
 | **4 — closures CSV builder** | DONE | `fe6663c` | `src/csv/buildClosuresCsv.ts`, `src/csv/__tests__/buildClosuresCsv.test.ts` (20 tests), `src/ui/promptFinalFields.ts`, locale keys under `panel.finalFields` (EN+FR) | 98 tests green, tsc clean. **Implementation note:** for merged-range rows, `RowGeo` is taken from the earliest contributing row (`mergedRange.rowIndex` = first by `startISO`). Touching boundaries (end(A) == start(B)) explicitly do NOT merge. `promptFinalFields` is implemented but not yet wired into MatchPanel — Lot 3 does that. |
 | **5 — persistence + resume wiring** | TODO | — | `src/state/SessionStore.ts` (mutation hooks), `src/ui/MatchPanel.ts` (resume banner) | Depends on Lots 1 + 2 + 3. |
 | **6 — polish + release** | TODO | — | `package.json` bump, `releases/release-0.10.0.user.js`, `README.md`, `HANDOFF.md` | Manual smoke E2E, version bump, regenerate release. |
@@ -489,7 +489,240 @@ Keep the report under 350 words.
 
 ### A.3 — Lot 3: guided matching pipeline
 
-*(to be added before launching this lot)*
+```
+You are working on the wme-geojson Tampermonkey userscript at
+/workspaces/wme-geojson. TypeScript, Rollup, vitest.
+
+Your task is **Lot 3** of the in-flight refactor: wire the real
+CSV-driven matching pipeline behind the "Start matching" stub button
+that was put in place by Lot 2, plus replace the "Download closures
+CSV" stub with the real flow that prompts the user for the four
+final fields and builds the actual closures CSV.
+
+**Required reading before writing code:**
+1. /workspaces/wme-geojson/REFACTOR_PROGRESS.md — sections 2 (frozen
+   decisions), 3 (architecture), 4 (Lot status board to know what
+   is already merged), Annex A.3 (this prompt).
+2. /workspaces/wme-geojson/HANDOFF.md — especially §3 SDK quirks
+   (no Map.fitBounds → Map.zoomToExtent, wme-selection-changed has
+   no payload, setSelection sync, waitForMapIdle exists, §5 release
+   files immutable).
+3. /workspaces/wme-geojson/claude.md (conventions).
+4. /workspaces/wme-geojson/src/state/SessionStore.ts — Lot 1 store.
+   Use `validateRow(index, segments, startISO, endISO)`. The store
+   only advances `currentIndex` when `index === currentIndex` — your
+   pipeline MUST always validate the current row in order.
+5. /workspaces/wme-geojson/src/csv/buildClosuresCsv.ts — Lot 4. Use
+   the exact API: `buildClosuresCsv(rows, rowGeos, closuresBySegment,
+   fields)`. `rowGeos` is indexed in the same order as csvRows.
+6. /workspaces/wme-geojson/src/ui/promptFinalFields.ts — Lot 4
+   modal. Returns `Promise<FinalFields | null>` (null on cancel).
+7. /workspaces/wme-geojson/src/controller/WalkController.ts — exposes
+   `matchInCurrentViewport(kmA, kmB): Promise<void>` and an
+   `onMatchFound` event. You will subscribe to onMatchFound to
+   collect segment IDs per row.
+8. /workspaces/wme-geojson/src/matching/trackPortions.ts — exports
+   `computePortions(distances: number[], totalKm: number)`. Each
+   portion has `{ kmA, kmB }`. The CSV row at index i corresponds to
+   portion i (use exactly this indexing).
+9. The previous bbox-bisection logic (zoomToExtent + waitForMapIdle +
+   bisect when zoom < MIN_BBOX_ZOOM=15, depth cap MAX_BISECT_DEPTH=8)
+   is no longer in `MatchPanel.ts` after Lot 2. To recover it, run:
+       git show 4232030^:src/ui/MatchPanel.ts | sed -n '533,740p'
+   That section is the canonical implementation. Re-implement it as
+   a private method of `MatchingPipeline` (or a free function in
+   `src/matching/bboxViews.ts` if cleanly separable). Keep the
+   constants `MIN_BBOX_ZOOM = 15` and `MAX_BISECT_DEPTH = 8`.
+10. /workspaces/wme-geojson/src/ui/MatchPanel.ts — current Lot 2
+    panel. You will add a phase-driven "guided matching" sub-panel
+    and wire the existing stub buttons.
+
+**Deliverables:**
+
+### 3.1 — `src/controller/MatchingPipeline.ts` (new)
+
+```ts
+export interface RowGeo { lon: number; lat: number; zoom: number }
+export interface PipelineEvents {
+  onRowStarted?: (index: number, totalRows: number) => void
+  onRowMatched?: (index: number, segments: number[]) => void
+  onError?: (message: string) => void
+  onDone?: () => void
+  onAborted?: () => void
+}
+export class MatchingPipeline {
+  constructor(
+    private readonly wmeSDK: WmeSDK,
+    private readonly store: SessionStore,
+    private readonly controller: WalkController,
+    private readonly track: NormalizedTrack,
+    private readonly trackLayer: TrackLayer,
+    private readonly events: PipelineEvents,
+    private readonly tabLabel: HTMLElement, // for re-activating the userscript tab
+  )
+  start(): void               // begins from store.currentIndex
+  abort(): void               // graceful stop after current row's await
+  validateCurrentRow(): void  // call from UI when user clicks "Validate"
+  isRunning(): boolean
+  // Internal state captured per row, exposed read-only:
+  getRowGeos(): readonly RowGeo[]  // indexed parallel to store.csvRows
+}
+```
+
+Behavioural contract:
+
+1. On `start()`, compute portions:
+   ```
+   const distances = csvRows.map(r => r.distance)
+   const portions = computePortions(distances, totalKm)
+   ```
+   `portions[i]` belongs to `csvRows[i]`. Verify `portions.length ===
+   csvRows.length` and `onError` if not.
+2. Loop from `currentIndex` to `csvRows.length - 1`. For each row:
+   - Emit `onRowStarted(i, csvRows.length)`.
+   - Compute the bbox view(s) for the portion via the bisection
+     logic ported from the previous MatchPanel (point #9 above).
+     For each bbox view:
+       a. `wmeSDK.Map.zoomToExtent({ bbox })`.
+       b. `await waitForMapIdle(wmeSDK)`.
+       c. Subscribe to `controller.onMatchFound` to collect IDs into
+          a per-row `Set<number>`.
+       d. `await controller.matchInCurrentViewport(kmA, kmB)`.
+       e. Unsubscribe.
+   - After all bbox views processed: capture `RowGeo` = the LAST
+     view's `getMapCenter()` + `getZoomLevel()` (not the first —
+     the last view is what the user is currently looking at).
+   - `await wmeSDK.Editing.setSelection({ selection: { ids:
+     [...collected], objectType: "segment" } })` — wrap in try/catch,
+     emit `onError` and continue if it throws.
+   - `tabLabel.click()` — re-activate the userscript tab (the SDK
+     has no programmatic selectTab; clicking the tab label element
+     returned by `registerScriptTab` works because it IS the tab's
+     activator). One-line "why" comment.
+   - Emit `onRowMatched(i, [...collected])`.
+   - Wait for `validateCurrentRow()` to be called (UI button).
+     Implementation: store a `private pendingValidator: (() =>
+     void) | null` and resolve a promise from inside the row loop.
+   - On `validateCurrentRow()`: read CURRENT selection via
+     `wmeSDK.Editing.getSelection()` (captures user corrections),
+     extract segment IDs (filter `objectType === "segment"`), then
+     call `store.validateRow(i, segIds, startISO, endISO)`. Compute
+     `startISO = ${row.date}T${row.startTime}` and similar for end.
+     Persist the captured RowGeo into a parallel array kept inside
+     the pipeline.
+3. After the loop ends naturally: emit `onDone()`.
+4. On `abort()`: set a flag, resolve any pending validator with a
+   rejection-style sentinel, emit `onAborted()`.
+
+Do NOT subscribe to `wme-selection-changed` here — that event has no
+payload (HANDOFF.md §3) and would race with the validator button.
+The "read current selection on validate click" pattern is correct.
+
+### 3.2 — Sub-panel UI in `src/ui/MatchPanel.ts`
+
+Add a new private method `buildGuidedMatchingRow(): HTMLElement`,
+called from `buildDOM` and added between `startMatchingRow` and
+`downloadRow`. The row is hidden when phase !== "matching" (use the
+existing `renderPhase` mechanism).
+
+Contents:
+- A header line: "Row N / M — distance K km, HH:MM → HH:MM".
+- A status line: i18n key `panel.matching.validateOrCorrect`
+  (FR: `"Validez ou corrigez et validez"`, EN: `"Validate, or
+  correct then validate"`).
+- A line: "X segments matched" (live count, updated on
+  `onRowMatched`).
+- Two `wzButton`: **Validate** (primary, calls
+  `pipeline.validateCurrentRow()`), **Pause** (secondary, calls
+  `pipeline.abort()`).
+
+Wire the existing stub `Start matching` button click handler:
+- Build the pipeline (constructor takes `tabLabel` — the panel must
+  remember it from `mount()`).
+- Subscribe to events to update the sub-panel text + count.
+- Call `pipeline.start()`.
+
+The existing `startMatchingRow` is hidden during `phase === "matching"`
+and shown again on `done` so a re-run is possible.
+
+The Lot-2 stub log (`"matching pipeline not wired yet"`) must be
+removed.
+
+### 3.3 — Replace download-closures stub
+
+The Lot 2 stub for `Download closures CSV` currently emits a header-
+only file. Replace its click handler with:
+1. Validate that `phase === "done"` — otherwise show a non-blocking
+   message and return.
+2. `await promptFinalFields()`. If null (cancelled), return.
+3. Build the CSV via `buildClosuresCsv(rows, pipeline.getRowGeos(),
+   store.closuresBySegment, finalFields)`. Trigger Blob download
+   named `closures.csv`.
+
+The pipeline reference must be stored on the panel after `start()`
+so the download button can read `getRowGeos()`. If the pipeline
+hasn't run yet (no rowGeos), show an error.
+
+### 3.4 — `MatchPanel` exposes `getTabLabel()`
+
+So the pipeline can call `tabLabel.click()`. The panel already
+captures `tabLabel` in `mount()` (per
+`Sidebar.registerScriptTab().tabLabel`). Store it as a private field
+and expose `getTabLabel(): HTMLElement | null`.
+
+### 3.5 — Locale keys
+
+Add to BOTH locale files under `panel.matching`:
+- `rowHeader` — e.g. `"Row {{index}} / {{total}} — {{km}} km, {{startTime}} → {{endTime}}"`
+- `validateOrCorrect` — `"Validez ou corrigez et validez"` (FR),
+  `"Validate, or correct then validate"` (EN)
+- `segmentsMatched` — `"{{count}} segment(s) matched"`
+- `validate` — `"Valider"` / `"Validate"`
+- `pause` — `"Pause"` / `"Pause"`
+- `mustFinishFirst` — `"Finish matching all rows before downloading"` (EN equiv)
+- `noPipelineRun` — `"Run matching at least once before downloading"`
+
+### 3.6 — Architecture & quality
+
+- No `any`. Type the SDK calls properly via `wme-sdk-typings`.
+- No `innerHTML` with user data.
+- "Why" comments only.
+- Strict TS, named constants, early returns.
+- Existing tests must still pass. Add a unit test for the bbox-
+  bisection helper if you extract it to a free function (otherwise
+  skip — UI orchestration is hard to test without a full SDK mock).
+- The pipeline MUST NOT touch `localStorage` — Lot 5 wires the
+  save/restore. But it should not break Lot 5: the store is the
+  single source of truth, mutations go through `store.validateRow`
+  (Lot 5 will add a subscriber that persists on every change).
+
+### 3.7 — Validation commands (must be clean before reporting done)
+
+```
+npm test
+npx tsc --noEmit
+npm run build
+```
+
+Verify `git status` shows no `releases/*.user.js` modifications. If
+present, restore with `git checkout HEAD -- releases/`.
+
+**Do NOT:**
+- Update REFACTOR_PROGRESS.md (PO does that).
+- Commit (PO does that).
+- Wire localStorage resume detection (Lot 5).
+- Add a "restart from scratch" button (Lot 5).
+- Bump the package version or generate a new release (Lot 6).
+
+**Report back with:**
+- Files created / files materially modified, one line each.
+- Locale keys added.
+- Test summary and tsc output.
+- Confirmation `releases/` is unchanged after build.
+- Any deviation and the reason.
+
+Keep the report under 350 words.
+```
 
 ### A.4 — Lot 4: closures CSV builder
 
