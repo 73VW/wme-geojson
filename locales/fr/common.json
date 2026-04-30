@@ -62,6 +62,20 @@
       "unavailable": "Segment indisponible",
       "active": "(actif)"
     },
+    "urlInput": {
+      "label": "URL GeoJSON",
+      "placeholder": "https://exemple.com/trace.geojson",
+      "load": "Charger"
+    },
+    "trackLength": "Longueur du tracé : {{km}} km",
+    "csvInput": {
+      "label": "Importer le CSV de planning"
+    },
+    "startMatching": "Lancer la correspondance",
+    "downloadEnriched": "Télécharger le CSV enrichi",
+    "downloadClosures": "Télécharger le CSV de fermetures",
+    "resumeDetected": "Une session précédente a été trouvée. Continuer là où vous en étiez ?",
+    "startFresh": "Recommencer depuis le début",
     "finalFields": {
       "title": "Exporter les fermetures — détails finaux",
       "reason": "Raison",

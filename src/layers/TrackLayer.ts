@@ -48,8 +48,11 @@ export class TrackLayer {
   private currentRangeLo = 0;
   private currentRangeHi = 0;
   // Allowed distance buckets, encoded as `Math.round(km * 10)` (i.e. 100-m
-  // resolution). null disables the list filter (all labels in the range pass).
-  private currentDistanceKeys: ReadonlySet<number> | null = null;
+  // resolution). Starts as an empty set (no labels shown) — Lot 2 requires
+  // that labels are hidden by default until the CSV is loaded and its distances
+  // are passed via setVisibleDistances(). null would show all labels, so we
+  // use an empty Set instead to suppress all labels initially.
+  private currentDistanceKeys: ReadonlySet<number> | null = new Set<number>();
 
   constructor(private readonly wmeSDK: WmeSDK) {}
 
@@ -65,7 +68,9 @@ export class TrackLayer {
 
     this.currentRangeLo = 0;
     this.currentRangeHi = this.totalKm;
-    this.currentDistanceKeys = null;
+    // Start with no labels visible — caller must invoke setVisibleDistances()
+    // with the CSV distances to opt in (Lot 2 default-hidden requirement).
+    this.currentDistanceKeys = new Set<number>();
 
     this.wmeSDK.Map.addLayer({
       layerName: TrackLayer.LAYER_NAME,

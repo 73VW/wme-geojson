@@ -62,6 +62,20 @@
       "unavailable": "Segment unavailable",
       "active": "(active)"
     },
+    "urlInput": {
+      "label": "GeoJSON URL",
+      "placeholder": "https://example.com/track.geojson",
+      "load": "Load"
+    },
+    "trackLength": "Track length: {{km}} km",
+    "csvInput": {
+      "label": "Upload schedule CSV"
+    },
+    "startMatching": "Start matching",
+    "downloadEnriched": "Download enriched input CSV",
+    "downloadClosures": "Download closures CSV",
+    "resumeDetected": "A previous session was found. Continue where you left off?",
+    "startFresh": "Start fresh",
     "finalFields": {
       "title": "Export closures — final details",
       "reason": "Reason",

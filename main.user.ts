@@ -1,9 +1,8 @@
 import type { WmeSDK } from "wme-sdk-typings";
 import { initI18n } from "./locales/i18n";
-import { loadTrack } from "./src/geojson/Loader";
-import { TrackLayer } from "./src/layers/TrackLayer";
-import { WalkController } from "./src/controller/WalkController";
+import { SessionStore } from "./src/state/SessionStore";
 import { MatchPanel } from "./src/ui/MatchPanel";
+import { loadAndAttachTrack } from "./src/bootstrap/loadAndAttachTrack";
 import { getGeojsonUrlFromLocation } from "./src/utils/queryParams";
 import { logger } from "./src/utils/logger";
 
@@ -23,25 +22,21 @@ async function initScript(): Promise<void> {
 
   await initI18n(wmeSDK);
 
-  const url = getGeojsonUrlFromLocation();
-  if (!url) {
-    logger.info("No geojson query param, idle.");
-    return;
-  }
-
   // Wait for WME to be fully ready before accessing the data model or map
   await wmeSDK.Events.once({ eventName: "wme-ready" });
 
-  try {
-    const track = await loadTrack(url);
-    const layer = new TrackLayer(wmeSDK);
-    layer.draw(track);
-    logger.info(`Track drawn (id=${track.trackId ?? "unknown"})`);
+  const store = new SessionStore();
+  const panel = new MatchPanel(wmeSDK, store, null, null);
 
-    const controller = new WalkController(wmeSDK, track.geometry);
-    const panel = new MatchPanel(wmeSDK, controller, track, layer);
-    await panel.mount();
-  } catch (err) {
-    logger.error("Failed to load and draw track", err);
+  // Break the circular import: MatchPanel cannot import loadAndAttachTrack
+  // directly (loadAndAttachTrack imports MatchPanel for its parameter type),
+  // so main.user.ts — which imports both — injects the bound function here.
+  panel.setLoadFn((url: string) => loadAndAttachTrack(url, wmeSDK, store, panel));
+
+  await panel.mount();
+
+  const url = getGeojsonUrlFromLocation();
+  if (url) {
+    await loadAndAttachTrack(url, wmeSDK, store, panel);
   }
 }
