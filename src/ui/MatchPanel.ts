@@ -115,8 +115,12 @@ export class MatchPanel {
     tabLabel.textContent = "GeoJ";
     this.tabLabel = tabLabel;
     this.tabPane = tabPane;
+    tabPane.classList.add("wmegj-panel-root");
     this.injectStyles(tabPane);
     this.buildDOM(tabPane);
+    if (this.guidedMatchingRow && this.guidedMatchingRow.parentElement !== document.body) {
+      document.body.appendChild(this.guidedMatchingRow);
+    }
 
     // Re-render visibility whenever store phase changes
     this.unsubscribeStore = this.store.subscribe((state) => {
@@ -216,14 +220,18 @@ export class MatchPanel {
     this.rangeSliderRow = null;
     this.csvUploadRow = null;
     this.startMatchingRow = null;
-    this.guidedMatchingRow = null;
     this.downloadRow = null;
     this.resumeBannerRow = null;
     this.urlInputEl = null;
     this.urlErrorEl = null;
     this.badgeEl = null;
+    const guidedMatchingRow = this.guidedMatchingRow;
+    if (guidedMatchingRow?.parentElement) {
+      guidedMatchingRow.parentElement.removeChild(guidedMatchingRow);
+    }
     this.guidedRowHeaderEl = null;
     this.guidedSegmentCountEl = null;
+    this.guidedMatchingRow = null;
 
     logger.info("MatchPanel unmounted");
   }
@@ -234,6 +242,7 @@ export class MatchPanel {
 
   private buildDOM(container: HTMLElement): void {
     const title = document.createElement("h3");
+    title.className = "wmegj-panel-title";
     title.textContent = i18next.t("panel.title");
     container.appendChild(title);
 
@@ -266,9 +275,10 @@ export class MatchPanel {
     this.startMatchingRow = this.buildStartMatchingRow();
     container.appendChild(this.startMatchingRow);
 
-    // Row 5b — Guided matching sub-panel (visible only while phase === "matching")
+    // Row 5b — Guided matching controls live in a floating overlay appended
+    // to document.body so they remain usable even when WME switches the
+    // sidebar away from the userscripts tab after selection changes.
     this.guidedMatchingRow = this.buildGuidedMatchingRow();
-    container.appendChild(this.guidedMatchingRow);
 
     // Row 6 — Download buttons (hidden until csv-loaded)
     this.downloadRow = this.buildDownloadRow();
@@ -281,6 +291,7 @@ export class MatchPanel {
 
   private buildUrlRow(): HTMLElement {
     const section = document.createElement("section");
+    section.className = "wmegj-section";
     section.style.marginBottom = "8px";
 
     const currentUrl = new URLSearchParams(window.location.search).get("geojson") ?? "";
@@ -319,6 +330,7 @@ export class MatchPanel {
 
   private buildTrackLengthRow(): HTMLElement {
     const section = document.createElement("section");
+    section.className = "wmegj-section";
     section.style.marginBottom = "4px";
     const p = document.createElement("p");
     p.style.margin = "0";
@@ -331,6 +343,7 @@ export class MatchPanel {
 
   private buildCsvUploadRow(): HTMLElement {
     const section = document.createElement("section");
+    section.className = "wmegj-section";
     section.style.marginTop = "8px";
 
     const label = document.createElement("p");
@@ -353,6 +366,7 @@ export class MatchPanel {
 
   private buildStartMatchingRow(): HTMLElement {
     const section = document.createElement("section");
+    section.className = "wmegj-section";
     section.style.marginTop = "8px";
 
     const btn = wzButton({
@@ -371,12 +385,13 @@ export class MatchPanel {
    * Guided matching sub-panel — shown while phase === "matching".
    *
    * Contains a header line (row N / M — km, time range), an instruction line,
-   * a segment count line, and Validate / Pause buttons. Text elements are
+  * a segment count line, and Validate / Skip / Back / Pause buttons. Text
+  * elements are
    * kept as private fields so pipeline events can update them live.
    */
   private buildGuidedMatchingRow(): HTMLElement {
     const section = document.createElement("section");
-    section.style.marginTop = "8px";
+    section.className = "wmegj-section wmegj-guided-panel wmegj-guided-overlay";
     section.style.padding = "8px";
     section.style.border = "1px solid #ccc";
     section.style.borderRadius = "4px";
@@ -404,6 +419,7 @@ export class MatchPanel {
     this.guidedSegmentCountEl = countEl;
 
     const btnRow = document.createElement("div");
+    btnRow.className = "wmegj-button-stack";
     btnRow.style.display = "flex";
     btnRow.style.gap = "6px";
 
@@ -415,6 +431,24 @@ export class MatchPanel {
       },
     });
     btnRow.appendChild(validateBtn);
+
+    const skipBtn = wzButton({
+      text: i18next.t("panel.matching.skip"),
+      variant: "secondary",
+      onClick: () => {
+        this.pipeline?.skipCurrentRow();
+      },
+    });
+    btnRow.appendChild(skipBtn);
+
+    const backBtn = wzButton({
+      text: i18next.t("panel.matching.back"),
+      variant: "secondary",
+      onClick: () => {
+        this.pipeline?.goBackOneRow();
+      },
+    });
+    btnRow.appendChild(backBtn);
 
     const pauseBtn = wzButton({
       text: i18next.t("panel.matching.pause"),
@@ -469,6 +503,7 @@ export class MatchPanel {
 
   private buildDownloadRow(): HTMLElement {
     const section = document.createElement("section");
+    section.className = "wmegj-section";
     section.style.marginTop = "8px";
     section.style.display = "flex";
     section.style.flexDirection = "column";
@@ -497,6 +532,7 @@ export class MatchPanel {
 
   private buildResumeBannerRow(): HTMLElement {
     const section = document.createElement("section");
+    section.className = "wmegj-section wmegj-resume-panel";
     section.style.marginTop = "8px";
     section.style.display = "none";
     section.style.padding = "8px";
@@ -540,6 +576,7 @@ export class MatchPanel {
     banner.appendChild(indexEl);
 
     const btnRow = document.createElement("div");
+    btnRow.className = "wmegj-button-stack";
     btnRow.style.display = "flex";
     btnRow.style.gap = "6px";
 
@@ -582,6 +619,7 @@ export class MatchPanel {
    */
   private buildRangeSlider(): HTMLElement {
     const section = document.createElement("section");
+    section.className = "wmegj-section";
     section.style.marginTop = "8px";
 
     if (!this.trackLayer) {
@@ -688,11 +726,13 @@ export class MatchPanel {
   private renderPhase(phase: SessionPhase): void {
     const atLeastTrackLoaded = this.phaseGte(phase, "track-loaded");
     const atLeastCsvLoaded = this.phaseGte(phase, "csv-loaded");
+    const isMatching = phase === "matching";
 
     this.setRowVisible(this.trackLengthRow, atLeastTrackLoaded);
     this.setRowVisible(this.rangeSliderRow, atLeastTrackLoaded);
     this.setRowVisible(this.csvUploadRow, atLeastTrackLoaded);
-    this.setRowVisible(this.startMatchingRow, atLeastCsvLoaded);
+    this.setRowVisible(this.startMatchingRow, atLeastCsvLoaded && !isMatching);
+    this.setRowVisible(this.guidedMatchingRow, isMatching);
     this.setRowVisible(this.downloadRow, atLeastCsvLoaded);
     // Resume banner visibility is managed by maybeShowResumeBanner() (Lot 5)
   }
@@ -821,19 +861,19 @@ export class MatchPanel {
   }
 
   private onDownloadClosuresClick(): void {
-    const { phase, csvRows, closuresBySegment } = this.store.getState();
+    const { csvRows, closuresBySegment } = this.store.getState();
 
-    if (phase !== "done") {
-      logger.warn("MatchPanel: " + i18next.t("panel.matching.mustFinishFirst"));
+    if (!this.hasValidatedProgress(csvRows)) {
+      const message = i18next.t("panel.matching.mustValidateFirst");
+      logger.warn("MatchPanel: " + message);
+      alert(message);
       return;
     }
 
-    if (!this.pipeline) {
-      logger.warn("MatchPanel: " + i18next.t("panel.matching.noPipelineRun"));
+    const rowGeos = this.getExportRowGeos(csvRows);
+    if (!rowGeos) {
       return;
     }
-
-    const rowGeos = this.pipeline.getRowGeos();
 
     promptFinalFields()
       .then((fields: FinalFields | null) => {
@@ -844,7 +884,7 @@ export class MatchPanel {
           // expected by buildClosuresCsv (same shape — lon/lat/zoom).
           const csv = buildClosuresCsv(
             csvRows,
-            rowGeos as RowGeo[],
+            rowGeos,
             closuresBySegment,
             fields,
           );
@@ -862,8 +902,38 @@ export class MatchPanel {
       });
   }
 
+  private hasValidatedProgress(rows: readonly CsvRow[]): boolean {
+    return rows.some((row) => row.segments !== null);
+  }
+
+  private getExportRowGeos(rows: readonly CsvRow[]): RowGeo[] | null {
+    const rowGeos = (this.pipeline?.getRowGeos() ?? []) as RowGeo[];
+    const missingGeoIndex = rows.findIndex(
+      (row, index) => row.segments !== null && row.segments.length > 0 && rowGeos[index] === undefined,
+    );
+
+    if (missingGeoIndex === -1) {
+      return rowGeos;
+    }
+
+    const message = i18next.t("panel.matching.missingRowGeo", {
+      index: missingGeoIndex + 1,
+    });
+    logger.warn("MatchPanel: " + message);
+    alert(message);
+    return null;
+  }
+
   private onStartMatchingClick(): void {
     const { csvRows, geojsonUrl } = this.store.getState();
+
+    logger.info("MatchPanel.onStartMatchingClick: clicked", {
+      rowCount: csvRows.length,
+      geojsonUrl,
+      hasController: this.controller !== null,
+      hasTrackLayer: this.trackLayer !== null,
+      hasTabLabel: this.tabLabel !== null,
+    });
 
     if (csvRows.length === 0) {
       logger.warn("MatchPanel.onStartMatchingClick: no CSV rows, cannot start");
@@ -903,8 +973,13 @@ export class MatchPanel {
 
     const track = { trackId: null, geometry: trackGeometry };
 
+    logger.info("MatchPanel.onStartMatchingClick: switching store phase to matching");
     this.store.setPhase("matching");
 
+    logger.info("MatchPanel.onStartMatchingClick: creating MatchingPipeline", {
+      rowCount: csvRows.length,
+      currentIndex: this.store.getState().currentIndex,
+    });
     this.pipeline = new MatchingPipeline(
       this.wmeSDK,
       this.store,
@@ -943,9 +1018,11 @@ export class MatchPanel {
           logger.error("MatchingPipeline error:", message);
         },
         onDone: () => {
+          logger.info("MatchPanel.onStartMatchingClick: pipeline reported done");
           this.store.setPhase("done");
         },
         onAborted: () => {
+          logger.info("MatchPanel.onStartMatchingClick: pipeline reported aborted");
           // Return to csv-loaded phase so the user can restart
           this.store.setPhase("csv-loaded");
         },
@@ -953,6 +1030,7 @@ export class MatchPanel {
       tabLabel,
     );
 
+    logger.info("MatchPanel.onStartMatchingClick: starting pipeline");
     this.pipeline.start();
   }
 
@@ -986,11 +1064,142 @@ export class MatchPanel {
   private injectStyles(container: HTMLElement): void {
     const style = document.createElement("style");
     style.textContent = `
+      .wmegj-panel-root {
+        font-size: 13px;
+        line-height: 1.4;
+        color: #1f2937;
+      }
+
+      .wmegj-panel-title {
+        margin: 0 0 10px 0;
+        font-size: 15px;
+        font-weight: 700;
+      }
+
+      .wmegj-section {
+        margin-bottom: 10px;
+        padding: 10px;
+        border: 1px solid #d8dee6;
+        border-radius: 8px;
+        background: #ffffff;
+        box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+      }
+
+      .wmegj-section p {
+        margin-top: 0;
+      }
+
+      .wmegj-input-group {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .wmegj-input-label {
+        display: block;
+        font-size: 12px;
+        font-weight: 600;
+        color: #344054;
+      }
+
+      .wmegj-text-input {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+        min-height: 36px;
+        padding: 8px 10px;
+        border: 1px solid #c7d0d9;
+        border-radius: 8px;
+        background: #ffffff;
+        color: #101828;
+      }
+
+      .wmegj-text-input:focus {
+        outline: 2px solid rgba(10, 132, 255, 0.2);
+        outline-offset: 1px;
+        border-color: #0a84ff;
+      }
+
+      .wmegj-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 34px;
+        padding: 0 12px;
+        border: 1px solid transparent;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+      }
+
+      .wmegj-button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+
+      .wmegj-button--primary {
+        background: #33c266;
+        color: #ffffff;
+      }
+
+      .wmegj-button--secondary {
+        background: #ffffff;
+        border-color: #c7d0d9;
+        color: #344054;
+      }
+
+      .wmegj-button--danger {
+        background: #fff1f3;
+        border-color: #f4c7cf;
+        color: #b42318;
+      }
+
       .wmegj-file-input {
         display: block;
         margin-top: 4px;
         font-size: 12px;
         cursor: pointer;
+      }
+
+      .wmegj-button-stack {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .wmegj-guided-panel {
+        border-color: #b9d9c3;
+        background: linear-gradient(180deg, #fbfefc 0%, #f4fbf6 100%);
+      }
+
+      .wmegj-guided-overlay {
+        position: fixed;
+        right: 16px;
+        bottom: 16px;
+        width: min(360px, calc(100vw - 24px));
+        margin: 0;
+        z-index: 2200;
+        box-shadow: 0 12px 28px rgba(16, 24, 40, 0.18);
+      }
+
+      @media (max-width: 640px) {
+        .wmegj-guided-overlay {
+          right: 12px;
+          left: 12px;
+          bottom: 12px;
+          width: auto;
+        }
+      }
+
+      .wmegj-resume-panel {
+        border-color: #f0c040;
+        background: #fff8e1;
+      }
+
+      .wmegj-file-input {
+        padding: 6px 8px;
       }
     `;
     container.appendChild(style);

@@ -35,6 +35,7 @@ export interface WzButtonProps {
 export function wzButton(props: WzButtonProps): HTMLElement {
   const tagName = "wz-button";
   const isRegistered = typeof customElements !== "undefined" && customElements.get(tagName) !== undefined;
+  const variant = props.variant ?? "secondary";
 
   if (!isRegistered) {
     warnMissingTag(tagName);
@@ -43,6 +44,7 @@ export function wzButton(props: WzButtonProps): HTMLElement {
     btn.type = "button";
     btn.textContent = props.text;
     btn.disabled = props.disabled ?? false;
+    btn.className = `wmegj-button wmegj-button--${variant}`;
     if (props.onClick) {
       btn.addEventListener("click", props.onClick);
     }
@@ -50,12 +52,14 @@ export function wzButton(props: WzButtonProps): HTMLElement {
   }
 
   const el = document.createElement(tagName);
+  el.className = `wmegj-button-host wmegj-button-host--${variant}`;
   el.setAttribute("text", props.text);
-  if (props.variant) {
-    el.setAttribute("variant", props.variant);
-  }
+  el.textContent = props.text;
+  (el as unknown as { text?: string }).text = props.text;
+  el.setAttribute("variant", variant);
   if (props.disabled) {
     el.setAttribute("disabled", "");
+    (el as unknown as { disabled?: boolean }).disabled = true;
   }
   if (props.onClick) {
     el.addEventListener("click", props.onClick);
@@ -88,22 +92,19 @@ export function wzTextInput(props: WzTextInputProps): HTMLElement {
   if (!isRegistered) {
     warnMissingTag(tagName);
     const wrapper = document.createElement("div");
+    wrapper.className = "wmegj-input-group";
     if (props.label) {
       const lbl = document.createElement("label");
+      lbl.className = "wmegj-input-label";
       lbl.textContent = props.label;
-      lbl.style.display = "block";
-      lbl.style.fontSize = "12px";
-      lbl.style.fontWeight = "600";
-      lbl.style.marginBottom = "2px";
       wrapper.appendChild(lbl);
     }
     const input = document.createElement("input");
+    input.className = "wmegj-text-input";
     input.type = props.type ?? "text";
     input.value = props.value ?? "";
     input.placeholder = props.placeholder ?? "";
     input.disabled = props.disabled ?? false;
-    input.style.width = "100%";
-    input.style.boxSizing = "border-box";
     if (props.onInput) {
       const handler = props.onInput;
       input.addEventListener("input", () => {
@@ -115,11 +116,20 @@ export function wzTextInput(props: WzTextInputProps): HTMLElement {
   }
 
   const el = document.createElement(tagName);
+  el.className = "wmegj-text-input-host";
   if (props.label) el.setAttribute("label", props.label);
   if (props.value) el.setAttribute("value", props.value);
   if (props.placeholder) el.setAttribute("placeholder", props.placeholder);
   if (props.type) el.setAttribute("type", props.type);
   if (props.disabled) el.setAttribute("disabled", "");
+  (el as unknown as { value?: string }).value = props.value ?? "";
+  (el as unknown as { placeholder?: string }).placeholder = props.placeholder ?? "";
+  if (props.label) {
+    (el as unknown as { label?: string }).label = props.label;
+  }
+  if (props.disabled) {
+    (el as unknown as { disabled?: boolean }).disabled = true;
+  }
   if (props.onInput) {
     const handler = props.onInput;
     el.addEventListener("input", (e: Event) => {
@@ -151,7 +161,7 @@ export function fileInput(props: FileInputProps): HTMLInputElement {
   const input = document.createElement("input");
   input.type = "file";
   input.accept = props.accept;
-  input.className = "wmegj-file-input";
+  input.className = "wmegj-file-input wmegj-text-input";
   if (props.onFile) {
     const handler = props.onFile;
     input.addEventListener("change", () => {

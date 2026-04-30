@@ -33,7 +33,7 @@ import { logger } from "../utils/logger";
 import { measureViewportAtZ17 } from "../utils/measureViewport";
 import { waitForMapIdle } from "../utils/waitForMapIdle";
 import { planWalk } from "../matching/GridWalker";
-import { matchSegments } from "../matching/SegmentMatcher";
+import { matchSegments, matchSegmentsAsync } from "../matching/SegmentMatcher";
 import { sliceMultiLineByDistance } from "../matching/trackPortions";
 import type { ViewportSizeDeg } from "../matching/viewportSize";
 import type { Cell } from "../matching/types";
@@ -68,6 +68,14 @@ const PROJECTED_COVERAGE_MIN_RATIO = 0.6;
 const PROJECTED_SAMPLE_STEP_METERS = 8;
 const PROJECTED_CHAINAGE_EPSILON_KM = 0.01;
 const PROJECTED_OVERRIDE_MIN_SPAN_METERS = 40;
+const MAX_SEGMENTS_FOR_PROJECTED_FALLBACK = 120;
+
+// Per-view matching can run just after map navigation; when data loading lags,
+// getAll() may transiently return an empty array even though the viewport is
+// valid. Keep a short retry window and log attempts for field diagnostics.
+const MATCH_SEGMENTS_RETRY_TIMEOUT_MS = 2_500;
+const MATCH_SEGMENTS_RETRY_INTERVAL_MS = 150;
+const MATCH_COMPUTE_YIELD_EVERY_SEGMENTS = 20;
 
 // ---------------------------------------------------------------------------
 // Subscriber management helper (reused for all three event types)
@@ -353,23 +361,175 @@ export class WalkController {
       throw new Error("[WME-geojson] WalkController: failed to buffer sliced track");
     }
 
-    const allSegments = this.wmeSDK.DataModel.Segments.getAll();
+    const matchStartedAt = Date.now();
+    let allSegments = this.wmeSDK.DataModel.Segments.getAll();
+    let attempts = 1;
+
+    while (
+      allSegments.length === 0 &&
+      Date.now() - matchStartedAt < MATCH_SEGMENTS_RETRY_TIMEOUT_MS
+    ) {
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, MATCH_SEGMENTS_RETRY_INTERVAL_MS),
+      );
+      allSegments = this.wmeSDK.DataModel.Segments.getAll();
+      attempts += 1;
+    }
+
+    const mapApi = (this.wmeSDK as unknown as { Map?: unknown }).Map as
+      | {
+          getZoomLevel?: () => number;
+          getMapExtent?: () => [number, number, number, number];
+        }
+      | undefined;
+    const zoom = mapApi?.getZoomLevel?.() ?? null;
+    const extent = mapApi?.getMapExtent?.() ?? null;
+
+    logger.info(
+      "WalkController.matchInCurrentViewport: segments snapshot",
+      {
+        kmA,
+        kmB,
+        count: allSegments.length,
+        attempts,
+        elapsedMs: Date.now() - matchStartedAt,
+        zoom,
+        extent,
+      },
+    );
+
+    if (allSegments.length === 0) {
+      logger.warn(
+        "WalkController.matchInCurrentViewport: getAll returned 0 segment after retry window",
+        {
+          kmA,
+          kmB,
+          zoom,
+          extent,
+        },
+      );
+    }
+
     const segmentLikes = allSegments.map((s) => ({
       id: s.id,
       geometry: s.geometry,
     }));
-    const bufferedMatchedIds = matchSegments({ segments: segmentLikes, bufferedTrack });
-    const projectedSpanBySegmentId = this.findProjectedSliceMatches(allSegments, kmA, kmB);
+
+    logger.info("WalkController.matchInCurrentViewport: starting buffered intersects", {
+      kmA,
+      kmB,
+      segmentCount: segmentLikes.length,
+    });
+
+    const bufferedStartedAt = Date.now();
+    let bufferedMatchedIds: Set<number>;
+    try {
+      bufferedMatchedIds = await matchSegmentsAsync(
+        { segments: segmentLikes, bufferedTrack },
+        {
+          chunkSize: MATCH_COMPUTE_YIELD_EVERY_SEGMENTS,
+          yieldBetweenChunks: yieldToUi,
+        },
+      );
+    } catch (err) {
+      logger.error("WalkController.matchInCurrentViewport: matchSegments failed", {
+        kmA,
+        kmB,
+        segmentCount: segmentLikes.length,
+        err,
+      });
+      throw err;
+    }
+    const bufferedDurationMs = Date.now() - bufferedStartedAt;
+
+    logger.info("WalkController.matchInCurrentViewport: buffered intersects complete", {
+      kmA,
+      kmB,
+      bufferedCount: bufferedMatchedIds.size,
+      bufferedDurationMs,
+    });
+
+    await yieldToUi();
+
+    const projectedStartedAt = Date.now();
+    let projectedSpanBySegmentId = new Map<number, number>();
+    let projectedDurationMs = 0;
+    if (allSegments.length <= MAX_SEGMENTS_FOR_PROJECTED_FALLBACK) {
+      try {
+        projectedSpanBySegmentId = await this.findProjectedSliceMatches(allSegments, kmA, kmB);
+      } catch (err) {
+        logger.error("WalkController.matchInCurrentViewport: projection fallback failed", {
+          kmA,
+          kmB,
+          segmentCount: allSegments.length,
+          err,
+        });
+        throw err;
+      }
+      projectedDurationMs = Date.now() - projectedStartedAt;
+    } else {
+      logger.info("WalkController.matchInCurrentViewport: projection fallback skipped", {
+        kmA,
+        kmB,
+        segmentCount: allSegments.length,
+        maxSegments: MAX_SEGMENTS_FOR_PROJECTED_FALLBACK,
+      });
+    }
+
+    await yieldToUi();
+
     const matchedIds = new Set<number>([...bufferedMatchedIds, ...projectedSpanBySegmentId.keys()]);
     const allowEndBoundaryContinuation = kmB >= this.trackTotalKm - TRACK_END_EPSILON_KM;
-    const filteredMatchedIds = this.filterEndpointTouchingMatches(
-      allSegments,
-      matchedIds,
-      slicedTrack,
-      allowEndBoundaryContinuation,
-      projectedSpanBySegmentId,
-    );
-    const newIds = this.cacheAndEmitMatches(allSegments, filteredMatchedIds);
+
+    const filterStartedAt = Date.now();
+    let filteredMatchedIds: Set<number>;
+    try {
+      filteredMatchedIds = await this.filterEndpointTouchingMatches(
+        allSegments,
+        matchedIds,
+        slicedTrack,
+        allowEndBoundaryContinuation,
+        projectedSpanBySegmentId,
+      );
+    } catch (err) {
+      logger.error("WalkController.matchInCurrentViewport: endpoint filtering failed", {
+        kmA,
+        kmB,
+        combinedCount: matchedIds.size,
+        err,
+      });
+      throw err;
+    }
+    const filterDurationMs = Date.now() - filterStartedAt;
+
+    await yieldToUi();
+
+    let newIds: number[];
+    try {
+      newIds = this.cacheAndEmitMatches(allSegments, filteredMatchedIds);
+    } catch (err) {
+      logger.error("WalkController.matchInCurrentViewport: cacheAndEmitMatches failed", {
+        kmA,
+        kmB,
+        filteredCount: filteredMatchedIds.size,
+        err,
+      });
+      throw err;
+    }
+
+    logger.info("WalkController.matchInCurrentViewport: match stages", {
+      kmA,
+      kmB,
+      bufferedCount: bufferedMatchedIds.size,
+      projectedCount: projectedSpanBySegmentId.size,
+      combinedCount: matchedIds.size,
+      filteredCount: filteredMatchedIds.size,
+      emittedCount: newIds.length,
+      bufferedDurationMs,
+      projectedDurationMs,
+      filterDurationMs,
+      sampleEmittedIds: newIds.slice(0, 10),
+    });
 
     this.progressEmitter.emit(1, 1, newIds);
     logger.info(
@@ -503,13 +663,13 @@ export class WalkController {
     return newIds;
   }
 
-  private filterEndpointTouchingMatches(
+  private async filterEndpointTouchingMatches(
     allSegments: ReadonlyArray<{ id: number; geometry: LineString }>,
     matchedIdsForBatch: ReadonlySet<number>,
     slicedTrack: MultiLineString,
     allowEndBoundaryContinuation: boolean,
     projectedSpanBySegmentId: ReadonlyMap<number, number>,
-  ): Set<number> {
+  ): Promise<Set<number>> {
     const segmentById = new Map(allSegments.map((segment) => [segment.id, segment]));
     const slicedTrackLines = slicedTrack.coordinates.map((lineCoordinates) => ({
       type: "Feature" as const,
@@ -525,7 +685,13 @@ export class WalkController {
       ? this.getEndBoundaryDirection(slicedTrack)
       : null;
 
+    let processedSegments = 0;
     for (const id of matchedIdsForBatch) {
+      processedSegments += 1;
+      if (processedSegments % MATCH_COMPUTE_YIELD_EVERY_SEGMENTS === 0) {
+        await yieldToUi();
+      }
+
       const segment = segmentById.get(id);
       if (!segment) {
         continue;
@@ -599,11 +765,11 @@ export class WalkController {
    * This catches sparse-vertex segments that are visually on the route but
    * can be missed by strict per-vertex thresholds on the sliced polyline.
    */
-  private findProjectedSliceMatches(
+  private async findProjectedSliceMatches(
     allSegments: ReadonlyArray<{ id: number; geometry: LineString }>,
     kmA: number,
     kmB: number,
-  ): Map<number, number> {
+  ): Promise<Map<number, number>> {
     if (!this.fullTrackLine) {
       return new Map<number, number>();
     }
@@ -611,7 +777,13 @@ export class WalkController {
     const isLastSlice = kmB >= this.trackTotalKm - TRACK_END_EPSILON_KM;
     const matchedSpanById = new Map<number, number>();
 
+    let processedSegments = 0;
     for (const segment of allSegments) {
+      processedSegments += 1;
+      if (processedSegments % MATCH_COMPUTE_YIELD_EVERY_SEGMENTS === 0) {
+        await yieldToUi();
+      }
+
       if (segment.geometry.coordinates.length < 2) {
         continue;
       }
@@ -897,4 +1069,8 @@ export class WalkController {
     logger.info(`WalkController: state ${from} → ${to}`);
     this.stateEmitter.emit(this.state);
   }
+}
+
+async function yieldToUi(): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
 }

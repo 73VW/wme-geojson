@@ -76,11 +76,54 @@ describe("SessionStore.rehydrate", () => {
     expect(store.getState().currentIndex).toBe(3);
     expect(store.getState().csvRows[2].segments).toEqual([42]);
   });
+
+  it("rewinds to a previous row and clears validations from that row onward", () => {
+    const store = new SessionStore();
+    store.setTrack(SAMPLE_URL, 10);
+    store.setCsvRows(
+      [
+        { ...SAMPLE_ROW, distance: 0 },
+        { ...SAMPLE_ROW, distance: 1 },
+        { ...SAMPLE_ROW, distance: 2 },
+      ],
+      SAMPLE_CSV_TEXT,
+    );
+    store.validateRow(0, [101], "2026-04-29T13:00", "2026-04-29T13:50");
+    store.validateRow(1, [202], "2026-04-29T14:00", "2026-04-29T14:50");
+
+    store.rewindToRow(1);
+
+    expect(store.getState().currentIndex).toBe(1);
+    expect(store.getState().csvRows[0].segments).toEqual([101]);
+    expect(store.getState().csvRows[1].segments).toBeNull();
+    expect(store.getState().csvRows[2].segments).toBeNull();
+    expect(store.getState().closuresBySegment).toEqual({
+      101: [{ startISO: "2026-04-29T13:00", endISO: "2026-04-29T13:50", rowIndex: 0 }],
+    });
+  });
 });
 
 describe("SessionStore auto-save", () => {
   beforeEach(() => {
     mockedSave.mockClear();
+  });
+
+  it("resets csv state when the track URL changes", () => {
+    const store = new SessionStore();
+    store.setTrack(SAMPLE_URL, 10);
+    store.setCsvRows([SAMPLE_ROW], SAMPLE_CSV_TEXT);
+    store.validateRow(0, [123], "2026-04-29T13:00", "2026-04-29T13:50");
+
+    store.setTrack("https://example.com/other-track.geojson", 12);
+
+    expect(store.getState()).toEqual({
+      phase: "track-loaded",
+      geojsonUrl: "https://example.com/other-track.geojson",
+      trackLengthKm: 12,
+      csvRows: [],
+      currentIndex: 0,
+      closuresBySegment: {},
+    });
   });
 
   it("calls persistence.save after validateRow when url and csvText are set", () => {

@@ -28,6 +28,14 @@ export async function loadAndAttachTrack(
   try {
     const track = await loadTrack(url);
 
+    // GeoJSON reload reuses a fixed SDK layer name, so the previous layer must
+    // be removed before the next TrackLayer.draw() attempts to register it.
+    try {
+      wmeSDK.Map.removeLayer({ layerName: TrackLayer.LAYER_NAME });
+    } catch {
+      // No previous layer is the common case on first load.
+    }
+
     const layer = new TrackLayer(wmeSDK);
     layer.draw(track);
     logger.info(`Track drawn (id=${track.trackId ?? "unknown"})`);

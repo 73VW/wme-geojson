@@ -12,6 +12,11 @@ import { booleanIntersects } from "@turf/turf";
 import type { Feature, LineString } from "geojson";
 import type { MatchArgs } from "./types";
 
+export interface MatchSegmentsAsyncOptions {
+  chunkSize?: number;
+  yieldBetweenChunks?: () => Promise<void>;
+}
+
 /**
  * Return the set of segment IDs whose geometry intersects the buffered track.
  *
@@ -32,6 +37,42 @@ export function matchSegments(args: MatchArgs): Set<number> {
 
     if (booleanIntersects(segFeature, bufferedTrack)) {
       matched.add(segment.id);
+    }
+  }
+
+  return matched;
+}
+
+/**
+ * Async variant of matchSegments that yields between chunks so callers can
+ * keep the browser responsive during large per-view matching runs.
+ */
+export async function matchSegmentsAsync(
+  args: MatchArgs,
+  options: MatchSegmentsAsyncOptions = {},
+): Promise<Set<number>> {
+  const { segments, bufferedTrack } = args;
+  const matched = new Set<number>();
+  const chunkSize = options.chunkSize ?? 20;
+  const yieldBetweenChunks = options.yieldBetweenChunks;
+
+  for (let start = 0; start < segments.length; start += chunkSize) {
+    const chunk = segments.slice(start, start + chunkSize);
+
+    for (const segment of chunk) {
+      const segFeature: Feature<LineString> = {
+        type: "Feature",
+        geometry: segment.geometry,
+        properties: null,
+      };
+
+      if (booleanIntersects(segFeature, bufferedTrack)) {
+        matched.add(segment.id);
+      }
+    }
+
+    if (yieldBetweenChunks && start + chunkSize < segments.length) {
+      await yieldBetweenChunks();
     }
   }
 

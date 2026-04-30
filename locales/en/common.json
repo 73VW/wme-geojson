@@ -83,9 +83,13 @@
       "validateOrCorrect": "Validate, or correct then validate",
       "segmentsMatched": "{{count}} segment(s) matched",
       "validate": "Validate",
+      "skip": "Skip row",
+      "back": "Back",
       "pause": "Pause",
       "restartFromScratch": "Restart from scratch",
       "restartConfirm": "All matched segments will be lost. Restart from scratch?",
+      "mustValidateFirst": "Validate or skip at least one row before downloading closures.",
+      "missingRowGeo": "Cannot export yet: row {{index}} has validated segments but no captured map anchor.",
       "mustFinishFirst": "Finish matching all rows before downloading",
       "noPipelineRun": "Run matching at least once before downloading"
     },

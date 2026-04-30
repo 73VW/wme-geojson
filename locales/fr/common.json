@@ -83,9 +83,13 @@
       "validateOrCorrect": "Validez ou corrigez et validez",
       "segmentsMatched": "{{count}} segment(s) trouvé(s)",
       "validate": "Valider",
+      "skip": "Passer la ligne",
+      "back": "Retour",
       "pause": "Pause",
       "restartFromScratch": "Recommencer de zéro",
       "restartConfirm": "Tous les segments validés seront perdus. Recommencer de zéro ?",
+      "mustValidateFirst": "Validez ou passez au moins une ligne avant de télécharger les fermetures.",
+      "missingRowGeo": "Export impossible pour l'instant : la ligne {{index}} a des segments validés mais aucun point d'ancrage de carte capturé.",
       "mustFinishFirst": "Terminez la correspondance de toutes les lignes avant de télécharger",
       "noPipelineRun": "Lancez la correspondance au moins une fois avant de télécharger"
     },

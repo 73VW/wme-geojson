@@ -88,7 +88,8 @@ export class TrackLayer {
       styleRules: this.buildStyleRules(),
     });
 
-    this.drawFeatures(track, this.allLabels);
+    // Respect the default-hidden labels contract from the first render.
+    this.drawFeatures(track, this.filterLabels());
   }
 
   /**

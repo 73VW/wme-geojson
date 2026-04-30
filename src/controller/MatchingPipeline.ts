@@ -48,6 +48,8 @@ export interface PipelineEvents {
   onAborted?: () => void;
 }
 
+type PendingRowAction = "validate" | "skip" | "back" | "abort";
+
 // ---------------------------------------------------------------------------
 // MatchingPipeline
 // ---------------------------------------------------------------------------
@@ -64,7 +66,7 @@ export class MatchingPipeline {
 
   // Resolve handle for the "waiting for validate" pause point. When the user
   // clicks Validate, validateCurrentRow() calls this to unblock the loop.
-  private pendingValidator: (() => void) | null = null;
+  private pendingResolver: ((action: PendingRowAction) => void) | null = null;
 
   // Resolve handle for abort while waiting for validate
   private pendingAbortReject: (() => void) | null = null;
@@ -94,6 +96,10 @@ export class MatchingPipeline {
       logger.warn("MatchingPipeline.start: already running, ignoring");
       return;
     }
+    logger.info("MatchingPipeline.start: requested", {
+      currentIndex: this.store.getState().currentIndex,
+      rowCount: this.store.getState().csvRows.length,
+    });
     this.abortRequested = false;
     this.running = true;
 
@@ -113,6 +119,7 @@ export class MatchingPipeline {
    * or between rows otherwise.
    */
   abort(): void {
+    logger.info("MatchingPipeline.abort: requested");
     this.abortRequested = true;
     // If we are paused waiting for the user's validate click, unblock the
     // pause point so the loop can see the abort flag and exit cleanly.
@@ -125,11 +132,30 @@ export class MatchingPipeline {
    * row via the store and resolves the pending loop pause.
    */
   validateCurrentRow(): void {
-    if (!this.pendingValidator) {
+    if (!this.pendingResolver) {
       logger.warn("MatchingPipeline.validateCurrentRow: no pending row, ignoring");
       return;
     }
-    this.pendingValidator();
+    logger.info("MatchingPipeline.validateCurrentRow: resolving pending validation gate");
+    this.pendingResolver("validate");
+  }
+
+  skipCurrentRow(): void {
+    if (!this.pendingResolver) {
+      logger.warn("MatchingPipeline.skipCurrentRow: no pending row, ignoring");
+      return;
+    }
+    logger.info("MatchingPipeline.skipCurrentRow: resolving pending skip gate");
+    this.pendingResolver("skip");
+  }
+
+  goBackOneRow(): void {
+    if (!this.pendingResolver) {
+      logger.warn("MatchingPipeline.goBackOneRow: no pending row, ignoring");
+      return;
+    }
+    logger.info("MatchingPipeline.goBackOneRow: resolving pending back gate");
+    this.pendingResolver("back");
   }
 
   isRunning(): boolean {
@@ -150,6 +176,12 @@ export class MatchingPipeline {
     const { csvRows, currentIndex } = state;
     const totalKm = state.trackLengthKm ?? 0;
 
+    logger.info("MatchingPipeline.runLoop: starting", {
+      rowCount: csvRows.length,
+      currentIndex,
+      totalKm,
+    });
+
     if (csvRows.length === 0) {
       this.events.onError?.("No CSV rows loaded");
       this.running = false;
@@ -158,6 +190,11 @@ export class MatchingPipeline {
 
     const distances = csvRows.map((r) => r.distance);
     const portions = computePortions(distances, totalKm);
+
+    logger.info("MatchingPipeline.runLoop: portions computed", {
+      portionCount: portions.length,
+      firstPortion: portions[0] ?? null,
+    });
 
     if (portions.length !== csvRows.length) {
       this.events.onError?.(
@@ -181,10 +218,31 @@ export class MatchingPipeline {
       const portion = portions[i];
       const collectedIds = new Set<number>();
 
+      logger.info("MatchingPipeline.runLoop: row started", {
+        rowIndex: i,
+        totalRows: csvRows.length,
+        distance: row.distance,
+        startTime: row.startTime,
+        endTime: row.endTime,
+        kmA: portion.kmA,
+        kmB: portion.kmB,
+      });
+
       // --- Compute bbox view(s) via bisection and run matching per view -------
 
       const viewGeos: Array<{ lon: number; lat: number; zoom: ZoomLevel }> = [];
+      logger.info("MatchingPipeline.runLoop: starting bbox bisection", {
+        rowIndex: i,
+        kmA: portion.kmA,
+        kmB: portion.kmB,
+      });
       await this.bisect(portion.kmA, portion.kmB, 0, viewGeos);
+
+      logger.info("MatchingPipeline.runLoop: bbox bisection complete", {
+        rowIndex: i,
+        viewCount: viewGeos.length,
+        views: viewGeos,
+      });
 
       if (this.abortRequested) {
         this.events.onAborted?.();
@@ -199,17 +257,27 @@ export class MatchingPipeline {
       for (const view of viewGeos) {
         if (this.abortRequested) break;
 
-        // Navigate to the view
-        this.wmeSDK.Map.zoomToExtent({ bbox: [view.lon, view.lat, view.lon, view.lat] });
-        // Use setMapCenter instead since zoomToExtent already happened in bisect;
-        // by this point bisect already navigated and we have center+zoom.
-        // Actually bisect uses zoomToExtent to navigate — the view's lon/lat
-        // here are the BBOX midpoints. Re-use them to re-navigate cleanly.
+        logger.info("MatchingPipeline.runLoop: navigating to recorded view", {
+          rowIndex: i,
+          view,
+        });
+
+        // Mirror the historical manual per-view flow exactly: once bbox
+        // discovery has produced a center+zoom leaf, matching is launched from
+        // that recorded view via setMapCenter, not by recomputing zoomToExtent.
         this.wmeSDK.Map.setMapCenter({
           lonLat: { lon: view.lon, lat: view.lat },
           zoomLevel: view.zoom,
         });
+        logger.info("MatchingPipeline.runLoop: waiting for map idle after setMapCenter", {
+          rowIndex: i,
+          view,
+        });
         await waitForMapIdle(this.wmeSDK);
+        logger.info("MatchingPipeline.runLoop: map idle after setMapCenter", {
+          rowIndex: i,
+          view,
+        });
 
         if (this.abortRequested) break;
 
@@ -220,7 +288,16 @@ export class MatchingPipeline {
         });
 
         try {
+          logger.info("MatchingPipeline.runLoop: calling matchInCurrentViewport", {
+            rowIndex: i,
+            kmA: portion.kmA,
+            kmB: portion.kmB,
+          });
           await this.controller.matchInCurrentViewport(portion.kmA, portion.kmB);
+          logger.info("MatchingPipeline.runLoop: matchInCurrentViewport resolved", {
+            rowIndex: i,
+            collectedCount: collectedIds.size,
+          });
         } finally {
           unsub();
         }
@@ -242,8 +319,17 @@ export class MatchingPipeline {
 
       const ids = Array.from(collectedIds);
       try {
+        logger.info("MatchingPipeline.runLoop: setting WME selection", {
+          rowIndex: i,
+          idsCount: ids.length,
+          idsSample: ids.slice(0, 10),
+        });
         this.wmeSDK.Editing.setSelection({
           selection: { ids, objectType: "segment" },
+        });
+        logger.info("MatchingPipeline.runLoop: WME selection set", {
+          rowIndex: i,
+          idsCount: ids.length,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -257,33 +343,70 @@ export class MatchingPipeline {
       // the userscript tab. Clicking the tab label element (returned by
       // Sidebar.registerScriptTab) is the only available way to switch back
       // since the SDK has no programmatic selectTab API.
+      logger.info("MatchingPipeline.runLoop: clicking userscript tab label", {
+        rowIndex: i,
+      });
       this.tabLabel.click();
+      logger.info("MatchingPipeline.runLoop: userscript tab label clicked", {
+        rowIndex: i,
+      });
 
       this.events.onRowMatched?.(i, ids);
+      logger.info("MatchingPipeline.runLoop: waiting for user validation", {
+        rowIndex: i,
+        idsCount: ids.length,
+      });
 
       // --- Wait for user to click Validate -----------------------------------
 
-      const validated = await this.waitForValidate();
-      if (!validated) {
+      const action = await this.waitForValidate();
+      logger.info("MatchingPipeline.runLoop: row action resolved", {
+        rowIndex: i,
+        action,
+      });
+      if (action === "abort") {
         // Abort was requested while waiting for the user
         this.events.onAborted?.();
         this.running = false;
         return;
       }
 
-      // Read the CURRENT WME selection at validate time (not the auto-selected
-      // ids from matching): the user may have corrected the selection manually.
-      const selection = this.wmeSDK.Editing.getSelection();
+      if (action === "back") {
+        const restartIndex = Math.max(0, i - 1);
+        logger.info("MatchingPipeline.runLoop: rewinding to previous row", {
+          rowIndex: i,
+          restartIndex,
+        });
+        this.store.rewindToRow(restartIndex);
+        this.rowGeos.length = restartIndex;
+        i = restartIndex - 1;
+        continue;
+      }
+
       const finalSegmentIds =
-        selection !== null && selection.objectType === "segment"
-          ? (selection.ids as number[])
-          : ids;
+        action === "skip"
+          ? []
+          : (() => {
+              // Read the CURRENT WME selection at validate time (not the auto-selected
+              // ids from matching): the user may have corrected the selection manually.
+              const selection = this.wmeSDK.Editing.getSelection();
+              return selection !== null && selection.objectType === "segment"
+                ? (selection.ids as number[])
+                : ids;
+            })();
 
       const startISO = `${row.date}T${row.startTime}`;
       const endISO = `${row.date}T${row.endTime}`;
+      logger.info("MatchingPipeline.runLoop: persisting validated row", {
+        rowIndex: i,
+        finalSegmentCount: finalSegmentIds.length,
+        startISO,
+        endISO,
+      });
       this.store.validateRow(i, finalSegmentIds, startISO, endISO);
     }
 
+    logger.info("MatchingPipeline.runLoop: completed all rows");
     this.events.onDone?.();
     this.running = false;
   }
@@ -310,6 +433,12 @@ export class MatchingPipeline {
   ): Promise<void> {
     if (this.abortRequested) return;
 
+    logger.info("MatchingPipeline.bisect: enter", {
+      kmA,
+      kmB,
+      depth,
+    });
+
     const sliced = sliceMultiLineByDistance(this.track.geometry, kmA, kmB);
     const box = bboxOfMultiLineString(sliced);
 
@@ -319,7 +448,18 @@ export class MatchingPipeline {
     }
 
     this.wmeSDK.Map.zoomToExtent({ bbox: box });
+    logger.info("MatchingPipeline.bisect: zoomToExtent issued", {
+      kmA,
+      kmB,
+      depth,
+      box,
+    });
     await waitForMapIdle(this.wmeSDK);
+    logger.info("MatchingPipeline.bisect: map idle after zoomToExtent", {
+      kmA,
+      kmB,
+      depth,
+    });
 
     if (this.abortRequested) return;
 
@@ -338,11 +478,26 @@ export class MatchingPipeline {
       const centerLon = (box[0] + box[2]) / 2;
       const centerLat = (box[1] + box[3]) / 2;
       collector.push({ lon: centerLon, lat: centerLat, zoom });
+      logger.info("MatchingPipeline.bisect: accepted leaf view", {
+        kmA,
+        kmB,
+        depth,
+        zoom,
+        centerLon,
+        centerLat,
+      });
       return;
     }
 
     // Zoom still too low — bisect into left and right halves
     const mid = (kmA + kmB) / 2;
+    logger.info("MatchingPipeline.bisect: splitting", {
+      kmA,
+      kmB,
+      depth,
+      mid,
+      zoom,
+    });
     await this.bisect(kmA, mid, depth + 1, collector);
     if (this.abortRequested) return;
     await this.bisect(mid, kmB, depth + 1, collector);
@@ -357,17 +512,17 @@ export class MatchingPipeline {
    * abort() is called (returns false). Storing both resolve functions lets
    * abort() interrupt the wait cleanly.
    */
-  private waitForValidate(): Promise<boolean> {
-    return new Promise<boolean>((resolve) => {
-      this.pendingValidator = () => {
-        this.pendingValidator = null;
+  private waitForValidate(): Promise<PendingRowAction> {
+    return new Promise<PendingRowAction>((resolve) => {
+      this.pendingResolver = (action) => {
+        this.pendingResolver = null;
         this.pendingAbortReject = null;
-        resolve(true);
+        resolve(action);
       };
       this.pendingAbortReject = () => {
-        this.pendingValidator = null;
+        this.pendingResolver = null;
         this.pendingAbortReject = null;
-        resolve(false);
+        resolve("abort");
       };
     });
   }

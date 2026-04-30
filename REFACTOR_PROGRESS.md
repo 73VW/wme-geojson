@@ -21,11 +21,12 @@
 
 **Where things stand right now**
 
-- Lots 0–5 are merged. Lot 6 (release) is the only outstanding work.
-  All deliverables for the CSV-driven closures pipeline are
-  implemented. The script is feature-complete pending manual smoke
-  testing.
-- Working tree is clean (or should be — verify with `git status`).
+- Lots 0–5 are merged. Lot 7 (stabilisation pré-release) is now in
+  progress, and Lot 6 (release) is blocked on its outcome.
+- The functional pipeline is implemented, but manual testing exposed a
+  small set of runtime/UI issues that must be fixed before the WME
+  smoke test can be considered authoritative.
+- Working tree is expected to be dirty while Lot 7 is in progress.
 - Latest commits (most recent first):
   ```
   2f45a56 chore(progress): complete Lot 5, queue Lot 6 (release)
@@ -41,19 +42,36 @@
 ```bash
 git status                 # must be clean
 git log --oneline -15      # must show the commits above
-npm test                   # 104 tests must pass
+npm test                   # 105 tests must pass
 npx tsc --noEmit           # must produce no output
 ```
 
 If any of those is dirty/red, **do not proceed with Lot 6** — read
 the blockers section §6 and fix first.
 
-**What to do next: Lot 6 (release)**
+**What changed in Lot 7 so far**
 
-This lot is **NOT delegable to a sub-agent** — it requires manual
-clicks in the live WME editor. The PO (you) drives it.
+- Reloading a different GeoJSON no longer reuses a stale layer name:
+  `loadAndAttachTrack` now removes the existing `wme-geojson-track`
+  layer before drawing the next one.
+- Changing the GeoJSON URL now resets CSV-derived session state in
+  `SessionStore` so a new track cannot inherit stale `csvRows`,
+  `currentIndex`, or `closuresBySegment` from the previous track.
+- The Waze/fallback UI factories now set button text/value via both
+  DOM content and custom-element properties, and the panel has a more
+  intentional local style for non-WME fallbacks.
+- `MatchPanel.renderPhase` now explicitly hides `Start matching`
+  during `matching` and shows the guided sub-panel only while the
+  matching pipeline is active.
+- A regression test covers the track-change reset path in
+  `SessionStore.test.ts`.
 
-1. Smoke test in WME:
+**What to do next: finish Lot 7, then resume Lot 6**
+
+Lot 7 can be delegated in implementation/review slices; Lot 6 still
+requires manual clicks in the live WME editor by the PO.
+
+1. Validate Lot 7 in WME:
    - Load `https://beta.waze.com/fr/editor?env=row` with the
      userscript installed in dev mode (`header-dev.js` →
      `.out/main.user.js`, see `HANDOFF.md` §6).
@@ -61,6 +79,11 @@ clicks in the live WME editor. The PO (you) drives it.
      URL should appear in the editor URL (`?geojson=...`); track
      length should display under the field; the range slider
      should appear; distance labels should be HIDDEN initially.
+   - Change the GeoJSON URL and click **Load** again. This must NOT
+     throw `Layer "wme-geojson-track" already exists`, and the panel
+     must not keep stale CSV progress from the previous track.
+   - Confirm that all visible buttons have text in WME and that the
+     guided sub-panel is hidden until phase `matching`.
    - Upload the schedule CSV (see Annex B for a sample).
      Distance labels should now appear, filtered to the CSV's
      distances.
@@ -81,7 +104,8 @@ clicks in the live WME editor. The PO (you) drives it.
    - Click **Download enriched input CSV** — segments should
      be populated.
 
-2. Bump version: edit `package.json` from `0.9.0` to `0.10.0`.
+2. Only after Lot 7 is green, bump version: edit `package.json` from
+  `0.9.0` to `0.10.0`.
    No other file references the version.
 
 3. Generate the release:
@@ -134,7 +158,7 @@ clicks in the live WME editor. The PO (you) drives it.
   `releases/*.user.js` files are immutable artifacts. Only ADD
   the new `release-0.10.0.user.js`; never modify existing ones.
 
-**If something breaks during smoke testing**
+**If something breaks during Lot 7 validation or smoke testing**
 
 Don't patch ad-hoc. Add a "**Lot 7 — fix X**" row to §4 with
 status `TODO`, write a short A.7 prompt in the annex, and either
@@ -185,36 +209,39 @@ Same as `HANDOFF.md` §2:
 | **3 — guided pipeline** | DONE | `775608b` | `src/controller/MatchingPipeline.ts` (new, ~360 lines), `src/ui/MatchPanel.ts` (guided sub-panel + real wiring), `src/layers/TrackLayer.ts` (`getTrackGeometry()` accessor), locale keys under `panel.matching` | 98 tests green, tsc clean. Tab return uses `tabLabel.click()` (no SDK API exists). RowGeo captured from the **last** bisected bbox view (most natural anchor — matches what the user is currently looking at). Validation reads `wmeSDK.Editing.getSelection()` at click-time so user corrections are captured. Pipeline does NOT touch localStorage — Lot 5 will plug a store subscriber. |
 | **4 — closures CSV builder** | DONE | `fe6663c` | `src/csv/buildClosuresCsv.ts`, `src/csv/__tests__/buildClosuresCsv.test.ts` (20 tests), `src/ui/promptFinalFields.ts`, locale keys under `panel.finalFields` (EN+FR) | 98 tests green, tsc clean. **Implementation note:** for merged-range rows, `RowGeo` is taken from the earliest contributing row (`mergedRange.rowIndex` = first by `startISO`). Touching boundaries (end(A) == start(B)) explicitly do NOT merge. `promptFinalFields` is implemented but not yet wired into MatchPanel — Lot 3 does that. |
 | **5 — persistence + resume wiring** | DONE | `077d5ea` | `src/state/SessionStore.ts` (auto-save in `mutate`, `rehydrate` method, `setCsvRows(rows, csvText)` signature), `src/ui/MatchPanel.ts` (resume banner + restart-from-scratch button), `src/__tests__/SessionStore.test.ts` (6 new tests) | 104 tests green, tsc clean. **Implementation note:** the Sonnet agent finished ~70% (auto-save + rehydrate + part of the resume detection) before being interrupted; the PO finished `renderResumeBanner`, the restart button, and the SessionStore tests directly. The `maybeShowResumeBanner` placeholder was deleted (replaced by `renderResumeBanner` called from `onCsvFileSelected`). |
-| **6 — polish + release** | TODO | — | `package.json` bump, `releases/release-0.10.0.user.js`, `README.md`, `HANDOFF.md` | Manual smoke E2E, version bump, regenerate release. |
+| **6 — polish + release** | BLOCKED | — | `package.json` bump, `releases/release-0.10.0.user.js`, `README.md`, `HANDOFF.md` | Blocked by Lot 7 validation in WME. |
+| **7 — stabilisation pré-release** | IN PROGRESS | — | `src/bootstrap/loadAndAttachTrack.ts`, `src/state/SessionStore.ts`, `src/ui/MatchPanel.ts`, `src/ui/components/wz.ts`, `src/__tests__/SessionStore.test.ts` | Current fixes: remove stale layer on GeoJSON reload, reset session when track URL changes, improve button/text/value binding for Waze/fallback UI, tighten phase-driven visibility, add regression test. Local validation is green (`npm test`: 105 tests, `npx tsc --noEmit`, `npm run build`). Remaining work: confirm visually in WME that buttons render correctly and labels still stay hidden until CSV load. |
 
 Status legend: `TODO` (not started), `IN PROGRESS` (active), `BLOCKED`
 (see Blockers section), `DONE`.
 
 ## 5. Next action
 
-**Start Lot 6 (polish + release).** All implementation lots are
-merged. Lot 6 is performed directly by the PO (no agent delegation):
+**Finish Lot 7 (stabilisation), then resume Lot 6.**
 
-1. Manual smoke E2E in WME (per the verification checklist in the
-   plan: paste URL → CSV upload → start matching → validate a few
-   rows → reload page → resume → finish → download both CSVs).
-   Document any rough edges in this file before tagging.
-2. Bump `package.json` version `0.9.0` → `0.10.0`.
-3. Run `npm run build` and verify the new
+1. Validate the current Lot 7 fixes in live WME:
+  - GeoJSON reload must not throw a layer-name collision.
+  - Changing track URL must reset stale CSV progress.
+  - Buttons must render text in the WME sidebar.
+  - Guided matching panel must stay hidden before `matching`.
+  - Distance labels must remain hidden until the CSV is loaded.
+2. If one of those checks fails, add/update a Lot 7 follow-up item in
+  this file before touching release tasks.
+3. Once Lot 7 is green, bump `package.json` version `0.9.0` → `0.10.0`.
+4. Run `npm run build` and verify the new
    `releases/release-0.10.0.user.js` is produced. **Do NOT commit
    the prettier-mangled older releases** — restore them via
    `git checkout HEAD -- releases/release-0.[1-9].*.user.js` before
    adding only the new file.
-4. Update `README.md` with the new flow (URL → CSV → guided
+5. Update `README.md` with the new flow (URL → CSV → guided
    matching → closures CSV).
-5. Update `HANDOFF.md`: mark `0.10.0` as the current state, list
+6. Update `HANDOFF.md`: mark `0.10.0` as the current state, list
    what works, add any new SDK quirks discovered during smoke
    testing.
-6. Final commit `release: v0.10.0 — CSV-driven closures pipeline`.
+7. Final commit `release: v0.10.0 — CSV-driven closures pipeline`.
 
-The smoke testing requires manual interaction with WME and is not
-delegable. If something breaks, file a follow-up lot rather than
-patching ad-hoc.
+The live WME checks are still the release gate. If something breaks,
+file a follow-up Lot 7 item rather than patching ad-hoc.
 
 **Lot 3 deferred / known limitations** (still relevant for Lot 6 testing)
 
@@ -228,7 +255,10 @@ patching ad-hoc.
 
 ## 6. Blockers / open questions
 
-*(none currently)*
+- **Lot 6 is blocked by Lot 7 visual/runtime confirmation in WME.**
+  Local build/test/typecheck are green, but the release should not
+  proceed until the sidebar rendering and labels-on-CSV behavior are
+  confirmed in the live editor.
 
 ## 7. Execution order
 
@@ -239,7 +269,8 @@ Lot 0 (DONE)
     → Lot 2 (UI refactor)
        → Lot 3 (guided pipeline, needs 1+2)
          → Lot 5 (persistence wiring, needs 1+2+3)
-           → Lot 6 (polish, release)
+           → Lot 7 (stabilisation pré-release)
+             → Lot 6 (polish, release)
 ```
 
 ---

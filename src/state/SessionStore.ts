@@ -75,7 +75,24 @@ export class SessionStore {
   }
 
   setTrack(url: string, lengthKm: number): void {
-    this.mutate({ geojsonUrl: url, trackLengthKm: lengthKm });
+    const trackChanged = this.state.geojsonUrl !== null && this.state.geojsonUrl !== url;
+
+    if (!trackChanged) {
+      this.mutate({ geojsonUrl: url, trackLengthKm: lengthKm });
+      return;
+    }
+
+    // Track changes invalidate CSV row ownership and any persisted closures,
+    // so the session must restart from a clean track-loaded state.
+    this.csvText = null;
+    this.mutate({
+      phase: "track-loaded",
+      geojsonUrl: url,
+      trackLengthKm: lengthKm,
+      csvRows: [],
+      currentIndex: 0,
+      closuresBySegment: {},
+    });
   }
 
   /**
@@ -133,6 +150,47 @@ export class SessionStore {
     this.mutate({
       csvRows: updatedRows,
       currentIndex: nextIndex,
+      closuresBySegment,
+    });
+  }
+
+  rewindToRow(index: number): void {
+    const rows = this.state.csvRows;
+    if (index < 0 || index >= rows.length) {
+      throw new Error(
+        `[SessionStore] rewindToRow: index ${index} out of range (${rows.length} rows)`,
+      );
+    }
+
+    const updatedRows = rows.map((row, rowIndex) =>
+      rowIndex >= index ? { ...row, segments: null } : row,
+    );
+
+    const closuresBySegment: Record<number, ClosureRange[]> = {};
+    updatedRows.forEach((row, rowIndex) => {
+      if (row.segments === null || row.segments.length === 0) {
+        return;
+      }
+
+      const range: ClosureRange = {
+        startISO: `${row.date}T${row.startTime}`,
+        endISO: `${row.date}T${row.endTime}`,
+        rowIndex,
+      };
+
+      row.segments.forEach((segId) => {
+        const existing = closuresBySegment[segId];
+        if (existing) {
+          closuresBySegment[segId] = [...existing, range];
+        } else {
+          closuresBySegment[segId] = [range];
+        }
+      });
+    });
+
+    this.mutate({
+      csvRows: updatedRows,
+      currentIndex: index,
       closuresBySegment,
     });
   }
