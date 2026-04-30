@@ -75,6 +75,8 @@
     "downloadEnriched": "Download enriched input CSV",
     "downloadClosures": "Download closures CSV",
     "resumeDetected": "A previous session was found. Continue where you left off?",
+    "resumeIndex": "Resuming at row {{index}} / {{total}}",
+    "resume": "Resume",
     "startFresh": "Start fresh",
     "matching": {
       "rowHeader": "Row {{index}} / {{total}} — {{km}} km, {{startTime}} → {{endTime}}",
@@ -82,6 +84,8 @@
       "segmentsMatched": "{{count}} segment(s) matched",
       "validate": "Validate",
       "pause": "Pause",
+      "restartFromScratch": "Restart from scratch",
+      "restartConfirm": "All matched segments will be lost. Restart from scratch?",
       "mustFinishFirst": "Finish matching all rows before downloading",
       "noPipelineRun": "Run matching at least once before downloading"
     },

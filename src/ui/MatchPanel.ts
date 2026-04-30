@@ -4,7 +4,7 @@ import { logger } from "../utils/logger";
 import type { TrackLayer } from "../layers/TrackLayer";
 import type { WalkController } from "../controller/WalkController";
 import type { WalkState } from "../controller/walkStates";
-import type { SessionStore, SessionPhase } from "../state/SessionStore";
+import type { SessionStore, SessionPhase, SessionState, CsvRow } from "../state/SessionStore";
 import { parseSchedule } from "../csv/parseSchedule";
 import { serializeSchedule } from "../csv/serializeSchedule";
 import { buildClosuresCsv } from "../csv/buildClosuresCsv";
@@ -12,6 +12,8 @@ import type { FinalFields, RowGeo } from "../csv/buildClosuresCsv";
 import { wzButton, wzTextInput, fileInput } from "./components/wz";
 import { MatchingPipeline } from "../controller/MatchingPipeline";
 import { promptFinalFields } from "./promptFinalFields";
+import { load as persistenceLoad, clearForCurrent } from "../persistence/sessionStorage";
+import { confirmModal } from "./modal";
 
 
 /**
@@ -69,6 +71,11 @@ export class MatchPanel {
 
   // Active pipeline instance (created on Start matching, cleared on done/abort)
   private pipeline: MatchingPipeline | null = null;
+
+  // Cached CSV inputs — kept in memory so the "restart from scratch" path can
+  // re-load the same rows without asking the user to re-upload the file.
+  private lastCsvText: string | null = null;
+  private lastCsvRows: CsvRow[] = [];
 
   // Guided sub-panel text elements updated by pipeline events
   private guidedRowHeaderEl: HTMLElement | null = null;
@@ -418,8 +425,46 @@ export class MatchPanel {
     });
     btnRow.appendChild(pauseBtn);
 
+    // Always-available escape hatch: discard all matched segments and start
+    // again from row 0 with the same CSV (frozen user decision §2).
+    const restartBtn = wzButton({
+      text: i18next.t("panel.matching.restartFromScratch"),
+      variant: "danger",
+      onClick: () => {
+        this.onRestartFromScratchClick();
+      },
+    });
+    btnRow.appendChild(restartBtn);
+
     section.appendChild(btnRow);
     return section;
+  }
+
+  private onRestartFromScratchClick(): void {
+    confirmModal({
+      message: i18next.t("panel.matching.restartConfirm"),
+      confirmLabel: i18next.t("panel.matching.restartFromScratch"),
+      cancelLabel: i18next.t("panel.finalFields.cancel"),
+    })
+      .then((confirmed) => {
+        if (!confirmed) return;
+        this.pipeline?.abort();
+        const url = this.store.getState().geojsonUrl;
+        if (url && this.lastCsvText) {
+          clearForCurrent(url, this.lastCsvText);
+        }
+        // Re-load the same CSV (cached) to land back at csv-loaded with a
+        // fresh state — saves the user from re-uploading the file.
+        if (this.lastCsvText && this.lastCsvRows.length > 0) {
+          this.store.setCsvRows(this.lastCsvRows, this.lastCsvText);
+          this.store.setPhase("csv-loaded");
+        } else {
+          this.store.reset();
+        }
+      })
+      .catch((err: unknown) => {
+        logger.error("MatchPanel: restart confirm modal rejected", err);
+      });
   }
 
   private buildDownloadRow(): HTMLElement {
@@ -453,9 +498,76 @@ export class MatchPanel {
   private buildResumeBannerRow(): HTMLElement {
     const section = document.createElement("section");
     section.style.marginTop = "8px";
-    // Lot 5 will populate this via maybeShowResumeBanner().
-    this.maybeShowResumeBanner();
+    section.style.display = "none";
+    section.style.padding = "8px";
+    section.style.border = "1px solid #f0c040";
+    section.style.background = "#fff8e1";
+    section.style.borderRadius = "4px";
     return section;
+  }
+
+  /**
+   * Populate the resume banner with two buttons. Called from
+   * onCsvFileSelected when a non-empty saved state was found for the current
+   * (geojsonUrl, csvText) pair. Both buttons hide the banner before mutating
+   * the store so the panel transitions cleanly to csv-loaded or matching.
+   */
+  private renderResumeBanner(
+    saved: SessionState,
+    rows: CsvRow[],
+    csvText: string,
+  ): void {
+    const banner = this.resumeBannerRow;
+    if (!banner) return;
+
+    // Clear any previous content (the same banner element is reused across
+    // CSV uploads).
+    while (banner.firstChild) banner.removeChild(banner.firstChild);
+
+    const headerEl = document.createElement("p");
+    headerEl.style.margin = "0 0 4px 0";
+    headerEl.style.fontWeight = "600";
+    headerEl.textContent = i18next.t("panel.resumeDetected");
+    banner.appendChild(headerEl);
+
+    const indexEl = document.createElement("p");
+    indexEl.style.margin = "0 0 8px 0";
+    indexEl.style.fontSize = "12px";
+    indexEl.textContent = i18next.t("panel.resumeIndex", {
+      index: saved.currentIndex,
+      total: rows.length,
+    });
+    banner.appendChild(indexEl);
+
+    const btnRow = document.createElement("div");
+    btnRow.style.display = "flex";
+    btnRow.style.gap = "6px";
+
+    const resumeBtn = wzButton({
+      text: i18next.t("panel.resume"),
+      variant: "primary",
+      onClick: () => {
+        banner.style.display = "none";
+        this.store.rehydrate(saved, csvText);
+      },
+    });
+    btnRow.appendChild(resumeBtn);
+
+    const freshBtn = wzButton({
+      text: i18next.t("panel.startFresh"),
+      variant: "secondary",
+      onClick: () => {
+        const url = this.store.getState().geojsonUrl;
+        if (url) clearForCurrent(url, csvText);
+        banner.style.display = "none";
+        this.store.setCsvRows(rows, csvText);
+        this.store.setPhase("csv-loaded");
+      },
+    });
+    btnRow.appendChild(freshBtn);
+
+    banner.appendChild(btnRow);
+    banner.style.display = "block";
   }
 
   // ---------------------------------------------------------------------------
@@ -657,14 +769,27 @@ export class MatchPanel {
       if (typeof text !== "string") return;
       try {
         const rows = parseSchedule(text);
-        this.store.setCsvRows(rows);
-        this.store.setPhase("csv-loaded");
+        // Cache so the restart-from-scratch button can re-load without asking
+        // the user to re-upload the file.
+        this.lastCsvText = text;
+        this.lastCsvRows = rows;
 
         // Show only the labels whose distances appear in the CSV so the track
-        // decorations match the pipeline waypoints from the start (Lot 2 default).
+        // decorations match the pipeline waypoints from the start.
         if (this.trackLayer) {
           const distanceKeys = rows.map((r) => r.distance);
           this.trackLayer.setVisibleDistances(distanceKeys);
+        }
+
+        const url = this.store.getState().geojsonUrl;
+        const saved = url ? persistenceLoad(url, text) : null;
+        if (saved && saved.currentIndex > 0) {
+          // Defer the actual store mutation until the user picks Resume or
+          // Start fresh — see renderResumeBanner().
+          this.renderResumeBanner(saved, rows, text);
+        } else {
+          this.store.setCsvRows(rows, text);
+          this.store.setPhase("csv-loaded");
         }
 
         logger.info(`MatchPanel: loaded ${rows.length} CSV rows`);
@@ -852,23 +977,6 @@ export class MatchPanel {
     if (this.badgeEl) {
       this.badgeEl.textContent = i18next.t(`panel.status.${state}`);
     }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Private — resume banner (Lot 5 wires detection; no-op for now)
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Check whether a saved session exists for the current (geojsonUrl, csvText)
-   * pair and, if so, show a resume banner with "Continue" and "Start fresh"
-   * buttons. No-op for now — Lot 5 implements the detection and UI.
-   *
-   * TODO (Lot 5): call sessionStorage.load(url, csvText) here, render the
-   * banner, and wire the "Start fresh" button to sessionStorage.clearForCurrent
-   * followed by store.reset().
-   */
-  private maybeShowResumeBanner(): void {
-    // no-op placeholder — Lot 5
   }
 
   // ---------------------------------------------------------------------------

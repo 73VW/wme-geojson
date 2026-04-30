@@ -1,6 +1,11 @@
 // Observable store for the CSV-driven closures pipeline session.
 // Kept entirely SDK- and DOM-free so it can be tested in plain Node.
 
+import {
+  save as persistenceSave,
+} from "../persistence/sessionStorage";
+import { logger } from "../utils/logger";
+
 export type SessionPhase =
   | "no-track"
   | "track-loaded"
@@ -48,6 +53,10 @@ export class SessionStore {
   private readonly listeners = new Map<number, Listener>();
   private nextId = 0;
 
+  // Raw CSV text kept alongside the parsed rows so the persistence key can be
+  // computed without the caller having to re-pass it on every mutation.
+  private csvText: string | null = null;
+
   getState(): Readonly<SessionState> {
     return this.state;
   }
@@ -69,9 +78,14 @@ export class SessionStore {
     this.mutate({ geojsonUrl: url, trackLengthKm: lengthKm });
   }
 
-  setCsvRows(rows: CsvRow[]): void {
-    // Reset index and closures when new rows are loaded — stale closures from a
-    // previous CSV import would silently accumulate against wrong row indices.
+  /**
+   * Load a new set of CSV rows and record the raw CSV text.
+   * The raw text is needed to derive the localStorage key for auto-save.
+   * Resets index and closures — stale closures from a previous CSV import
+   * would silently accumulate against wrong row indices.
+   */
+  setCsvRows(rows: CsvRow[], csvText: string): void {
+    this.csvText = csvText;
     this.mutate({
       csvRows: rows,
       currentIndex: 0,
@@ -123,7 +137,21 @@ export class SessionStore {
     });
   }
 
+  /**
+   * Rehydrate the store from a previously persisted state.
+   * Used by the resume banner when the user chooses "Continue" after reload.
+   * The csvText is stored so subsequent mutations can still auto-save.
+   */
+  rehydrate(state: SessionState, csvText: string): void {
+    this.csvText = csvText;
+    // Replace state wholesale and notify — same notify path as mutate so
+    // subscribers (including the panel) see the restored state immediately.
+    this.state = { ...state };
+    this.notify();
+  }
+
   reset(): void {
+    this.csvText = null;
     this.state = { ...INITIAL_STATE, closuresBySegment: {} };
     this.notify();
   }
@@ -135,6 +163,7 @@ export class SessionStore {
   private mutate(patch: Partial<SessionState>): void {
     this.state = { ...this.state, ...patch };
     this.notify();
+    this.tryAutoSave();
   }
 
   private notify(): void {
@@ -145,6 +174,31 @@ export class SessionStore {
         // Subscribers must not crash the store. Errors are intentionally
         // swallowed here; each subscriber owns its own error boundary.
       }
+    }
+  }
+
+  /**
+   * Persist the current state to localStorage after every meaningful mutation.
+   * Only saves when both a geojsonUrl and non-empty csvRows are present —
+   * otherwise there is no meaningful key and the save is a no-op.
+   * Wrapped in try/catch so persistence failures never crash the store.
+   */
+  private tryAutoSave(): void {
+    const { geojsonUrl, csvRows } = this.state;
+    const hasUrl = geojsonUrl !== null;
+    const hasCsvRows = csvRows.length > 0;
+    const hasCsvText = this.csvText !== null;
+
+    if (!hasUrl || !hasCsvRows || !hasCsvText) {
+      return;
+    }
+
+    try {
+      persistenceSave(this.state, this.csvText as string);
+    } catch (err) {
+      // Persistence is best-effort — a quota error or sandboxed environment
+      // must not crash the store or interrupt the matching pipeline.
+      logger.warn("[SessionStore] auto-save failed", err);
     }
   }
 }
