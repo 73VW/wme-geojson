@@ -59,7 +59,7 @@ Same as `HANDOFF.md` §2:
 | **2 — UI refactor (Waze WC)** | DONE | `4232030` | `src/ui/MatchPanel.ts` (1169 → 683 lines), `src/ui/components/wz.ts` (new, 163 lines), `src/bootstrap/loadAndAttachTrack.ts` (new), `src/layers/TrackLayer.ts` (labels-off default), `main.user.ts` (always mount), 8 locale keys (EN+FR) | 98 tests green, tsc clean, releases/ untouched. **Implementation note for Lot 3:** the circular import between `MatchPanel` and `loadAndAttachTrack` is broken via `panel.setLoadFn(fn)` injected from `main.user.ts`. Lot 3 will replace the start-matching button click handler — currently a stub that just sets phase to "matching" and logs a warning. The download-closures button currently emits a header-only file with `reason: "stub"`. |
 | **3 — guided pipeline** | DONE | `775608b` | `src/controller/MatchingPipeline.ts` (new, ~360 lines), `src/ui/MatchPanel.ts` (guided sub-panel + real wiring), `src/layers/TrackLayer.ts` (`getTrackGeometry()` accessor), locale keys under `panel.matching` | 98 tests green, tsc clean. Tab return uses `tabLabel.click()` (no SDK API exists). RowGeo captured from the **last** bisected bbox view (most natural anchor — matches what the user is currently looking at). Validation reads `wmeSDK.Editing.getSelection()` at click-time so user corrections are captured. Pipeline does NOT touch localStorage — Lot 5 will plug a store subscriber. |
 | **4 — closures CSV builder** | DONE | `fe6663c` | `src/csv/buildClosuresCsv.ts`, `src/csv/__tests__/buildClosuresCsv.test.ts` (20 tests), `src/ui/promptFinalFields.ts`, locale keys under `panel.finalFields` (EN+FR) | 98 tests green, tsc clean. **Implementation note:** for merged-range rows, `RowGeo` is taken from the earliest contributing row (`mergedRange.rowIndex` = first by `startISO`). Touching boundaries (end(A) == start(B)) explicitly do NOT merge. `promptFinalFields` is implemented but not yet wired into MatchPanel — Lot 3 does that. |
-| **5 — persistence + resume wiring** | TODO | — | `src/state/SessionStore.ts` (mutation hooks), `src/ui/MatchPanel.ts` (resume banner) | Depends on Lots 1 + 2 + 3. |
+| **5 — persistence + resume wiring** | IN PROGRESS | — | `src/state/SessionStore.ts` (auto-save + rehydrate), `src/ui/MatchPanel.ts` (resume banner + restart button), `src/__tests__/SessionStore.test.ts` (new) | Delegated to Sonnet agent with prompt A.5. |
 | **6 — polish + release** | TODO | — | `package.json` bump, `releases/release-0.10.0.user.js`, `README.md`, `HANDOFF.md` | Manual smoke E2E, version bump, regenerate release. |
 
 Status legend: `TODO` (not started), `IN PROGRESS` (active), `BLOCKED`
@@ -924,7 +924,144 @@ Keep the report under 300 words.
 
 ### A.5 — Lot 5: persistence + resume wiring
 
-*(to be added before launching this lot)*
+```
+You are working on the wme-geojson Tampermonkey userscript at
+/workspaces/wme-geojson. TypeScript, Rollup, vitest.
+
+Your task is **Lot 5** — wire the localStorage persistence already
+built in Lot 1 (`src/persistence/sessionStorage.ts`) into the live
+SessionStore + MatchPanel so the user can reload the page mid-
+matching and resume where they left off, with a "restart from
+scratch" escape hatch.
+
+**Required reading:**
+1. /workspaces/wme-geojson/REFACTOR_PROGRESS.md — sections 2, 3, 4,
+   and Annex A.5 (this prompt). Also re-read sections "Frozen user
+   decisions" — the resume behaviour is "auto-resume at the last
+   unvalidated row + always-available restart-from-scratch button".
+2. /workspaces/wme-geojson/HANDOFF.md.
+3. /workspaces/wme-geojson/claude.md.
+4. /workspaces/wme-geojson/src/state/SessionStore.ts — Lot 1 store.
+5. /workspaces/wme-geojson/src/persistence/sessionStorage.ts — Lot 1
+   wrapper. Already supports `save / load / clearForCurrent / clearAll`.
+6. /workspaces/wme-geojson/src/ui/MatchPanel.ts — Lot 2 placed
+   `buildResumeBannerRow` as a placeholder; Lot 3 wired the pipeline.
+   You will fill in the banner and add the restart-from-scratch button.
+7. /workspaces/wme-geojson/src/bootstrap/loadAndAttachTrack.ts.
+
+**Deliverables:**
+
+### 5.1 — Auto-save on every meaningful mutation
+
+In `src/state/SessionStore.ts`, add a private hook that calls
+`save(state, csvText)` from `src/persistence/sessionStorage.ts` after
+every `mutate` call — but ONLY when the state contains both
+`geojsonUrl` AND a non-empty `csvRows` (otherwise the key is
+meaningless and `save` should be a no-op).
+
+The store needs to know `csvText` to compute the persistence key.
+Add a private field `csvText: string | null = null` and a method
+`setCsvRows(rows: CsvRow[], csvText: string): void` — change the
+signature to take the raw CSV text alongside the parsed rows. Update
+all callers (currently only `MatchPanel.onCsvFileSelected`) to pass
+the raw text.
+
+A `save` failure must NOT crash the store. Wrap in try/catch, log
+via `src/utils/logger.ts`, swallow the error.
+
+### 5.2 — Resume detection on CSV upload
+
+In `MatchPanel.onCsvFileSelected`, after parsing the CSV and BEFORE
+calling `store.setCsvRows`, call
+`load(geojsonUrl, csvText)`. If a non-null state is returned and its
+`currentIndex > 0`, display the resume banner row instead of
+immediately advancing to phase `csv-loaded`. The banner contains:
+
+- Header text from i18n key `panel.resumeDetected` (already exists
+  from Lot 2, value: "A previous session was detected for this CSV").
+- A line: `"Resuming at row {{index}} / {{total}}"` (new key
+  `panel.resumeIndex`).
+- Two `wzButton`:
+  - **Reprendre / Resume** (primary) — calls a new private
+    `applyLoadedState(loaded: SessionState)` that rehydrates the
+    store via a new public method `SessionStore.rehydrate(state:
+    SessionState, csvText: string): void` (pure setter, mirrors the
+    `mutate` notify path). Then advance the panel to phase
+    `csv-loaded` (or `matching` if the loaded `phase` was `matching`).
+  - **Reprendre de zéro / Restart from scratch** (secondary) — calls
+    `clearForCurrent(geojsonUrl, csvText)`, then proceeds with the
+    fresh-load path (`store.setCsvRows(rows, csvText)`).
+
+If `currentIndex === 0` (fresh CSV no progress), skip the banner and
+proceed normally.
+
+If `geojsonUrl` is null when CSV is uploaded (track not yet loaded),
+the resume detection is impossible — proceed with fresh load only.
+Also: when `loadAndAttachTrack` succeeds AFTER a CSV is already
+loaded (unusual flow), call resume detection then.
+
+### 5.3 — Always-available restart button during matching
+
+Add a small **Reprendre de zéro / Restart** button to the
+`guidedMatchingRow` (built in Lot 3). On click:
+- Confirm via the existing `confirmModal` (`src/ui/modal.ts`) — show
+  a warning that all matched segments will be lost.
+- If confirmed: call `pipeline.abort()`, `clearForCurrent(...)`,
+  `store.reset()`, then re-load the same CSV via `store.setCsvRows`
+  (we still have the parsed rows in memory at the panel level —
+  cache them as `private lastCsvText / lastCsvRows`), and emit a
+  fresh `phase: csv-loaded`.
+
+i18n key `panel.matching.restartFromScratch` (FR/EN), and
+`panel.matching.restartConfirm` for the confirm-modal body.
+
+### 5.4 — Tests
+
+Add a vitest test for the new `rehydrate` method in
+`src/__tests__/SessionStore.test.ts` (NEW file — Lot 1 had no test
+for the store class itself, only for parse/serialize/storage). Tests:
+- `rehydrate` replaces state and notifies subscribers.
+- A subsequent `validateRow` continues from the rehydrated
+  `currentIndex`.
+- Auto-save fires after `validateRow` (mock the persistence module
+  with `vi.mock` and assert `save` was called with expected args).
+- Auto-save does NOT fire when `geojsonUrl` is null.
+- Auto-save does NOT fire when `csvRows` is empty.
+
+### 5.5 — Architecture & quality
+
+- No `any`. No new SDK or DOM imports in `src/state/`.
+- The store remains pure-ish: `save` is wrapped in try/catch so
+  test environments without `localStorage` keep working.
+- "Why" comments only.
+- Existing tests must still pass.
+
+### 5.6 — Validation commands
+
+```
+npm test
+npx tsc --noEmit
+npm run build
+```
+
+After build: `git status` must show no `releases/*.user.js`
+modification (restore from HEAD if it does).
+
+**Do NOT:**
+- Update REFACTOR_PROGRESS.md (PO does that).
+- Commit (PO does that).
+- Bump the version (Lot 6).
+- Generate release-0.10.0.user.js (Lot 6).
+
+**Report back with:**
+- Files created / files materially modified, one line each.
+- Locale keys added.
+- Test summary (tests passed) and tsc output.
+- Confirmation `releases/` is unchanged after build.
+- Any deviation and the reason.
+
+Keep the report under 350 words.
+```
 
 ---
 
