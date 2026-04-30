@@ -55,7 +55,7 @@ Same as `HANDOFF.md` §2:
 | Lot | Status | Commits | Files | Notes |
 |---|---|---|---|---|
 | **0 — bootstrap** | DONE | `2bf442b`, `5f7bddf`, `4eca4eb`, *this commit* | WKT util, matching WIP, AI docs, `.mcp.json` ignored, `REFACTOR_PROGRESS.md` | Clean tree. Old `releases/*.user.js` were prettier-mangled and restored from HEAD per `HANDOFF.md` §5. |
-| **1 — store + CSV foundations** | IN PROGRESS | — | `src/state/SessionStore.ts`, `src/csv/parseSchedule.ts`, `src/csv/serializeSchedule.ts`, `src/persistence/sessionStorage.ts` + tests | Delegated to Sonnet agent with prompt A.1. Pure modules, no SDK. |
+| **1 — store + CSV foundations** | DONE | `d57f811` | `src/state/SessionStore.ts`, `src/csv/parseSchedule.ts`, `src/csv/serializeSchedule.ts`, `src/persistence/sessionStorage.ts` + 3 test files | 78 tests green, tsc clean, boundary check passes (no SDK/DOM imports in `src/state/` or `src/csv/`). FNV-1a hashing for localStorage keys. **Note for Lot 3:** `validateRow` does NOT advance `currentIndex` when called with `index !== currentIndex` — re-validation of an earlier row is allowed but pushes duplicate `ClosureRange` entries. If the UI lets the user re-validate, dedup must happen in Lot 4 or be guarded in the caller. |
 | **2 — UI refactor (Waze WC)** | TODO | — | `src/ui/MatchPanel.ts`, `src/ui/components/wz.ts`, `src/layers/TrackLayer.ts`, locale keys | Strip old controls, render by phase. |
 | **3 — guided pipeline** | TODO | — | `src/controller/MatchingPipeline.ts`, `src/ui/tabSwitch.ts`, `src/ui/MatchPanel.ts` (guided sub-panel), `src/controller/WalkController.ts` (helpers) | Depends on Lots 1 + 2. |
 | **4 — closures CSV builder** | TODO | — | `src/csv/buildClosuresCsv.ts`, `src/ui/promptFinalFields.ts` + tests | Pure. Can run in parallel with Lot 2. Depends on Lot 1 types. |
@@ -67,12 +67,16 @@ Status legend: `TODO` (not started), `IN PROGRESS` (active), `BLOCKED`
 
 ## 5. Next action
 
-**Start Lot 1.** Delegate to a Sonnet sub-agent using the prompt in
-Annex A.1 below. Before launching, flip the row in §4 to `IN PROGRESS`
-and commit with `chore(progress): start Lot 1`. After the agent
-returns, run `npm test`, `npx tsc --noEmit`, `npm run build`, review
-the diff, then flip to `DONE` with commit `chore(progress): complete
-Lot 1`.
+**Start Lot 4 (closures CSV builder)** — pure module, can run in
+parallel with Lot 2 (UI). Lot 1 types are now in
+`src/state/SessionStore.ts` (`ClosureRange`, `CsvRow`,
+`closuresBySegment`). Draft prompt A.4 below before delegating.
+Then flip Lot 4 to `IN PROGRESS`, commit
+`chore(progress): start Lot 4`, delegate to a Sonnet sub-agent.
+
+Lot 2 (UI refactor) can start whenever a developer is available —
+it does not depend on Lot 4. Drafting prompt A.2 is the next PO
+task before launching it.
 
 ## 6. Blockers / open questions
 
