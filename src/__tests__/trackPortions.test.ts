@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { MultiLineString } from "geojson";
-import { computeMatchingWorkItems, computePortions, sliceMultiLineByDistance } from "../matching/trackPortions";
+import {
+  computeMatchingWorkItems,
+  computePortions,
+  multiLineLengthKm,
+  sliceMultiLineByDistance,
+  trimTrailingCoordinate,
+} from "../matching/trackPortions";
 
 // ─── computePortions ──────────────────────────────────────────────────────────
 
@@ -157,5 +163,69 @@ describe("sliceMultiLineByDistance", () => {
     const geom = buildTwoSubLineMLS();
     const result = sliceMultiLineByDistance(geom, 0, 10);
     expect(result.type).toBe("MultiLineString");
+  });
+});
+
+describe("trimTrailingCoordinate", () => {
+  it("removes the last coordinate from the trailing sub-line", () => {
+    const geometry: MultiLineString = {
+      type: "MultiLineString",
+      coordinates: [
+        [
+          [7.0, 46.0],
+          [7.01, 46.0],
+          [7.02, 46.0],
+        ],
+      ],
+    };
+
+    const trimmed = trimTrailingCoordinate(geometry);
+
+    expect(trimmed).toEqual({
+      type: "MultiLineString",
+      coordinates: [
+        [
+          [7.0, 46.0],
+          [7.01, 46.0],
+        ],
+      ],
+    });
+  });
+
+  it("drops the trailing sub-line when removing its last coordinate would make it invalid", () => {
+    const geometry: MultiLineString = {
+      type: "MultiLineString",
+      coordinates: [
+        [
+          [7.0, 46.0],
+          [7.01, 46.0],
+        ],
+        [
+          [8.0, 46.0],
+          [8.01, 46.0],
+        ],
+      ],
+    };
+
+    const trimmed = trimTrailingCoordinate(geometry);
+
+    expect(trimmed).toEqual({
+      type: "MultiLineString",
+      coordinates: [
+        [
+          [7.0, 46.0],
+          [7.01, 46.0],
+        ],
+      ],
+    });
+  });
+});
+
+describe("multiLineLengthKm", () => {
+  it("ignores gaps between sub-lines", () => {
+    const geom = buildTwoSubLineMLS();
+
+    expect(multiLineLengthKm(geom)).toBeGreaterThan(1.4);
+    expect(multiLineLengthKm(geom)).toBeLessThan(1.7);
   });
 });

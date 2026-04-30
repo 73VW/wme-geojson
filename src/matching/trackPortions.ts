@@ -162,6 +162,49 @@ export function bboxOfMultiLineString(geometry: MultiLineString): BBox | null {
   return turfBbox({ type: "Feature", geometry, properties: null });
 }
 
+/**
+ * Compute the cumulative length of a MultiLineString in kilometers.
+ * Gaps between sub-lines are ignored, matching sliceMultiLineByDistance.
+ */
+export function multiLineLengthKm(geometry: MultiLineString): number {
+  return geometry.coordinates.reduce((total, line) => total + sumSegmentDistances(line), 0);
+}
+
+/**
+ * Remove the last coordinate from a MultiLineString.
+ *
+ * If the trailing sub-line would become invalid (< 2 coordinates), it is
+ * removed entirely. Returns null when no valid geometry remains.
+ */
+export function trimTrailingCoordinate(geometry: MultiLineString): MultiLineString | null {
+  const nextCoordinates = geometry.coordinates.map((line) => [...line]);
+
+  for (let lineIndex = nextCoordinates.length - 1; lineIndex >= 0; lineIndex--) {
+    const line = nextCoordinates[lineIndex];
+    if (line.length === 0) {
+      nextCoordinates.splice(lineIndex, 1);
+      continue;
+    }
+
+    if (line.length > 2) {
+      line.pop();
+    } else {
+      nextCoordinates.splice(lineIndex, 1);
+    }
+    break;
+  }
+
+  const validCoordinates = nextCoordinates.filter((line) => line.length >= 2);
+  if (validCoordinates.length === 0) {
+    return null;
+  }
+
+  return {
+    type: "MultiLineString",
+    coordinates: validCoordinates,
+  };
+}
+
 // ─── Private helpers ──────────────────────────────────────────────────────────
 
 function sumSegmentDistances(line: Position[]): number {

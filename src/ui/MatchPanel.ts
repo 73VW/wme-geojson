@@ -8,13 +8,14 @@ import type { SessionStore, SessionPhase, SessionState, CsvRow } from "../state/
 import { parseSchedule } from "../csv/parseSchedule";
 import { serializeSchedule } from "../csv/serializeSchedule";
 import { buildClosuresCsv } from "../csv/buildClosuresCsv";
-import type { FinalFields, RowGeo } from "../csv/buildClosuresCsv";
+import type { ClosureRowGroup, FinalFields } from "../csv/buildClosuresCsv";
 import { wzButton, wzTextInput, fileInput } from "./components/wz";
-import { MatchingPipeline } from "../controller/MatchingPipeline";
+import { MatchingPipeline, type PipelineStepEvent } from "../controller/MatchingPipeline";
 import { promptFinalFields } from "./promptFinalFields";
 import { load as persistenceLoad, clearForCurrent } from "../persistence/sessionStorage";
 import { confirmModal } from "./modal";
 import { bboxOfMultiLineString } from "../matching/trackPortions";
+import { computeMatchingWorkItems } from "../matching/trackPortions";
 
 
 /**
@@ -83,6 +84,7 @@ export class MatchPanel {
   private guidedSegmentCountEl: HTMLElement | null = null;
   private guidedInstructionEl: HTMLElement | null = null;
   private guidedManualActionsEl: HTMLElement | null = null;
+  private guidedStepsListEl: HTMLElement | null = null;
   private matchingMode: "interactive" | "burst" = "interactive";
 
   constructor(
@@ -237,6 +239,7 @@ export class MatchPanel {
     this.guidedSegmentCountEl = null;
     this.guidedInstructionEl = null;
     this.guidedManualActionsEl = null;
+    this.guidedStepsListEl = null;
     this.guidedMatchingRow = null;
 
     logger.info("MatchPanel unmounted");
@@ -454,6 +457,24 @@ export class MatchPanel {
     section.appendChild(countEl);
     this.guidedSegmentCountEl = countEl;
 
+    const stepsTitleEl = document.createElement("p");
+    stepsTitleEl.style.margin = "0 0 4px 0";
+    stepsTitleEl.style.fontSize = "11px";
+    stepsTitleEl.style.fontWeight = "600";
+    stepsTitleEl.style.color = "#344054";
+    stepsTitleEl.textContent = i18next.t("panel.matching.stepsTitle");
+    section.appendChild(stepsTitleEl);
+
+    const stepsListEl = document.createElement("ul");
+    stepsListEl.style.margin = "0 0 8px 16px";
+    stepsListEl.style.padding = "0";
+    stepsListEl.style.fontSize = "11px";
+    stepsListEl.style.color = "#475467";
+    stepsListEl.style.maxHeight = "120px";
+    stepsListEl.style.overflowY = "auto";
+    section.appendChild(stepsListEl);
+    this.guidedStepsListEl = stepsListEl;
+
     const btnRow = document.createElement("div");
     btnRow.className = "wmegj-button-stack";
     btnRow.style.display = "flex";
@@ -600,16 +621,31 @@ export class MatchPanel {
     const headerEl = document.createElement("p");
     headerEl.style.margin = "0 0 4px 0";
     headerEl.style.fontWeight = "600";
-    headerEl.textContent = i18next.t("panel.resumeDetected");
+
+    const totalKm = saved.trackLengthKm ?? this.store.getState().trackLengthKm ?? 0;
+    const totalWorkItems = computeMatchingWorkItems(rows, totalKm).length;
+    const isCompletedSession =
+      saved.phase === "done" || (totalWorkItems > 0 && saved.currentIndex >= totalWorkItems);
+
+    headerEl.textContent = i18next.t(
+      isCompletedSession ? "panel.resumeCompleted" : "panel.resumeDetected",
+    );
     banner.appendChild(headerEl);
 
     const indexEl = document.createElement("p");
     indexEl.style.margin = "0 0 8px 0";
     indexEl.style.fontSize = "12px";
-    indexEl.textContent = i18next.t("panel.resumeIndex", {
-      index: saved.currentIndex,
-      total: rows.length,
-    });
+    if (isCompletedSession) {
+      indexEl.textContent = i18next.t("panel.resumeCompletedDetails", {
+        total: totalWorkItems,
+      });
+    } else {
+      const nextIndex = Math.min(saved.currentIndex + 1, Math.max(totalWorkItems, 1));
+      indexEl.textContent = i18next.t("panel.resumeIndex", {
+        index: nextIndex,
+        total: totalWorkItems,
+      });
+    }
     banner.appendChild(indexEl);
 
     const btnRow = document.createElement("div");
@@ -942,8 +978,8 @@ export class MatchPanel {
       return;
     }
 
-    const rowGeos = this.getExportRowGeos(csvRows);
-    if (!rowGeos) {
+    const closureGroups = this.getExportClosureGroups(csvRows);
+    if (!closureGroups) {
       return;
     }
 
@@ -952,11 +988,9 @@ export class MatchPanel {
         if (!fields) return;
 
         try {
-          // rowGeos is indexed parallel to csvRows; cast to the RowGeo type
-          // expected by buildClosuresCsv (same shape — lon/lat/zoom).
           const csv = buildClosuresCsv(
             csvRows,
-            rowGeos,
+            closureGroups,
             closuresBySegment,
             fields,
           );
@@ -978,14 +1012,21 @@ export class MatchPanel {
     return rows.some((row) => row.segments !== null);
   }
 
-  private getExportRowGeos(rows: readonly CsvRow[]): RowGeo[] | null {
-    const rowGeos = (this.pipeline?.getRowGeos() ?? []) as RowGeo[];
+  private getExportClosureGroups(rows: readonly CsvRow[]): ClosureRowGroup[] | null {
+    const closureGroups = (this.pipeline?.getMatchedGroups() ?? []) as ClosureRowGroup[];
     const missingGeoIndex = rows.findIndex(
-      (row, index) => row.segments !== null && row.segments.length > 0 && rowGeos[index] === undefined,
+      (row, index) =>
+        row.segments !== null &&
+        row.segments.some(
+          (segmentId) =>
+            !closureGroups.some(
+              (group) => group.rowIndex === index && group.segmentIds.includes(segmentId),
+            ),
+        ),
     );
 
     if (missingGeoIndex === -1) {
-      return rowGeos;
+      return closureGroups;
     }
 
     const message = i18next.t("panel.matching.missingRowGeo", {
@@ -997,7 +1038,7 @@ export class MatchPanel {
   }
 
   private onStartMatchingClick(mode: "interactive" | "burst"): void {
-    const { csvRows, geojsonUrl } = this.store.getState();
+    const { csvRows, geojsonUrl, phase } = this.store.getState();
     this.matchingMode = mode;
 
     logger.info("MatchPanel.onStartMatchingClick: clicked", {
@@ -1047,6 +1088,11 @@ export class MatchPanel {
 
     const track = { trackId: null, geometry: trackGeometry };
 
+    if (phase === "done") {
+      logger.info("MatchPanel.onStartMatchingClick: restarting completed run from row 0");
+      this.store.rewindToRow(0);
+    }
+
     logger.info("MatchPanel.onStartMatchingClick: switching store phase to matching");
     this.store.setPhase("matching");
     if (this.guidedInstructionEl) {
@@ -1088,6 +1134,7 @@ export class MatchPanel {
               { count: 0 },
             );
           }
+          this.resetGuidedSteps();
         },
         onRowMatched: (_index, segments) => {
           if (this.guidedSegmentCountEl) {
@@ -1096,6 +1143,10 @@ export class MatchPanel {
               { count: segments.length },
             );
           }
+        },
+        onStep: (event) => {
+          const message = this.formatPipelineStep(event);
+          this.appendGuidedStep(message);
         },
         onError: (message) => {
           logger.error("MatchingPipeline error:", message);
@@ -1129,6 +1180,53 @@ export class MatchPanel {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  }
+
+  private resetGuidedSteps(): void {
+    const list = this.guidedStepsListEl;
+    if (!list) return;
+    while (list.firstChild) {
+      list.removeChild(list.firstChild);
+    }
+  }
+
+  private appendGuidedStep(message: string): void {
+    const list = this.guidedStepsListEl;
+    if (!list) return;
+    const item = document.createElement("li");
+    item.textContent = message;
+    list.appendChild(item);
+
+    const MAX_STEPS = 12;
+    while (list.childElementCount > MAX_STEPS) {
+      list.removeChild(list.firstElementChild as ChildNode);
+    }
+
+    list.scrollTop = list.scrollHeight;
+  }
+
+  private formatPipelineStep(event: PipelineStepEvent): string {
+    const values = event.values ?? {};
+    switch (event.key) {
+      case "planningStart":
+        return i18next.t("panel.matching.steps.planningStart", values);
+      case "splitTail":
+        return i18next.t("panel.matching.steps.splitTail", values);
+      case "sliceAccepted":
+        return i18next.t("panel.matching.steps.sliceAccepted", values);
+      case "sliceDropped":
+        return i18next.t("panel.matching.steps.sliceDropped", values);
+      case "planningDone":
+        return i18next.t("panel.matching.steps.planningDone", values);
+      case "processingLeaf":
+        return i18next.t("panel.matching.steps.processingLeaf", values);
+      case "leafMatched":
+        return i18next.t("panel.matching.steps.leafMatched", values);
+      case "waitingValidation":
+        return i18next.t("panel.matching.steps.waitingValidation", values);
+      default:
+        return i18next.t("panel.matching.steps.unknown");
+    }
   }
 
   // ---------------------------------------------------------------------------

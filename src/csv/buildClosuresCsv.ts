@@ -18,6 +18,12 @@ export interface RowGeo {
   zoom: number; // integer, WME zoom level used for the bbox view
 }
 
+export interface ClosureRowGroup {
+  rowIndex: number;
+  segmentIds: number[];
+  geo: RowGeo;
+}
+
 // The Advanced Closures script parses by exact header text — do not modify.
 const CLOSURES_CSV_HEADER =
   "header,reason,start date (yyyy-mm-dd hh:mm),end date (yyyy-mm-dd hh:mm),direction (A to B|B to A|TWO WAY),ignore trafic (Yes|No),segment IDs (id1;id2;...),lon/lat (like in a permalink: lon=xxx&lat=yyy),zoom (2 to 10),MTE ID,comment (optional)";
@@ -155,7 +161,7 @@ function noMergeOccurred(
 
 export function buildClosuresCsv(
   rows: readonly CsvRow[],
-  rowGeos: readonly RowGeo[],
+  rowGeosOrGroups: readonly RowGeo[] | readonly ClosureRowGroup[],
   closuresBySegment: Readonly<Record<number, ClosureRange[]>>,
   finalFields: FinalFields,
 ): string {
@@ -168,6 +174,8 @@ export function buildClosuresCsv(
   // Segments with no overlapping ranges stay in their original rows unchanged.
   // Segments with at least one overlap are removed from every original row and
   // get dedicated merged-range rows appended at the end.
+
+  const closureGroups = normalizeClosureGroups(rows, rowGeosOrGroups);
 
   // Set of segment IDs that need to be stripped from original rows.
   const segmentsToStrip = new Set<number>();
@@ -199,10 +207,7 @@ export function buildClosuresCsv(
     segmentsToStrip.add(segId);
 
     for (const mergedRange of merged) {
-      // Use the RowGeo of the first contributing row (by rowIndex) for the
-      // merged closure row. The first contributor's location is the earliest
-      // waypoint where the segment appeared, which is the most natural anchor.
-      const geo = rowGeos[mergedRange.rowIndex];
+      const geo = findGroupGeoForSegment(closureGroups, mergedRange.rowIndex, segId);
       mergedRows.push({
         segmentId: segId,
         startISO: mergedRange.startISO,
@@ -216,13 +221,15 @@ export function buildClosuresCsv(
 
   const outputLines: string[] = [CLOSURES_CSV_HEADER];
 
-  rows.forEach((row, rowIndex) => {
-    if (row.segments === null || row.segments.length === 0) {
+  closureGroups.forEach((group) => {
+    if (group.segmentIds.length === 0) {
       // Row has no validated segments — skip it entirely.
       return;
     }
 
-    const remainingSegments = row.segments.filter(
+    const row = rows[group.rowIndex];
+
+    const remainingSegments = group.segmentIds.filter(
       (id) => !segmentsToStrip.has(id),
     );
 
@@ -233,11 +240,10 @@ export function buildClosuresCsv(
 
     const startISO = `${row.date}T${row.startTime}`;
     const endISO = `${row.date}T${row.endTime}`;
-    const geo = rowGeos[rowIndex];
 
     for (const segmentChunk of chunkSegmentIds(remainingSegments)) {
       outputLines.push(
-        buildDataRow(segmentChunk, startISO, endISO, geo, finalFields),
+        buildDataRow(segmentChunk, startISO, endISO, group.geo, finalFields),
       );
     }
   });
@@ -266,4 +272,66 @@ export function buildClosuresCsv(
   }
 
   return outputLines.join("\n") + "\n";
+}
+
+function normalizeClosureGroups(
+  rows: readonly CsvRow[],
+  rowGeosOrGroups: readonly RowGeo[] | readonly ClosureRowGroup[],
+): ClosureRowGroup[] {
+  if (rowGeosOrGroups.length === 0) {
+    return [];
+  }
+
+  if (isClosureRowGroupArray(rowGeosOrGroups)) {
+    return rowGeosOrGroups.map((group) => ({
+      rowIndex: group.rowIndex,
+      segmentIds: [...group.segmentIds],
+      geo: group.geo,
+    }));
+  }
+
+  const rowGeos = rowGeosOrGroups;
+  return rows.flatMap((row, rowIndex) => {
+    if (row.segments === null || row.segments.length === 0) {
+      return [];
+    }
+
+    const geo = rowGeos[rowIndex];
+    if (!geo) {
+      throw new Error(
+        `[buildClosuresCsv] Missing RowGeo for row ${rowIndex}`,
+      );
+    }
+
+    return [{ rowIndex, segmentIds: [...row.segments], geo }];
+  });
+}
+
+function isClosureRowGroupArray(
+  value: readonly RowGeo[] | readonly ClosureRowGroup[],
+): value is readonly ClosureRowGroup[] {
+  const first = value[0];
+  return typeof first === "object" && first !== null && "rowIndex" in first && "segmentIds" in first;
+}
+
+function findGroupGeoForSegment(
+  groups: readonly ClosureRowGroup[],
+  rowIndex: number,
+  segmentId: number,
+): RowGeo {
+  const matchingGroup = groups.find(
+    (group) => group.rowIndex === rowIndex && group.segmentIds.includes(segmentId),
+  );
+  if (matchingGroup) {
+    return matchingGroup.geo;
+  }
+
+  const fallbackGroup = groups.find((group) => group.rowIndex === rowIndex);
+  if (fallbackGroup) {
+    return fallbackGroup.geo;
+  }
+
+  throw new Error(
+    `[buildClosuresCsv] Missing export group geo for row ${rowIndex} and segment ${segmentId}`,
+  );
 }

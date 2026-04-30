@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildClosuresCsv,
+  type ClosureRowGroup,
   type FinalFields,
   type RowGeo,
 } from "../csv/buildClosuresCsv";
@@ -143,6 +144,73 @@ describe("buildClosuresCsv — same segment, disjoint time ranges", () => {
 
     // Two original rows kept, no merging.
     expect(lines).toHaveLength(2);
+  });
+});
+
+describe("buildClosuresCsv — grouped export anchors", () => {
+  it("emits separate rows when one CSV row was matched through multiple leaf groups", () => {
+    const rows: CsvRow[] = [
+      makeRow("2026-04-29", "13:00", "13:50", [101, 102, 103]),
+    ];
+    const groups: ClosureRowGroup[] = [
+      {
+        rowIndex: 0,
+        segmentIds: [101, 102],
+        geo: makeGeo(7.0, 46.0, 14),
+      },
+      {
+        rowIndex: 0,
+        segmentIds: [103],
+        geo: makeGeo(7.2, 46.2, 15),
+      },
+    ];
+    const closuresBySegment: Record<number, ClosureRange[]> = {
+      101: [makeRange("2026-04-29T13:00", "2026-04-29T13:50", 0)],
+      102: [makeRange("2026-04-29T13:00", "2026-04-29T13:50", 0)],
+      103: [makeRange("2026-04-29T13:00", "2026-04-29T13:50", 0)],
+    };
+
+    const csv = buildClosuresCsv(rows, groups, closuresBySegment, DEFAULT_FIELDS);
+    const lines = parseLines(csv);
+
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain(",101;102,");
+    expect(lines[0]).toContain("lon=7.00000&lat=46.00000");
+    expect(lines[1]).toContain(",103,");
+    expect(lines[1]).toContain("lon=7.20000&lat=46.20000");
+    expect(lines[1]).toContain(",15,");
+  });
+
+  it("keeps both leaf-group anchors when the same segment appears in multiple groups", () => {
+    const rows: CsvRow[] = [
+      makeRow("2026-05-02", "11:58", "12:49", [1001, 1002]),
+    ];
+    const groups: ClosureRowGroup[] = [
+      {
+        rowIndex: 0,
+        segmentIds: [1001, 1002],
+        geo: makeGeo(7.19783, 46.60802, 15),
+      },
+      {
+        rowIndex: 0,
+        segmentIds: [1002],
+        geo: makeGeo(7.215, 46.62, 19),
+      },
+    ];
+    const closuresBySegment: Record<number, ClosureRange[]> = {
+      1001: [makeRange("2026-05-02T11:58", "2026-05-02T12:49", 0)],
+      1002: [makeRange("2026-05-02T11:58", "2026-05-02T12:49", 0)],
+    };
+
+    const csv = buildClosuresCsv(rows, groups, closuresBySegment, DEFAULT_FIELDS);
+    const lines = parseLines(csv);
+
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain("lon=7.19783&lat=46.60802");
+    expect(lines[0]).toContain(",1001;1002,");
+    expect(lines[1]).toContain("lon=7.21500&lat=46.62000");
+    expect(lines[1]).toContain(",19,");
+    expect(lines[1]).toContain(",1002,");
   });
 });
 

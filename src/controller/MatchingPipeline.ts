@@ -19,10 +19,13 @@ import type { NormalizedTrack } from "../geojson/types";
 import type { TrackLayer } from "../layers/TrackLayer";
 import type { WalkController } from "./WalkController";
 import type { SessionStore } from "../state/SessionStore";
+import type { ClosureRowGroup, RowGeo } from "../csv/buildClosuresCsv";
 import {
   computeMatchingWorkItems,
   sliceMultiLineByDistance,
   bboxOfMultiLineString,
+  multiLineLengthKm,
+  trimTrailingCoordinate,
 } from "../matching/trackPortions";
 import { waitForMapIdle } from "../utils/waitForMapIdle";
 import { logger } from "../utils/logger";
@@ -32,24 +35,35 @@ import { logger } from "../utils/logger";
 // ---------------------------------------------------------------------------
 
 const MIN_BBOX_ZOOM = 15 as const;
-const MAX_BISECT_DEPTH = 8 as const;
+const VIEW_SLICE_EPSILON_KM = 0.005;
+const VIEW_SLICE_MIN_SPAN_KM = 0.01;
+const MAX_VIEW_SLICES_PER_ROW = 200;
 
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
-export interface RowGeo {
-  lon: number;
-  lat: number;
-  zoom: number;
-}
-
 export interface PipelineEvents {
   onRowStarted?: (index: number, totalRows: number) => void;
   onRowMatched?: (index: number, segments: number[]) => void;
+  onStep?: (event: PipelineStepEvent) => void;
   onError?: (message: string) => void;
   onDone?: () => void;
   onAborted?: () => void;
+}
+
+export interface PipelineStepEvent {
+  key:
+    | "planningStart"
+    | "splitTail"
+    | "sliceAccepted"
+    | "sliceDropped"
+    | "planningDone"
+    | "processingLeaf"
+    | "leafMatched"
+    | "waitingValidation";
+  rowIndex: number;
+  values?: Record<string, number | string>;
 }
 
 export interface MatchingPipelineOptions {
@@ -63,8 +77,7 @@ type PendingRowAction = "validate" | "skip" | "back" | "abort";
 // ---------------------------------------------------------------------------
 
 export class MatchingPipeline {
-  // Captured geo context for each row, indexed parallel to store.csvRows
-  private readonly rowGeos: RowGeo[] = [];
+  private readonly matchedGroups: ClosureRowGroup[] = [];
 
   // Abort flag: set by abort(), checked between rows and bbox views
   private abortRequested = false;
@@ -171,9 +184,9 @@ export class MatchingPipeline {
     return this.running;
   }
 
-  /** Read-only snapshot of per-row geo contexts captured during the run. */
-  getRowGeos(): readonly RowGeo[] {
-    return this.rowGeos;
+  /** Read-only snapshot of per-leaf groups captured during the run. */
+  getMatchedGroups(): readonly ClosureRowGroup[] {
+    return this.matchedGroups;
   }
 
   // ---------------------------------------------------------------------------
@@ -233,20 +246,24 @@ export class MatchingPipeline {
         kmB: workItem.kmB,
       });
 
-      // --- Compute bbox view(s) via bisection and run matching per view -------
+      // --- Compute zoom-fitting leaf slices and run matching per slice -------
 
-      const viewGeos: Array<{ lon: number; lat: number; zoom: ZoomLevel }> = [];
-      logger.info("MatchingPipeline.runLoop: starting bbox bisection", {
+      logger.info("MatchingPipeline.runLoop: planning leaf slices", {
         rowIndex: i,
         kmA: workItem.kmA,
         kmB: workItem.kmB,
       });
-      await this.bisect(workItem.kmA, workItem.kmB, 0, viewGeos);
+      const leafSlices = await this.planLeafSlices(i, workItem.kmA, workItem.kmB);
 
-      logger.info("MatchingPipeline.runLoop: bbox bisection complete", {
+      logger.info("MatchingPipeline.runLoop: leaf slice planning complete", {
         rowIndex: i,
-        viewCount: viewGeos.length,
-        views: viewGeos,
+        leafSliceCount: leafSlices.length,
+        leafSlices,
+      });
+      this.events.onStep?.({
+        key: "planningDone",
+        rowIndex: i,
+        values: { count: leafSlices.length },
       });
 
       if (this.abortRequested) {
@@ -255,33 +272,44 @@ export class MatchingPipeline {
         return;
       }
 
-      // The last view is what the user sees after all bisect navigations; use
-      // it as the canonical RowGeo anchor for the closures CSV.
-      const lastView = viewGeos[viewGeos.length - 1];
+      const rowGroups: ClosureRowGroup[] = [];
 
-      for (const view of viewGeos) {
+      for (let leafIndex = 0; leafIndex < leafSlices.length; leafIndex++) {
+        const leafSlice = leafSlices[leafIndex];
         if (this.abortRequested) break;
+
+        const leafIds = new Set<number>();
+        this.events.onStep?.({
+          key: "processingLeaf",
+          rowIndex: i,
+          values: {
+            index: leafIndex + 1,
+            total: leafSlices.length,
+            kmA: Number(leafSlice.kmA.toFixed(2)),
+            kmB: Number(leafSlice.kmB.toFixed(2)),
+          },
+        });
 
         logger.info("MatchingPipeline.runLoop: navigating to recorded view", {
           rowIndex: i,
-          view,
+          leafSlice,
         });
 
         // Mirror the historical manual per-view flow exactly: once bbox
         // discovery has produced a center+zoom leaf, matching is launched from
         // that recorded view via setMapCenter, not by recomputing zoomToExtent.
         this.wmeSDK.Map.setMapCenter({
-          lonLat: { lon: view.lon, lat: view.lat },
-          zoomLevel: view.zoom,
+          lonLat: { lon: leafSlice.lon, lat: leafSlice.lat },
+          zoomLevel: leafSlice.zoom,
         });
         logger.info("MatchingPipeline.runLoop: waiting for map idle after setMapCenter", {
           rowIndex: i,
-          view,
+          leafSlice,
         });
         await waitForMapIdle(this.wmeSDK);
         logger.info("MatchingPipeline.runLoop: map idle after setMapCenter", {
           rowIndex: i,
-          view,
+          leafSlice,
         });
 
         if (this.abortRequested) break;
@@ -289,36 +317,46 @@ export class MatchingPipeline {
         // Subscribe to matchFound before calling matchInCurrentViewport so we
         // capture all results including the sync ones.
         const unsub = this.controller.onMatchFound((id) => {
-          collectedIds.add(id);
+          leafIds.add(id);
         });
 
         try {
           logger.info("MatchingPipeline.runLoop: calling matchInCurrentViewport", {
             rowIndex: i,
-            kmA: workItem.kmA,
-            kmB: workItem.kmB,
+            kmA: leafSlice.kmA,
+            kmB: leafSlice.kmB,
           });
-          await this.controller.matchInCurrentViewport(workItem.kmA, workItem.kmB);
+          await this.controller.matchInCurrentViewport(leafSlice.kmA, leafSlice.kmB);
           logger.info("MatchingPipeline.runLoop: matchInCurrentViewport resolved", {
             rowIndex: i,
-            collectedCount: collectedIds.size,
+            leafMatchCount: leafIds.size,
+          });
+          this.events.onStep?.({
+            key: "leafMatched",
+            rowIndex: i,
+            values: {
+              index: leafIndex + 1,
+              total: leafSlices.length,
+              count: leafIds.size,
+            },
           });
         } finally {
           unsub();
         }
-      }
 
-      // Capture the geo context from the final view the user sees.
-      const rowGeo: RowGeo = lastView
-        ? { lon: lastView.lon, lat: lastView.lat, zoom: lastView.zoom }
-        : { lon: 0, lat: 0, zoom: MIN_BBOX_ZOOM };
+        const leafGroupIds = Array.from(leafIds);
+        leafGroupIds.forEach((id) => {
+          collectedIds.add(id);
+        });
 
-      // Ensure rowGeos array is long enough; fill gaps with a zero placeholder
-      // (pipeline always processes in order so gaps shouldn't occur).
-      while (this.rowGeos.length < i) {
-        this.rowGeos.push({ lon: 0, lat: 0, zoom: MIN_BBOX_ZOOM });
+        if (leafGroupIds.length > 0) {
+          rowGroups.push({
+            rowIndex: i,
+            segmentIds: leafGroupIds,
+            geo: { lon: leafSlice.lon, lat: leafSlice.lat, zoom: leafSlice.zoom },
+          });
+        }
       }
-      this.rowGeos[i] = rowGeo;
 
       // --- Select matched segments in WME ------------------------------------
 
@@ -334,23 +372,51 @@ export class MatchingPipeline {
           startISO,
           endISO,
         });
+        this.setValidatedGroups(i, rowGroups, ids);
         this.store.validateRow(i, ids, startISO, endISO);
         continue;
       }
 
       try {
-        logger.info("MatchingPipeline.runLoop: setting WME selection", {
-          rowIndex: i,
-          idsCount: ids.length,
-          idsSample: ids.slice(0, 10),
-        });
-        this.wmeSDK.Editing.setSelection({
-          selection: { ids, objectType: "segment" },
-        });
-        logger.info("MatchingPipeline.runLoop: WME selection set", {
-          rowIndex: i,
-          idsCount: ids.length,
-        });
+        const loadedSegmentIds = new Set(
+          this.wmeSDK.DataModel.Segments.getAll().map((segment) => segment.id),
+        );
+        const selectableIds = ids.filter((id) => loadedSegmentIds.has(id));
+        const skippedIds = ids.filter((id) => !loadedSegmentIds.has(id));
+
+        if (skippedIds.length > 0) {
+          logger.warn("MatchingPipeline.runLoop: some matched IDs are not currently loaded; selecting loaded subset", {
+            rowIndex: i,
+            matchedCount: ids.length,
+            selectableCount: selectableIds.length,
+            skippedCount: skippedIds.length,
+            skippedSample: skippedIds.slice(0, 10),
+          });
+        }
+
+        if (selectableIds.length === 0) {
+          logger.warn("MatchingPipeline.runLoop: no matched IDs currently loaded; skipping WME selection", {
+            rowIndex: i,
+            matchedCount: ids.length,
+          });
+          this.events.onError?.(
+            "Aucun segment de cette ligne n'est chargé dans la vue courante. Déplacez la carte puis validez/corrigez manuellement.",
+          );
+        } else {
+          logger.info("MatchingPipeline.runLoop: setting WME selection", {
+            rowIndex: i,
+            idsCount: ids.length,
+            selectableCount: selectableIds.length,
+            idsSample: selectableIds.slice(0, 10),
+          });
+          this.wmeSDK.Editing.setSelection({
+            selection: { ids: selectableIds, objectType: "segment" },
+          });
+          logger.info("MatchingPipeline.runLoop: WME selection set", {
+            rowIndex: i,
+            selectableCount: selectableIds.length,
+          });
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         logger.warn(`MatchingPipeline: setSelection failed for row ${i}: ${message}`);
@@ -375,6 +441,7 @@ export class MatchingPipeline {
         rowIndex: i,
         idsCount: ids.length,
       });
+      this.events.onStep?.({ key: "waitingValidation", rowIndex: i });
 
       // --- Wait for user to click Validate -----------------------------------
 
@@ -397,7 +464,7 @@ export class MatchingPipeline {
           restartIndex,
         });
         this.store.rewindToRow(restartIndex);
-        this.rowGeos.length = restartIndex;
+        this.removeGroupsFromRow(restartIndex);
         const restartWorkItemIndex = workItems.findIndex((item) => item.rowIndex >= restartIndex);
         workItemIndex = restartWorkItemIndex === -1 ? workItems.length : restartWorkItemIndex - 1;
         continue;
@@ -410,9 +477,17 @@ export class MatchingPipeline {
               // Read the CURRENT WME selection at validate time (not the auto-selected
               // ids from matching): the user may have corrected the selection manually.
               const selection = this.wmeSDK.Editing.getSelection();
-              return selection !== null && selection.objectType === "segment"
-                ? (selection.ids as number[])
-                : ids;
+              if (selection === null || selection.objectType !== "segment") {
+                return ids;
+              }
+
+              const loadedSegmentIds = new Set(
+                this.wmeSDK.DataModel.Segments.getAll().map((segment) => segment.id),
+              );
+              const selectedIds = selection.ids as number[];
+              const detectedButUnloadedIds = ids.filter((id) => !loadedSegmentIds.has(id));
+
+              return Array.from(new Set([...selectedIds, ...detectedButUnloadedIds]));
             })();
 
       const startISO = `${row.date}T${row.startTime}`;
@@ -423,6 +498,7 @@ export class MatchingPipeline {
         startISO,
         endISO,
       });
+      this.setValidatedGroups(i, rowGroups, finalSegmentIds);
       this.store.validateRow(i, finalSegmentIds, startISO, endISO);
     }
 
@@ -432,95 +508,228 @@ export class MatchingPipeline {
   }
 
   // ---------------------------------------------------------------------------
-  // Private — bbox bisection (ported from the pre-Lot-2 MatchPanel.runBboxProcess)
+  // Private — zoom-fitting leaf slices
   // ---------------------------------------------------------------------------
 
   /**
-   * Recursively bisect the [kmA, kmB] portion until the map zoom is at least
-   * MIN_BBOX_ZOOM (15) or MAX_BISECT_DEPTH (8) recursive levels are reached.
+   * Split a portion into contiguous leaf slices that each fit at z15 or above.
    *
-   * Each leaf view navigates the map (zoomToExtent + waitForMapIdle) and
-   * appends a { lon, lat, zoom } entry to `collector`.
-   *
-   * This mirrors the runBboxProcess bisect logic that existed before Lot 2
-   * stripped it (see commit 4232030^ src/ui/MatchPanel.ts lines 533–740).
+   * Instead of recursively halving the portion, this trims the tail until the
+   * leading chunk fits, records that chunk, then repeats on the remainder. The
+   * result is a sequence of sub-slices that preserve the track order and can be
+   * exported independently with their own map anchor.
    */
-  private async bisect(
+  private async planLeafSlices(
+    rowIndex: number,
     kmA: number,
     kmB: number,
-    depth: number,
-    collector: Array<{ lon: number; lat: number; zoom: ZoomLevel }>,
-  ): Promise<void> {
-    if (this.abortRequested) return;
-
-    logger.info("MatchingPipeline.bisect: enter", {
-      kmA,
-      kmB,
-      depth,
+  ): Promise<ViewSlice[]> {
+    const slices: ViewSlice[] = [];
+    const tailBuffer: PendingSlice[] = [{ kmA, kmB }];
+    this.events.onStep?.({
+      key: "planningStart",
+      rowIndex,
+      values: {
+        kmA: Number(kmA.toFixed(2)),
+        kmB: Number(kmB.toFixed(2)),
+      },
     });
 
-    const sliced = sliceMultiLineByDistance(this.track.geometry, kmA, kmB);
-    const box = bboxOfMultiLineString(sliced);
+    while (tailBuffer.length > 0) {
+      if (this.abortRequested) {
+        break;
+      }
+
+      if (slices.length >= MAX_VIEW_SLICES_PER_ROW) {
+        logger.warn("MatchingPipeline.planLeafSlices: reached slice safety cap", {
+          kmA,
+          kmB,
+          generatedCount: slices.length,
+        });
+        break;
+      }
+
+      const pendingSlice = tailBuffer.pop();
+      if (!pendingSlice) {
+        break;
+      }
+
+      logger.info("MatchingPipeline.planLeafSlices: inspecting pending slice", {
+        pendingSlice,
+        remainingTailCount: tailBuffer.length,
+      });
+
+      const fittedSlice = await this.fitPendingSlice(rowIndex, pendingSlice, tailBuffer);
+      if (fittedSlice === null) {
+        logger.warn("MatchingPipeline.planLeafSlices: dropping empty or invalid pending slice", {
+          pendingSlice,
+        });
+        this.events.onStep?.({
+          key: "sliceDropped",
+          rowIndex,
+          values: {
+            kmA: Number(pendingSlice.kmA.toFixed(2)),
+            kmB: Number(pendingSlice.kmB.toFixed(2)),
+          },
+        });
+        continue;
+      }
+
+      slices.push(fittedSlice);
+    }
+
+    return slices;
+  }
+
+  private async fitPendingSlice(
+    rowIndex: number,
+    pendingSlice: PendingSlice,
+    tailBuffer: PendingSlice[],
+  ): Promise<ViewSlice | null> {
+    let currentKmA = pendingSlice.kmA;
+    let currentKmB = pendingSlice.kmB;
+    let currentGeometry = sliceMultiLineByDistance(this.track.geometry, currentKmA, currentKmB);
+
+    const enqueueRemainingTail = (acceptedKmB: number): void => {
+      if (pendingSlice.kmB - acceptedKmB <= VIEW_SLICE_EPSILON_KM) {
+        return;
+      }
+
+      tailBuffer.push({
+        kmA: acceptedKmB,
+        kmB: pendingSlice.kmB,
+      });
+    };
+
+    while (currentGeometry.coordinates.length > 0) {
+      const candidateSlice = await this.evaluateLeafSlice(currentKmA, currentGeometry);
+      if (candidateSlice === null) {
+        return null;
+      }
+
+      logger.info("MatchingPipeline.fitPendingSlice: evaluated candidate", {
+        kmA: currentKmA,
+        kmB: currentKmB,
+        zoom: candidateSlice.zoom,
+        remainingTailCount: tailBuffer.length,
+      });
+
+      const fitsAtTargetZoom = candidateSlice.zoom >= MIN_BBOX_ZOOM;
+      const spanKm = candidateSlice.kmB - currentKmA;
+      if (fitsAtTargetZoom) {
+        logger.info("MatchingPipeline.fitPendingSlice: accepted fitting leaf slice", {
+          candidateSlice,
+          remainingTailCount: tailBuffer.length,
+        });
+        enqueueRemainingTail(candidateSlice.kmB);
+        this.events.onStep?.({
+          key: "sliceAccepted",
+          rowIndex,
+          values: {
+            kmA: Number(candidateSlice.kmA.toFixed(2)),
+            kmB: Number(candidateSlice.kmB.toFixed(2)),
+            zoom: candidateSlice.zoom,
+          },
+        });
+        return candidateSlice;
+      }
+
+      if (spanKm <= VIEW_SLICE_MIN_SPAN_KM) {
+        logger.warn("MatchingPipeline.fitPendingSlice: accepting undersized leaf slice below target zoom", {
+          candidateSlice,
+          remainingTailCount: tailBuffer.length,
+        });
+        enqueueRemainingTail(candidateSlice.kmB);
+        this.events.onStep?.({
+          key: "sliceAccepted",
+          rowIndex,
+          values: {
+            kmA: Number(candidateSlice.kmA.toFixed(2)),
+            kmB: Number(candidateSlice.kmB.toFixed(2)),
+            zoom: candidateSlice.zoom,
+          },
+        });
+        return candidateSlice;
+      }
+
+      const trimmedGeometry = trimTrailingCoordinate(currentGeometry);
+      if (trimmedGeometry === null) {
+        logger.warn("MatchingPipeline.fitPendingSlice: cannot trim trailing coordinate further; accepting current slice", {
+          candidateSlice,
+          remainingTailCount: tailBuffer.length,
+        });
+        enqueueRemainingTail(candidateSlice.kmB);
+        return candidateSlice;
+      }
+
+      const trimmedLengthKm = multiLineLengthKm(trimmedGeometry);
+      const headKmB = currentKmA + trimmedLengthKm;
+      const tailKmA = headKmB;
+      const tailKmB = pendingSlice.kmB;
+
+      if (
+        headKmB - currentKmA <= VIEW_SLICE_EPSILON_KM
+      ) {
+        logger.warn("MatchingPipeline.fitPendingSlice: split would not make progress; accepting current slice", {
+          candidateSlice,
+          remainingTailCount: tailBuffer.length,
+        });
+        enqueueRemainingTail(candidateSlice.kmB);
+        return candidateSlice;
+      }
+
+      logger.info("MatchingPipeline.fitPendingSlice: moved tail to buffer", {
+        keptKmA: currentKmA,
+        keptKmB: headKmB,
+        bufferedTail: { kmA: tailKmA, kmB: tailKmB },
+        removedCoordinateCount: 1,
+        remainingTailCount: tailBuffer.length,
+      });
+      this.events.onStep?.({
+        key: "splitTail",
+        rowIndex,
+        values: {
+          zoom: candidateSlice.zoom,
+          headA: Number(currentKmA.toFixed(2)),
+          headB: Number(headKmB.toFixed(2)),
+          tailA: Number(tailKmA.toFixed(2)),
+          tailB: Number(tailKmB.toFixed(2)),
+        },
+      });
+
+      currentKmB = headKmB;
+      currentGeometry = trimmedGeometry;
+    }
+
+    return null;
+  }
+
+  private async evaluateLeafSlice(
+    kmA: number,
+    geometry: import("geojson").MultiLineString,
+  ): Promise<ViewSlice | null> {
+    if (this.abortRequested) {
+      return null;
+    }
+
+    const box = bboxOfMultiLineString(geometry);
 
     if (!box) {
-      logger.warn(`MatchingPipeline.bisect: empty bbox for [${kmA}, ${kmB}] — skipping`);
-      return;
+      return null;
     }
 
     this.wmeSDK.Map.zoomToExtent({ bbox: box });
-    logger.info("MatchingPipeline.bisect: zoomToExtent issued", {
-      kmA,
-      kmB,
-      depth,
-      box,
-    });
     await waitForMapIdle(this.wmeSDK);
-    logger.info("MatchingPipeline.bisect: map idle after zoomToExtent", {
-      kmA,
-      kmB,
-      depth,
-    });
-
-    if (this.abortRequested) return;
 
     const zoom = this.wmeSDK.Map.getZoomLevel();
-    const zoomSufficient = zoom >= MIN_BBOX_ZOOM;
-    const depthCapped = depth >= MAX_BISECT_DEPTH;
-
-    if (zoomSufficient || depthCapped) {
-      if (depthCapped && !zoomSufficient) {
-        logger.warn(
-          `MatchingPipeline.bisect: depth cap at [${kmA}, ${kmB}] z${zoom} — accepting`,
-        );
-      }
-      // Record this view's center from the bbox midpoint (same formula as
-      // the original runBboxProcess implementation).
-      const centerLon = (box[0] + box[2]) / 2;
-      const centerLat = (box[1] + box[3]) / 2;
-      collector.push({ lon: centerLon, lat: centerLat, zoom });
-      logger.info("MatchingPipeline.bisect: accepted leaf view", {
-        kmA,
-        kmB,
-        depth,
-        zoom,
-        centerLon,
-        centerLat,
-      });
-      return;
-    }
-
-    // Zoom still too low — bisect into left and right halves
-    const mid = (kmA + kmB) / 2;
-    logger.info("MatchingPipeline.bisect: splitting", {
+    const kmB = kmA + multiLineLengthKm(geometry);
+    return {
       kmA,
       kmB,
-      depth,
-      mid,
+      lon: (box[0] + box[2]) / 2,
+      lat: (box[1] + box[3]) / 2,
       zoom,
-    });
-    await this.bisect(kmA, mid, depth + 1, collector);
-    if (this.abortRequested) return;
-    await this.bisect(mid, kmB, depth + 1, collector);
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -546,4 +755,58 @@ export class MatchingPipeline {
       };
     });
   }
+
+  private removeGroupsFromRow(rowIndex: number): void {
+    for (let index = this.matchedGroups.length - 1; index >= 0; index--) {
+      if (this.matchedGroups[index].rowIndex >= rowIndex) {
+        this.matchedGroups.splice(index, 1);
+      }
+    }
+  }
+
+  private setValidatedGroups(
+    rowIndex: number,
+    detectedGroups: readonly ClosureRowGroup[],
+    finalSegmentIds: readonly number[],
+  ): void {
+    const selectedIds = new Set(finalSegmentIds);
+    const validatedGroups = detectedGroups
+      .map((group) => ({
+        rowIndex,
+        segmentIds: group.segmentIds.filter((id) => selectedIds.has(id)),
+        geo: group.geo,
+      }))
+      .filter((group) => group.segmentIds.length > 0);
+
+    const assignedIds = new Set(validatedGroups.flatMap((group) => group.segmentIds));
+    const extraIds = finalSegmentIds.filter((id) => !assignedIds.has(id));
+
+    if (extraIds.length > 0) {
+      const fallbackGeo = detectedGroups[detectedGroups.length - 1]?.geo ?? {
+        lon: 0,
+        lat: 0,
+        zoom: MIN_BBOX_ZOOM,
+      };
+      validatedGroups.push({
+        rowIndex,
+        segmentIds: extraIds,
+        geo: fallbackGeo,
+      });
+    }
+
+    this.removeGroupsFromRow(rowIndex);
+    this.matchedGroups.push(...validatedGroups);
+    this.matchedGroups.sort((left, right) => left.rowIndex - right.rowIndex);
+  }
+}
+
+interface ViewSlice extends RowGeo {
+  kmA: number;
+  kmB: number;
+  zoom: ZoomLevel;
+}
+
+interface PendingSlice {
+  kmA: number;
+  kmB: number;
 }
