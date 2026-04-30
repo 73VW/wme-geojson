@@ -56,7 +56,7 @@ Same as `HANDOFF.md` §2:
 |---|---|---|---|---|
 | **0 — bootstrap** | DONE | `2bf442b`, `5f7bddf`, `4eca4eb`, *this commit* | WKT util, matching WIP, AI docs, `.mcp.json` ignored, `REFACTOR_PROGRESS.md` | Clean tree. Old `releases/*.user.js` were prettier-mangled and restored from HEAD per `HANDOFF.md` §5. |
 | **1 — store + CSV foundations** | DONE | `d57f811` | `src/state/SessionStore.ts`, `src/csv/parseSchedule.ts`, `src/csv/serializeSchedule.ts`, `src/persistence/sessionStorage.ts` + 3 test files | 78 tests green, tsc clean, boundary check passes (no SDK/DOM imports in `src/state/` or `src/csv/`). FNV-1a hashing for localStorage keys. **Note for Lot 3:** `validateRow` does NOT advance `currentIndex` when called with `index !== currentIndex` — re-validation of an earlier row is allowed but pushes duplicate `ClosureRange` entries. If the UI lets the user re-validate, dedup must happen in Lot 4 or be guarded in the caller. |
-| **2 — UI refactor (Waze WC)** | TODO | — | `src/ui/MatchPanel.ts`, `src/ui/components/wz.ts`, `src/layers/TrackLayer.ts`, locale keys | Strip old controls, render by phase. |
+| **2 — UI refactor (Waze WC)** | IN PROGRESS | — | `src/ui/MatchPanel.ts` (rewrite), `src/ui/components/wz.ts` (new), `src/layers/TrackLayer.ts`, `main.user.ts`, `src/bootstrap/loadAndAttachTrack.ts` (new), locale keys | Delegated to Sonnet agent with prompt A.2. |
 | **3 — guided pipeline** | TODO | — | `src/controller/MatchingPipeline.ts`, `src/ui/tabSwitch.ts`, `src/ui/MatchPanel.ts` (guided sub-panel), `src/controller/WalkController.ts` (helpers) | Depends on Lots 1 + 2. |
 | **4 — closures CSV builder** | DONE | `fe6663c` | `src/csv/buildClosuresCsv.ts`, `src/csv/__tests__/buildClosuresCsv.test.ts` (20 tests), `src/ui/promptFinalFields.ts`, locale keys under `panel.finalFields` (EN+FR) | 98 tests green, tsc clean. **Implementation note:** for merged-range rows, `RowGeo` is taken from the earliest contributing row (`mergedRange.rowIndex` = first by `startISO`). Touching boundaries (end(A) == start(B)) explicitly do NOT merge. `promptFinalFields` is implemented but not yet wired into MatchPanel — Lot 3 does that. |
 | **5 — persistence + resume wiring** | TODO | — | `src/state/SessionStore.ts` (mutation hooks), `src/ui/MatchPanel.ts` (resume banner) | Depends on Lots 1 + 2 + 3. |
@@ -212,8 +212,262 @@ deviations from the spec and why.
 
 ### A.2 — Lot 2: UI refresh (Waze Web Components)
 
-*(to be added before launching this lot — the layout depends on what
-Lot 1 exposes; PO will write A.2 at that point)*
+```
+You are working on the wme-geojson Tampermonkey userscript at
+/workspaces/wme-geojson. TypeScript, Rollup, vitest.
+
+Your task is **Lot 2** of the in-flight refactor: rewire the script's
+sidebar tab to a clean, phase-driven UI built with Waze's native Web
+Components, and switch the bootstrap so the panel mounts even when no
+GeoJSON URL is present in the query string.
+
+**Required reading before writing code:**
+1. /workspaces/wme-geojson/REFACTOR_PROGRESS.md — sections 2 (frozen
+   decisions), 3 (architecture), Annex A.2 (this prompt). Read 4
+   (Lot status board) to understand what is already merged.
+2. /workspaces/wme-geojson/HANDOFF.md — SDK quirks (especially §3
+   "no Map.fitBounds, use Map.zoomToExtent", labels-per-feature,
+   wme-selection-changed has no payload) and §5 release-file warning
+   (NEVER commit reformatted releases/*.user.js — restore from HEAD).
+3. /workspaces/wme-geojson/claude.md — conventions.
+4. /workspaces/wme-geojson/main.user.ts — current bootstrap, must be
+   adjusted (see scope below).
+5. /workspaces/wme-geojson/src/ui/MatchPanel.ts — current panel
+   (1169 lines). Identify what to keep vs strip per the deliverables
+   below.
+6. /workspaces/wme-geojson/src/state/SessionStore.ts — Lot 1 store.
+   The new panel is DRIVEN BY THIS STORE.
+7. /workspaces/wme-geojson/src/csv/parseSchedule.ts — Lot 1 parser.
+   Use it for the CSV upload.
+8. /workspaces/wme-geojson/src/csv/serializeSchedule.ts — Lot 1
+   serializer. Use it for the "download enriched input CSV" button.
+9. /workspaces/wme-geojson/src/csv/buildClosuresCsv.ts — Lot 4.
+   Use it for the "download closures CSV" button (final action, not
+   prompted yet — see scope: "deferred to Lot 3").
+10. /workspaces/wme-geojson/src/layers/TrackLayer.ts — has
+    `setVisibleDistances(keys: string[])`. Default behaviour must
+    change to "no labels until CSV loaded" — see scope.
+
+**Deliverables:**
+
+### 2.1 — `src/ui/components/wz.ts` (new)
+
+Typed factories for Waze Web Components, used at WME runtime. The
+typings package does NOT export them; they are registered by the WME
+host page itself. Export:
+
+```ts
+export interface WzButtonProps {
+  text: string;
+  variant?: "primary" | "secondary" | "danger";
+  disabled?: boolean;
+  onClick?: () => void;
+}
+export function wzButton(props: WzButtonProps): HTMLElement;
+
+export interface WzTextInputProps {
+  label?: string;
+  value?: string;
+  placeholder?: string;
+  type?: "text" | "url";
+  disabled?: boolean;
+  onInput?: (value: string) => void;
+}
+export function wzTextInput(props: WzTextInputProps): HTMLElement;
+
+// Returns the file <input> element (we keep it raw — wz-file-input
+// is not consistently available across WME builds). Style it via a
+// CSS class `wmegj-file-input` defined in the panel's <style> block.
+export interface FileInputProps {
+  accept: string;
+  onFile?: (file: File) => void;
+}
+export function fileInput(props: FileInputProps): HTMLInputElement;
+```
+
+Implementation: each factory uses
+`document.createElement("wz-button")` etc., sets attributes for
+declarative props (`text`, `variant`, `disabled`), and listens to
+the corresponding events. If `customElements.get("wz-button")` is
+undefined at call time, fall back to a plain `<button>` styled to
+look acceptable — log a `console.warn` once per missing tag with a
+named guard so we don't spam the console. The fallback keeps the
+script usable in development environments without WME runtime.
+
+No tests for this module — it's pure DOM glue.
+
+### 2.2 — Rewrite `src/ui/MatchPanel.ts`
+
+Remove everything that the new flow does not need:
+- `Center on track` button.
+- The full distance-filter section (textarea + Compute views + bbox
+  list of buttons) — `buildDistanceFilter`, the `bbox*` private
+  fields, `runBboxProcess`, related parsers and helpers. **The
+  `WalkController.matchInCurrentViewport` API is preserved**;
+  Lot 3 will call it from the new pipeline.
+- `Select all matched`, `Copy selected geometry` buttons,
+  `onSelectAllClick`, `onExportSelectionClick`, the results list and
+  `appendResultItem`. The matched-segment results list is no longer
+  shown in the tab.
+- Anything that depends on those (selection-changed subscription
+  used solely to highlight the active result item, etc.).
+
+Keep:
+- The state badge driven by `WalkController.onStateChange`.
+- `buildRangeSlider()` — the dual-handle min/max km range slider.
+  This is a great visual filter and the user wants it kept.
+
+Add (the new layout, top-to-bottom, in order):
+
+1. **Row: GeoJSON URL input + Load button.** Field is a
+   `wz-text-input type="url"` with the current URL pre-filled if
+   `?geojson=...` is set. On Load: kicks off the same load path the
+   current `main.user.ts` uses (call a new exported async function
+   `loadAndAttachTrack(url, wmeSDK, store, layerHolder, controller)` —
+   factor it out). Persist the URL in the editor URL via
+   `history.replaceState` so it survives reload.
+2. **Row: track length** (in km, 2 decimals). Hidden until
+   `store.phase >= track-loaded`.
+3. **Row: range slider** (existing `buildRangeSlider` output).
+   Hidden until track loaded.
+4. **Row: CSV upload** (file input, accept `.csv`). Hidden until
+   track loaded. On file: read text, call `parseSchedule`, push to
+   store via `store.setCsvRows(rows)` and `store.setPhase("csv-loaded")`.
+   Also call `trackLayer.setVisibleDistances(distancesKeysFromCsv(rows))`.
+5. **Row: Start matching** button — visible when phase >= csv-loaded.
+   For Lot 2 it is a STUB that calls `store.setPhase("matching")`
+   and logs a warning `"matching pipeline not wired yet — Lot 3"`.
+   Lot 3 will replace the click handler.
+6. **Row: download buttons** — visible when phase >= csv-loaded:
+   - "Download enriched input CSV": calls `serializeSchedule` on
+     the current `store.getState().csvRows` and triggers a Blob
+     download named `schedule-enriched.csv`.
+   - "Download closures CSV": for Lot 2 it is a STUB that just
+     produces an empty-body file with the header line (call
+     `buildClosuresCsv([], [], {}, dummyFields)`); Lot 3 wires the
+     real prompt + final fields.
+7. **Row: Resume banner** — visible only if a saved session was
+   detected for the current `(geojsonUrl, csvText)` pair (Lot 5
+   handles the actual detection; for Lot 2 leave a placeholder
+   private method `maybeShowResumeBanner()` that no-ops, with a
+   TODO comment pointing to Lot 5).
+
+Phase-driven visibility: write a single `private renderPhase()`
+method that toggles `display` on each row container based on
+`this.store.getState().phase`. Subscribe to `store.subscribe(...)`
+and call `renderPhase` whenever the state changes.
+
+Locale keys to add to BOTH `locales/en/common.json` and
+`locales/fr/common.json` (under existing `panel` namespace where it
+fits, otherwise create sub-namespaces):
+- `panel.urlInput.label`, `panel.urlInput.placeholder`,
+  `panel.urlInput.load`
+- `panel.trackLength` (e.g. `"Track length: {{km}} km"`)
+- `panel.csvInput.label`
+- `panel.startMatching`
+- `panel.downloadEnriched`, `panel.downloadClosures`
+- `panel.resumeDetected`, `panel.startFresh`
+Provide reasonable French and English values.
+
+The new MatchPanel constructor signature:
+```ts
+new MatchPanel(
+  wmeSDK: WmeSDK,
+  store: SessionStore,
+  controller: WalkController | null,   // null until track loaded
+  trackLayer: TrackLayer | null,       // null until track loaded
+)
+```
+
+Both `controller` and `trackLayer` can be `null` while no track is
+loaded. Provide setters so `loadAndAttachTrack` can attach them
+later: `setController(c)`, `setTrackLayer(layer)`. The badge wiring
+(`controller.onStateChange`) attaches lazily when `setController` is
+called.
+
+### 2.3 — `src/layers/TrackLayer.ts`
+
+Change the default initial behaviour: until `setVisibleDistances` is
+called with a non-empty array, **render no distance labels**.
+Concretely: replace any existing logic that defaults to "show all
+labels" with "labels hidden by default". Write a one-line "why"
+comment referencing this lot.
+
+Existing tests must still pass — if a test relies on the old default,
+update it to call `setVisibleDistances` explicitly.
+
+### 2.4 — `main.user.ts`
+
+Change the bootstrap so the panel ALWAYS mounts after `wme-ready`,
+regardless of whether `?geojson=...` is present:
+
+```ts
+const store = new SessionStore();
+const panel = new MatchPanel(wmeSDK, store, null, null);
+await panel.mount();
+
+const url = getGeojsonUrlFromLocation();
+if (url) {
+  await loadAndAttachTrack(url, wmeSDK, store, panel);
+}
+```
+
+`loadAndAttachTrack` lives in a new file
+`src/bootstrap/loadAndAttachTrack.ts` and is exported so the
+"Load URL" button in the panel can re-use it.
+
+Inside loadAndAttachTrack:
+1. `loadTrack(url)` (existing).
+2. Build TrackLayer, draw track.
+3. Build WalkController.
+4. Compute total km and `store.setTrack(url, totalKm)`.
+5. `store.setPhase("track-loaded")`.
+6. Call `panel.setController(controller)` and
+   `panel.setTrackLayer(layer)`.
+
+If `loadTrack` throws, surface a user-visible error in the URL row
+(red border + small message) without throwing further.
+
+### 2.5 — Architecture & quality
+
+- No `any`. Web Component elements are typed `HTMLElement`; access
+  custom props via `(el as unknown as { foo: T }).foo = ...` only
+  when strictly required and add a one-line "why" comment.
+- All UI strings via `i18next.t(...)`. Both EN and FR populated.
+- No `innerHTML` with user-provided data (per existing comment in
+  current MatchPanel).
+- "Why" comments only.
+- Existing tests must still pass; if a TrackLayer test requires
+  adjustment for the new default, update it minimally.
+
+### 2.6 — Validation commands (must be clean before reporting done)
+
+```
+npm test
+npx tsc --noEmit
+npm run build
+```
+
+After build, verify `releases/release-0.9.0.user.js` is unchanged on
+disk (run `git status` — if it appears modified, `git checkout HEAD
+-- releases/` to restore). Do NOT commit any release file change.
+
+**Do NOT:**
+- Update REFACTOR_PROGRESS.md (PO does that).
+- Commit (PO does that).
+- Wire the real Start-matching pipeline (Lot 3).
+- Wire promptFinalFields into the closures download (Lot 3).
+- Wire localStorage resume detection (Lot 5).
+
+**Report back with:**
+- Files created / files materially modified (one line each).
+- Locale keys added.
+- Test summary (`Tests N passed (N)`) and tsc output (must be empty).
+- Confirmation that `releases/` was untouched after build.
+- Any deviation and the reason.
+
+Keep the report under 350 words.
+```
 
 ### A.3 — Lot 3: guided matching pipeline
 
