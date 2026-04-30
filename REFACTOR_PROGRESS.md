@@ -58,7 +58,7 @@ Same as `HANDOFF.md` §2:
 | **1 — store + CSV foundations** | DONE | `d57f811` | `src/state/SessionStore.ts`, `src/csv/parseSchedule.ts`, `src/csv/serializeSchedule.ts`, `src/persistence/sessionStorage.ts` + 3 test files | 78 tests green, tsc clean, boundary check passes (no SDK/DOM imports in `src/state/` or `src/csv/`). FNV-1a hashing for localStorage keys. **Note for Lot 3:** `validateRow` does NOT advance `currentIndex` when called with `index !== currentIndex` — re-validation of an earlier row is allowed but pushes duplicate `ClosureRange` entries. If the UI lets the user re-validate, dedup must happen in Lot 4 or be guarded in the caller. |
 | **2 — UI refactor (Waze WC)** | TODO | — | `src/ui/MatchPanel.ts`, `src/ui/components/wz.ts`, `src/layers/TrackLayer.ts`, locale keys | Strip old controls, render by phase. |
 | **3 — guided pipeline** | TODO | — | `src/controller/MatchingPipeline.ts`, `src/ui/tabSwitch.ts`, `src/ui/MatchPanel.ts` (guided sub-panel), `src/controller/WalkController.ts` (helpers) | Depends on Lots 1 + 2. |
-| **4 — closures CSV builder** | TODO | — | `src/csv/buildClosuresCsv.ts`, `src/ui/promptFinalFields.ts` + tests | Pure. Can run in parallel with Lot 2. Depends on Lot 1 types. |
+| **4 — closures CSV builder** | IN PROGRESS | — | `src/csv/buildClosuresCsv.ts`, `src/ui/promptFinalFields.ts` + tests | Delegated to Sonnet agent with prompt A.4. |
 | **5 — persistence + resume wiring** | TODO | — | `src/state/SessionStore.ts` (mutation hooks), `src/ui/MatchPanel.ts` (resume banner) | Depends on Lots 1 + 2 + 3. |
 | **6 — polish + release** | TODO | — | `package.json` bump, `releases/release-0.10.0.user.js`, `README.md`, `HANDOFF.md` | Manual smoke E2E, version bump, regenerate release. |
 
@@ -219,8 +219,165 @@ Lot 1 exposes; PO will write A.2 at that point)*
 
 ### A.4 — Lot 4: closures CSV builder
 
-*(to be added before launching this lot — can be drafted once Lot 1
-types are merged so the prompt can reference exact type names)*
+```
+You are working on the wme-geojson Tampermonkey userscript at
+/workspaces/wme-geojson. TypeScript, Rollup, vitest.
+
+**Required reading before writing code:**
+1. /workspaces/wme-geojson/REFACTOR_PROGRESS.md — overall refactor
+   context. Your task is Lot 4 (this prompt is A.4 in the annex).
+   Read sections 2 (frozen decisions), 3 (architecture), and Annex
+   D (overlap dedup spec) carefully. Annex C has the target CSV
+   format.
+2. /workspaces/wme-geojson/claude.md — coding conventions you MUST
+   follow (no `any`, named constants, "why" comments only, strict
+   TS, i18next for UI strings).
+3. /workspaces/wme-geojson/src/state/SessionStore.ts — already
+   merged in Lot 1. Re-use these exact types: `CsvRow`,
+   `ClosureRange`, `SessionState`. DO NOT redefine them.
+4. /workspaces/wme-geojson/src/csv/parseSchedule.ts and
+   serializeSchedule.ts — for code style reference.
+
+**Deliverables:**
+
+1. `src/csv/buildClosuresCsv.ts` — pure module, no SDK, no DOM. Exports:
+
+   ```ts
+   export interface FinalFields {
+     reason: string;          // e.g. "Tour de Romandie 2026"
+     ignoreTraffic: boolean;  // serialized as "Yes" | "No"
+     mteId: string;           // optional, "" if absent
+     comment: string;         // optional, "" if absent
+   }
+   export interface RowGeo {
+     // Per-CsvRow geometry context, captured during matching (Lot 3).
+     // Indexed in the same order as SessionState.csvRows.
+     lon: number;
+     lat: number;
+     zoom: number; // integer, WME zoom level used for the bbox view
+   }
+   export function buildClosuresCsv(
+     rows: readonly CsvRow[],
+     rowGeos: readonly RowGeo[],
+     closuresBySegment: Readonly<Record<number, ClosureRange[]>>,
+     finalFields: FinalFields,
+   ): string;
+   ```
+
+   Algorithm — implement Annex D of REFACTOR_PROGRESS.md exactly:
+   - For each segment in `closuresBySegment`:
+     - Sort its ranges by `startISO`.
+     - Compute the merged ranges (any two with overlapping
+       [startISO, endISO] intervals collapse into one with
+       start = min, end = max). Two adjacent intervals that touch
+       at a boundary (end of A == start of B) are NOT considered
+       overlapping (treat as separate).
+     - If the merged set has the SAME shape as the original (no
+       merges happened), the segment stays in its original
+       `csvRows` rows.
+     - Otherwise (at least one merge): the segment must be removed
+       from every original row it appeared in, and one new row is
+       emitted PER merged range, with that single segment, using
+       start = merged start, end = merged end. lon/lat/zoom for
+       merged-range rows: pick the rowGeo of any contributing row
+       (e.g. the first by rowIndex) — document this choice in a
+       brief "why" comment.
+   - For each row that retains at least one segment after dedup,
+     emit one CSV line.
+   - Empty-segment rows (all segments stripped) are skipped.
+   - Output ordering: original rows first (in their original order,
+     skipping emptied ones), then merged-range rows ordered by
+     (segmentId, mergedStart). Stable and deterministic.
+
+   CSV header (exact text — do not modify, the Advanced Closures
+   script parses by header):
+   ```
+   header,reason,start date (yyyy-mm-dd hh:mm),end date (yyyy-mm-dd hh:mm),direction (A to B|B to A|TWO WAY),ignore trafic (Yes|No),segment IDs (id1;id2;...),lon/lat (like in a permalink: lon=xxx&lat=yyy),zoom (2 to 10),MTE ID,comment (optional)
+   ```
+
+   Each data row:
+   - column 0: literal `add`
+   - column 1: `finalFields.reason`
+   - column 2-3: `YYYY-MM-DD HH:MM` (transform from `startISO`/`endISO`
+     which are stored as `YYYY-MM-DDTHH:MM`)
+   - column 4: literal `TWO WAY`
+   - column 5: `Yes` if `ignoreTraffic` else `No`
+   - column 6: segment IDs joined by `;` (no spaces)
+   - column 7: `lon=<lon>&lat=<lat>` — use 5 decimal places (e.g.
+     `lon=7.05464&lat=46.17835`)
+   - column 8: `rowGeo.zoom` as integer
+   - column 9: `finalFields.mteId`
+   - column 10: `finalFields.comment`
+
+   IMPORTANT: do not quote any field. The Advanced Closures script
+   uses naive comma split. If a `reason` or `comment` contains a
+   comma, throw a descriptive Error from `buildClosuresCsv`.
+
+2. `src/__tests__/buildClosuresCsv.test.ts` — vitest tests:
+   - **Trivial case**: 2 rows with disjoint segments → 2 output rows,
+     identical segment lists, no merge.
+   - **No-overlap-same-segment**: same segment in 2 rows but time
+     ranges disjoint → segment stays in both rows (Annex D step 2:
+     "if no two ranges overlap, leave the segment unchanged").
+   - **User's example**: input 2 rows sharing segment `298469941`
+     with overlapping ranges 13:32–14:24 and 13:59–14:51 → 3 output
+     rows: row 1 with 5 segments (no 298469941), row 2 with 2
+     segments (no 298469941), row 3 dedicated to 298469941 with
+     range 13:32–14:51. Verify lines char-by-char where reasonable.
+   - **Three overlapping ranges of same segment** → one merged
+     range covering the union.
+   - **Comma in reason** → throws Error.
+   - **Empty closuresBySegment** → only header line.
+
+3. `src/ui/promptFinalFields.ts` — ASYNC function that prompts the
+   user for the four FinalFields via a small modal-like overlay.
+   This file MAY use DOM (it's a UI module, not in src/csv/). Use
+   plain `<dialog>` element or a div overlay; don't pull a UI
+   library. Wrap it as:
+
+   ```ts
+   export async function promptFinalFields(
+     defaults?: Partial<FinalFields>,
+   ): Promise<FinalFields | null>; // null if user cancels
+   ```
+
+   Strings via `i18next.t(...)`. Add the keys to BOTH
+   `locales/en/common.json` AND `locales/fr/common.json` under a new
+   namespace `panel.finalFields`:
+     - title, reason, ignoreTraffic, mteId, comment, ok, cancel,
+       errorCommaInField
+
+   Do NOT add this UI to MatchPanel yet (Lot 3 wires it in).
+
+**Hard constraints:**
+- `src/csv/buildClosuresCsv.ts` MUST NOT import anything from
+  `wme-sdk-typings`, `window.*`, or `document.*`. Verify with
+  grep before reporting done.
+- Strict TS, no `any`. No `as` casts unless you also add a
+  one-line "why" comment.
+- Existing tests must still pass.
+
+**Validation commands:**
+```
+npm test
+npx tsc --noEmit
+```
+Both must be clean. Spot-check `npm run build` succeeds.
+
+**Do NOT:**
+- Update REFACTOR_PROGRESS.md (PO does that).
+- Commit (PO does that).
+- Wire `promptFinalFields` into MatchPanel (Lot 3 does that).
+- Touch the SessionStore — types are FROZEN from Lot 1.
+
+**Report back with:**
+- Files created with one-line description each.
+- Test summary (tests passed / failed counts).
+- Output of `npx tsc --noEmit` (must be empty).
+- Any deviation from the spec and the reason.
+
+Keep the report under 300 words.
+```
 
 ### A.5 — Lot 5: persistence + resume wiring
 
