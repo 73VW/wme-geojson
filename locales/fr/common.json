@@ -1,124 +1,124 @@
 {
-  "errors": {
-    "fetchFailed": "Impossible de charger le tracé GeoJSON depuis l'URL.",
-    "invalidGeometry": "Le GeoJSON a un type de géométrie invalide ou non supporté."
-  },
-  "panel": {
-    "title": "WME GeoJSON",
-    "trackInfo": {
-      "id": "ID du tracé : {{id}}",
-      "length": "Longueur : {{km}} km"
-    },
-    "status": {
-      "idle": "En attente",
-      "walking": "Parcours en cours…",
-      "done": "Terminé",
-      "cancelled": "Annulé",
-      "error": "Erreur"
-    },
-    "buttons": {
-      "centerOnTrack": "Centrer sur le tracé",
-      "start": "Lancer la correspondance",
-      "stop": "Arrêter",
-      "selectAll": "Tout sélectionner",
-      "exportSelection": "Copier géométrie sélection",
-      "selectAllConfirm": "Tout sélectionner",
-      "cancel": "Annuler"
-    },
-    "modal": {
-      "largeSelectionWarning": "Vous êtes sur le point de sélectionner {{count}} segments. Les grandes sélections peuvent être lentes ou échouer. Continuer ?"
-    },
     "errors": {
-      "selectionFailed": "Échec de la sélection : {{error}}"
+        "fetchFailed": "Impossible de charger le tracé GeoJSON depuis l'URL.",
+        "invalidGeometry": "Le GeoJSON a un type de géométrie invalide ou non supporté."
     },
-    "range": {
-      "title": "Plage de distance visible",
-      "window": "{{min}} km – {{max}} km"
-    },
-    "distanceFilter": {
-      "title": "Filtrer les labels par liste de distances",
-      "help": "N'afficher que les labels correspondant aux kilomètres listés (arrondi aux 100 m). Séparer par virgule, espace ou retour à la ligne.",
-      "placeholder": "ex. 0.5, 1.2, 3.4",
-      "matched": "{{visible}} visibles / {{requested}} demandés",
-      "clear": "Vider la liste",
-      "runProcess": "Calculer les vues",
-      "stopProcess": "Arrêter",
-      "processing": "Calcul de la vue {{done}}/{{total}}…",
-      "stale": "Liste périmée — relancer",
-      "viewButton": "Vue pour {{distance}} km",
-      "viewButtonIndexed": "Vue {{index}} pour {{distance}} km",
-      "matchButton": "Match",
-      "exportSliceButton": "Copier sous-track",
-      "viewCenter": "lon={{lon}}&lat={{lat}}"
-    },
-    "progress": {
-      "empty": "Non démarré",
-      "running": "{{visited}} / {{total}} cellules"
-    },
-    "results": {
-      "empty": "Aucune correspondance.",
-      "count": "{{count}} segment(s) trouvé(s)",
-      "item": "Segment {{id}}",
-      "unavailable": "Segment indisponible",
-      "active": "(actif)"
-    },
-    "urlInput": {
-      "label": "URL GeoJSON",
-      "placeholder": "https://exemple.com/trace.geojson",
-      "load": "Charger",
-      "center": "Centrer"
-    },
-    "trackLength": "Longueur du tracé : {{km}} km",
-    "csvInput": {
-      "label": "Importer le CSV de planning"
-    },
-    "startMatching": "Lancer la correspondance",
-    "startMatchingBurst": "Lancer en burst",
-    "downloadEnriched": "Télécharger le CSV enrichi",
-    "downloadClosures": "Télécharger le CSV de fermetures",
-    "resumeDetected": "Une session précédente a été trouvée. Continuer là où vous en étiez ?",
-    "resumeCompleted": "Une session terminée a été trouvée.",
-    "resumeCompletedDetails": "{{total}} étape(s) de matching avaient déjà été terminées.",
-    "resumeIndex": "Reprise à la ligne {{index}} / {{total}}",
-    "resume": "Reprendre",
-    "startFresh": "Recommencer depuis le début",
-    "matching": {
-      "rowHeader": "Ligne {{index}} / {{total}} — {{km}} km, {{startTime}} → {{endTime}}",
-      "validateOrCorrect": "Validez ou corrigez et validez",
-      "segmentsMatched": "{{count}} segment(s) trouvé(s)",
-      "stepsTitle": "Étapes en direct",
-      "validate": "Valider",
-      "skip": "Passer la ligne",
-      "back": "Retour",
-      "burstRunning": "Mode burst : les segments trouvés sont validés automatiquement.",
-      "pause": "Pause",
-      "restartFromScratch": "Recommencer de zéro",
-      "restartConfirm": "Tous les segments validés seront perdus. Recommencer de zéro ?",
-      "mustValidateFirst": "Validez ou passez au moins une ligne avant de télécharger les fermetures.",
-      "missingRowGeo": "Export impossible pour l'instant : la ligne {{index}} a des segments validés mais aucun point d'ancrage de carte capturé.",
-      "mustFinishFirst": "Terminez la correspondance de toutes les lignes avant de télécharger",
-      "noPipelineRun": "Lancez la correspondance au moins une fois avant de télécharger",
-      "steps": {
-        "planningStart": "Préparation des sous-lignes pour {{kmA}} → {{kmB}} km",
-        "splitTail": "Sous-ligne trop grande à z{{zoom}} ; découpe en {{headA}} → {{headB}} + {{tailA}} → {{tailB}} km",
-        "sliceAccepted": "Sous-ligne acceptée {{kmA}} → {{kmB}} à z{{zoom}}",
-        "sliceDropped": "Sous-ligne invalide ignorée {{kmA}} → {{kmB}}",
-        "planningDone": "{{count}} sous-ligne(s) prêtes",
-        "processingLeaf": "Matching de la sous-ligne {{index}}/{{total}} ({{kmA}} → {{kmB}} km)",
-        "leafMatched": "Sous-ligne {{index}}/{{total}} matchée : {{count}} segment(s)",
-        "waitingValidation": "En attente de validation/correction",
-        "unknown": "Étape du pipeline"
-      }
-    },
-    "finalFields": {
-      "title": "Exporter les fermetures — détails finaux",
-      "reason": "Raison",
-      "ignoreTraffic": "Ignorer le trafic",
-      "mteId": "ID MTE (optionnel)",
-      "comment": "Commentaire (optionnel)",
-      "ok": "Exporter",
-      "cancel": "Annuler",
-      "errorCommaInField": "Les champs ne doivent pas contenir de virgule (le CSV de sortie utilise la virgule comme séparateur)."
+    "panel": {
+        "title": "WME GeoJSON",
+        "trackInfo": {
+            "id": "ID du tracé : {{id}}",
+            "length": "Longueur : {{km}} km"
+        },
+        "status": {
+            "idle": "En attente",
+            "walking": "Parcours en cours…",
+            "done": "Terminé",
+            "cancelled": "Annulé",
+            "error": "Erreur"
+        },
+        "buttons": {
+            "centerOnTrack": "Centrer sur le tracé",
+            "start": "Lancer la correspondance",
+            "stop": "Arrêter",
+            "selectAll": "Tout sélectionner",
+            "exportSelection": "Copier géométrie sélection",
+            "selectAllConfirm": "Tout sélectionner",
+            "cancel": "Annuler"
+        },
+        "modal": {
+            "largeSelectionWarning": "Vous êtes sur le point de sélectionner {{count}} segments. Les grandes sélections peuvent être lentes ou échouer. Continuer ?"
+        },
+        "errors": {
+            "selectionFailed": "Échec de la sélection : {{error}}"
+        },
+        "range": {
+            "title": "Plage de distance visible",
+            "window": "{{min}} km – {{max}} km"
+        },
+        "distanceFilter": {
+            "title": "Filtrer les labels par liste de distances",
+            "help": "N'afficher que les labels correspondant aux kilomètres listés (arrondi aux 100 m). Séparer par virgule, espace ou retour à la ligne.",
+            "placeholder": "ex. 0.5, 1.2, 3.4",
+            "matched": "{{visible}} visibles / {{requested}} demandés",
+            "clear": "Vider la liste",
+            "runProcess": "Calculer les vues",
+            "stopProcess": "Arrêter",
+            "processing": "Calcul de la vue {{done}}/{{total}}…",
+            "stale": "Liste périmée — relancer",
+            "viewButton": "Vue pour {{distance}} km",
+            "viewButtonIndexed": "Vue {{index}} pour {{distance}} km",
+            "matchButton": "Match",
+            "exportSliceButton": "Copier sous-track",
+            "viewCenter": "lon={{lon}}&lat={{lat}}"
+        },
+        "progress": {
+            "empty": "Non démarré",
+            "running": "{{visited}} / {{total}} cellules"
+        },
+        "results": {
+            "empty": "Aucune correspondance.",
+            "count": "{{count}} segment(s) trouvé(s)",
+            "item": "Segment {{id}}",
+            "unavailable": "Segment indisponible",
+            "active": "(actif)"
+        },
+        "urlInput": {
+            "label": "URL GeoJSON",
+            "placeholder": "https://exemple.com/trace.geojson",
+            "load": "Charger",
+            "center": "Centrer"
+        },
+        "trackLength": "Longueur du tracé : {{km}} km",
+        "csvInput": {
+            "label": "Importer le CSV de planning"
+        },
+        "startMatching": "Lancer la correspondance",
+        "startMatchingBurst": "Lancer en burst",
+        "downloadEnriched": "Télécharger le CSV enrichi",
+        "downloadClosures": "Télécharger le CSV de fermetures",
+        "resumeDetected": "Une session précédente a été trouvée. Continuer là où vous en étiez ?",
+        "resumeCompleted": "Une session terminée a été trouvée.",
+        "resumeCompletedDetails": "{{total}} étape(s) de matching avaient déjà été terminées.",
+        "resumeIndex": "Reprise à la ligne {{index}} / {{total}}",
+        "resume": "Reprendre",
+        "startFresh": "Recommencer depuis le début",
+        "matching": {
+            "rowHeader": "Ligne {{index}} / {{total}} — {{km}} km, {{startTime}} → {{endTime}}",
+            "validateOrCorrect": "Validez ou corrigez et validez",
+            "segmentsMatched": "{{count}} segment(s) trouvé(s)",
+            "stepsTitle": "Étapes en direct",
+            "validate": "Valider",
+            "skip": "Passer la ligne",
+            "back": "Retour",
+            "burstRunning": "Mode burst : les segments trouvés sont validés automatiquement.",
+            "pause": "Pause",
+            "restartFromScratch": "Recommencer de zéro",
+            "restartConfirm": "Tous les segments validés seront perdus. Recommencer de zéro ?",
+            "mustValidateFirst": "Validez ou passez au moins une ligne avant de télécharger les fermetures.",
+            "missingRowGeo": "Export impossible pour l'instant : la ligne {{index}} a des segments validés mais aucun point d'ancrage de carte capturé.",
+            "mustFinishFirst": "Terminez la correspondance de toutes les lignes avant de télécharger",
+            "noPipelineRun": "Lancez la correspondance au moins une fois avant de télécharger",
+            "steps": {
+                "planningStart": "Préparation des sous-lignes pour {{kmA}} → {{kmB}} km",
+                "splitTail": "Sous-ligne trop grande à z{{zoom}} ; découpe en {{headA}} → {{headB}} + {{tailA}} → {{tailB}} km",
+                "sliceAccepted": "Sous-ligne acceptée {{kmA}} → {{kmB}} à z{{zoom}}",
+                "sliceDropped": "Sous-ligne invalide ignorée {{kmA}} → {{kmB}}",
+                "planningDone": "{{count}} sous-ligne(s) prêtes",
+                "processingLeaf": "Matching de la sous-ligne {{index}}/{{total}} ({{kmA}} → {{kmB}} km)",
+                "leafMatched": "Sous-ligne {{index}}/{{total}} matchée : {{count}} segment(s)",
+                "waitingValidation": "En attente de validation/correction",
+                "unknown": "Étape du pipeline"
+            }
+        },
+        "finalFields": {
+            "title": "Exporter les fermetures — détails finaux",
+            "reason": "Raison",
+            "ignoreTraffic": "Ignorer le trafic",
+            "mteId": "ID MTE (optionnel)",
+            "comment": "Commentaire (optionnel)",
+            "ok": "Exporter",
+            "cancel": "Annuler",
+            "errorCommaInField": "Les champs ne doivent pas contenir de virgule (le CSV de sortie utilise la virgule comme séparateur)."
+        }
     }
-  }
 }

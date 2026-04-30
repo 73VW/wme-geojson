@@ -13,8 +13,8 @@ import type { Feature, LineString } from "geojson";
 import type { MatchArgs } from "./types";
 
 export interface MatchSegmentsAsyncOptions {
-  chunkSize?: number;
-  yieldBetweenChunks?: () => Promise<void>;
+    chunkSize?: number;
+    yieldBetweenChunks?: () => Promise<void>;
 }
 
 /**
@@ -25,22 +25,22 @@ export interface MatchSegmentsAsyncOptions {
  * criterion "Segment crossing buffer at one point → matched."
  */
 export function matchSegments(args: MatchArgs): Set<number> {
-  const { segments, bufferedTrack } = args;
-  const matched = new Set<number>();
+    const { segments, bufferedTrack } = args;
+    const matched = new Set<number>();
 
-  for (const segment of segments) {
-    const segFeature: Feature<LineString> = {
-      type: "Feature",
-      geometry: segment.geometry,
-      properties: null,
-    };
+    for (const segment of segments) {
+        const segFeature: Feature<LineString> = {
+            type: "Feature",
+            geometry: segment.geometry,
+            properties: null,
+        };
 
-    if (booleanIntersects(segFeature, bufferedTrack)) {
-      matched.add(segment.id);
+        if (booleanIntersects(segFeature, bufferedTrack)) {
+            matched.add(segment.id);
+        }
     }
-  }
 
-  return matched;
+    return matched;
 }
 
 /**
@@ -48,33 +48,33 @@ export function matchSegments(args: MatchArgs): Set<number> {
  * keep the browser responsive during large per-view matching runs.
  */
 export async function matchSegmentsAsync(
-  args: MatchArgs,
-  options: MatchSegmentsAsyncOptions = {},
+    args: MatchArgs,
+    options: MatchSegmentsAsyncOptions = {},
 ): Promise<Set<number>> {
-  const { segments, bufferedTrack } = args;
-  const matched = new Set<number>();
-  const chunkSize = options.chunkSize ?? 20;
-  const yieldBetweenChunks = options.yieldBetweenChunks;
+    const { segments, bufferedTrack } = args;
+    const matched = new Set<number>();
+    const chunkSize = options.chunkSize ?? 20;
+    const yieldBetweenChunks = options.yieldBetweenChunks;
 
-  for (let start = 0; start < segments.length; start += chunkSize) {
-    const chunk = segments.slice(start, start + chunkSize);
+    for (let start = 0; start < segments.length; start += chunkSize) {
+        const chunk = segments.slice(start, start + chunkSize);
 
-    for (const segment of chunk) {
-      const segFeature: Feature<LineString> = {
-        type: "Feature",
-        geometry: segment.geometry,
-        properties: null,
-      };
+        for (const segment of chunk) {
+            const segFeature: Feature<LineString> = {
+                type: "Feature",
+                geometry: segment.geometry,
+                properties: null,
+            };
 
-      if (booleanIntersects(segFeature, bufferedTrack)) {
-        matched.add(segment.id);
-      }
+            if (booleanIntersects(segFeature, bufferedTrack)) {
+                matched.add(segment.id);
+            }
+        }
+
+        if (yieldBetweenChunks && start + chunkSize < segments.length) {
+            await yieldBetweenChunks();
+        }
     }
 
-    if (yieldBetweenChunks && start + chunkSize < segments.length) {
-      await yieldBetweenChunks();
-    }
-  }
-
-  return matched;
+    return matched;
 }
