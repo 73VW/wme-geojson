@@ -76,6 +76,15 @@
     "downloadClosures": "Download closures CSV",
     "resumeDetected": "A previous session was found. Continue where you left off?",
     "startFresh": "Start fresh",
+    "matching": {
+      "rowHeader": "Row {{index}} / {{total}} — {{km}} km, {{startTime}} → {{endTime}}",
+      "validateOrCorrect": "Validate, or correct then validate",
+      "segmentsMatched": "{{count}} segment(s) matched",
+      "validate": "Validate",
+      "pause": "Pause",
+      "mustFinishFirst": "Finish matching all rows before downloading",
+      "noPipelineRun": "Run matching at least once before downloading"
+    },
     "finalFields": {
       "title": "Export closures — final details",
       "reason": "Reason",

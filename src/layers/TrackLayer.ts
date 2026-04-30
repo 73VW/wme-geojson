@@ -100,6 +100,15 @@ export class TrackLayer {
   }
 
   /**
+   * Return the MultiLineString geometry of the currently-drawn track, or null
+   * if no track has been drawn yet. Used by MatchingPipeline to build the
+   * NormalizedTrack it needs for bbox bisection without re-reading from disk.
+   */
+  getTrackGeometry(): NormalizedTrack["geometry"] | null {
+    return this.currentTrack?.geometry ?? null;
+  }
+
+  /**
    * Restrict the rendered portion of the track to [minKm, maxKm]. Out-of-range
    * sub-lines and labels are removed; in-range sub-lines are clipped at the
    * window edges. Composes with setVisibleDistances as an intersection.

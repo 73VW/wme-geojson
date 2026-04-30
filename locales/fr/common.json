@@ -76,6 +76,15 @@
     "downloadClosures": "Télécharger le CSV de fermetures",
     "resumeDetected": "Une session précédente a été trouvée. Continuer là où vous en étiez ?",
     "startFresh": "Recommencer depuis le début",
+    "matching": {
+      "rowHeader": "Ligne {{index}} / {{total}} — {{km}} km, {{startTime}} → {{endTime}}",
+      "validateOrCorrect": "Validez ou corrigez et validez",
+      "segmentsMatched": "{{count}} segment(s) trouvé(s)",
+      "validate": "Valider",
+      "pause": "Pause",
+      "mustFinishFirst": "Terminez la correspondance de toutes les lignes avant de télécharger",
+      "noPipelineRun": "Lancez la correspondance au moins une fois avant de télécharger"
+    },
     "finalFields": {
       "title": "Exporter les fermetures — détails finaux",
       "reason": "Raison",

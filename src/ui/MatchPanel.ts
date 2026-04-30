@@ -10,6 +10,8 @@ import { serializeSchedule } from "../csv/serializeSchedule";
 import { buildClosuresCsv } from "../csv/buildClosuresCsv";
 import type { FinalFields, RowGeo } from "../csv/buildClosuresCsv";
 import { wzButton, wzTextInput, fileInput } from "./components/wz";
+import { MatchingPipeline } from "../controller/MatchingPipeline";
+import { promptFinalFields } from "./promptFinalFields";
 
 
 /**
@@ -46,6 +48,7 @@ export class MatchPanel {
   private rangeSliderRow: HTMLElement | null = null;
   private csvUploadRow: HTMLElement | null = null;
   private startMatchingRow: HTMLElement | null = null;
+  private guidedMatchingRow: HTMLElement | null = null;
   private downloadRow: HTMLElement | null = null;
   private resumeBannerRow: HTMLElement | null = null;
 
@@ -58,6 +61,18 @@ export class MatchPanel {
 
   // Pending slider frame (rAF coalescing — see buildRangeSlider)
   private _onRangeChanged: (() => void) | null = null;
+
+  // The tab label element returned by Sidebar.registerScriptTab(). Stored so
+  // the pipeline can call tabLabel.click() to re-activate the userscript tab
+  // after Editing.setSelection switches focus to the segment edit panel.
+  private tabLabel: HTMLElement | null = null;
+
+  // Active pipeline instance (created on Start matching, cleared on done/abort)
+  private pipeline: MatchingPipeline | null = null;
+
+  // Guided sub-panel text elements updated by pipeline events
+  private guidedRowHeaderEl: HTMLElement | null = null;
+  private guidedSegmentCountEl: HTMLElement | null = null;
 
   constructor(
     private readonly wmeSDK: WmeSDK,
@@ -91,6 +106,7 @@ export class MatchPanel {
     }
 
     tabLabel.textContent = "GeoJ";
+    this.tabLabel = tabLabel;
     this.tabPane = tabPane;
     this.injectStyles(tabPane);
     this.buildDOM(tabPane);
@@ -155,6 +171,14 @@ export class MatchPanel {
   }
 
   /**
+   * Return the tab label element so MatchingPipeline can re-activate the
+   * userscript tab after each Editing.setSelection call.
+   */
+  getTabLabel(): HTMLElement | null {
+    return this.tabLabel;
+  }
+
+  /**
    * Surface a load error in the URL row (red message below the input).
    * Called by loadAndAttachTrack when loadTrack throws.
    */
@@ -185,11 +209,14 @@ export class MatchPanel {
     this.rangeSliderRow = null;
     this.csvUploadRow = null;
     this.startMatchingRow = null;
+    this.guidedMatchingRow = null;
     this.downloadRow = null;
     this.resumeBannerRow = null;
     this.urlInputEl = null;
     this.urlErrorEl = null;
     this.badgeEl = null;
+    this.guidedRowHeaderEl = null;
+    this.guidedSegmentCountEl = null;
 
     logger.info("MatchPanel unmounted");
   }
@@ -228,9 +255,13 @@ export class MatchPanel {
     this.csvUploadRow = this.buildCsvUploadRow();
     container.appendChild(this.csvUploadRow);
 
-    // Row 5 — Start matching button (hidden until csv-loaded)
+    // Row 5 — Start matching button (hidden during matching, shown on csv-loaded / done)
     this.startMatchingRow = this.buildStartMatchingRow();
     container.appendChild(this.startMatchingRow);
+
+    // Row 5b — Guided matching sub-panel (visible only while phase === "matching")
+    this.guidedMatchingRow = this.buildGuidedMatchingRow();
+    container.appendChild(this.guidedMatchingRow);
 
     // Row 6 — Download buttons (hidden until csv-loaded)
     this.downloadRow = this.buildDownloadRow();
@@ -321,14 +352,73 @@ export class MatchPanel {
       text: i18next.t("panel.startMatching"),
       variant: "primary",
       onClick: () => {
-        // Lot 3 will replace this click handler with the real pipeline.
-        // For now we advance the phase to let downstream rows become visible.
-        logger.warn("matching pipeline not wired yet — Lot 3");
-        this.store.setPhase("matching");
+        this.onStartMatchingClick();
       },
     });
     section.appendChild(btn);
 
+    return section;
+  }
+
+  /**
+   * Guided matching sub-panel — shown while phase === "matching".
+   *
+   * Contains a header line (row N / M — km, time range), an instruction line,
+   * a segment count line, and Validate / Pause buttons. Text elements are
+   * kept as private fields so pipeline events can update them live.
+   */
+  private buildGuidedMatchingRow(): HTMLElement {
+    const section = document.createElement("section");
+    section.style.marginTop = "8px";
+    section.style.padding = "8px";
+    section.style.border = "1px solid #ccc";
+    section.style.borderRadius = "4px";
+
+    const headerEl = document.createElement("p");
+    headerEl.style.margin = "0 0 4px 0";
+    headerEl.style.fontWeight = "600";
+    headerEl.style.fontSize = "12px";
+    headerEl.textContent = "—";
+    section.appendChild(headerEl);
+    this.guidedRowHeaderEl = headerEl;
+
+    const instructionEl = document.createElement("p");
+    instructionEl.style.margin = "0 0 4px 0";
+    instructionEl.style.fontSize = "11px";
+    instructionEl.style.color = "#555";
+    instructionEl.textContent = i18next.t("panel.matching.validateOrCorrect");
+    section.appendChild(instructionEl);
+
+    const countEl = document.createElement("p");
+    countEl.style.margin = "0 0 8px 0";
+    countEl.style.fontSize = "12px";
+    countEl.textContent = i18next.t("panel.matching.segmentsMatched", { count: 0 });
+    section.appendChild(countEl);
+    this.guidedSegmentCountEl = countEl;
+
+    const btnRow = document.createElement("div");
+    btnRow.style.display = "flex";
+    btnRow.style.gap = "6px";
+
+    const validateBtn = wzButton({
+      text: i18next.t("panel.matching.validate"),
+      variant: "primary",
+      onClick: () => {
+        this.pipeline?.validateCurrentRow();
+      },
+    });
+    btnRow.appendChild(validateBtn);
+
+    const pauseBtn = wzButton({
+      text: i18next.t("panel.matching.pause"),
+      variant: "secondary",
+      onClick: () => {
+        this.pipeline?.abort();
+      },
+    });
+    btnRow.appendChild(pauseBtn);
+
+    section.appendChild(btnRow);
     return section;
   }
 
@@ -606,22 +696,139 @@ export class MatchPanel {
   }
 
   private onDownloadClosuresClick(): void {
-    // Lot 3 will wire promptFinalFields here. For now we emit a header-only
-    // stub so the download is not broken and the user can see the format.
-    const dummyFields: FinalFields = {
-      reason: "stub",
-      ignoreTraffic: true,
-      mteId: "",
-      comment: "",
-    };
-    // Empty rows / geos / closures — Lot 3 will pass real data.
-    const emptyGeos: RowGeo[] = [];
-    try {
-      const csv = buildClosuresCsv([], emptyGeos, {}, dummyFields);
-      this.triggerDownload(csv, "closures.csv", "text/csv");
-    } catch (err) {
-      logger.error("MatchPanel: buildClosuresCsv failed in stub mode", err);
+    const { phase, csvRows, closuresBySegment } = this.store.getState();
+
+    if (phase !== "done") {
+      logger.warn("MatchPanel: " + i18next.t("panel.matching.mustFinishFirst"));
+      return;
     }
+
+    if (!this.pipeline) {
+      logger.warn("MatchPanel: " + i18next.t("panel.matching.noPipelineRun"));
+      return;
+    }
+
+    const rowGeos = this.pipeline.getRowGeos();
+
+    promptFinalFields()
+      .then((fields: FinalFields | null) => {
+        if (!fields) return;
+
+        try {
+          // rowGeos is indexed parallel to csvRows; cast to the RowGeo type
+          // expected by buildClosuresCsv (same shape — lon/lat/zoom).
+          const csv = buildClosuresCsv(
+            csvRows,
+            rowGeos as RowGeo[],
+            closuresBySegment,
+            fields,
+          );
+          this.triggerDownload(csv, "closures.csv", "text/csv");
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          logger.error("MatchPanel: buildClosuresCsv failed", err);
+          // Surface error inline without a full modal — a console error is
+          // visible in DevTools; a future lot can add a proper toast.
+          alert(message);
+        }
+      })
+      .catch((err: unknown) => {
+        logger.error("MatchPanel: promptFinalFields rejected", err);
+      });
+  }
+
+  private onStartMatchingClick(): void {
+    const { csvRows, geojsonUrl } = this.store.getState();
+
+    if (csvRows.length === 0) {
+      logger.warn("MatchPanel.onStartMatchingClick: no CSV rows, cannot start");
+      return;
+    }
+
+    if (!this.controller) {
+      logger.warn("MatchPanel.onStartMatchingClick: no controller, track not loaded");
+      return;
+    }
+
+    if (!this.trackLayer) {
+      logger.warn("MatchPanel.onStartMatchingClick: no trackLayer, track not loaded");
+      return;
+    }
+
+    if (!geojsonUrl) {
+      logger.warn("MatchPanel.onStartMatchingClick: no geojsonUrl in store");
+      return;
+    }
+
+    const tabLabel = this.tabLabel;
+    if (!tabLabel) {
+      logger.warn("MatchPanel.onStartMatchingClick: tabLabel not available (not mounted?)");
+      return;
+    }
+
+    // Build NormalizedTrack from the layer's geometry. The TrackLayer already
+    // holds the loaded track; expose it via getTrack() or reconstruct the
+    // NormalizedTrack inline from what the controller holds.
+    // WalkController.track is private, so we read from TrackLayer instead.
+    const trackGeometry = this.trackLayer.getTrackGeometry();
+    if (!trackGeometry) {
+      logger.warn("MatchPanel.onStartMatchingClick: trackLayer has no geometry yet");
+      return;
+    }
+
+    const track = { trackId: null, geometry: trackGeometry };
+
+    this.store.setPhase("matching");
+
+    this.pipeline = new MatchingPipeline(
+      this.wmeSDK,
+      this.store,
+      this.controller,
+      track,
+      this.trackLayer,
+      {
+        onRowStarted: (index, total) => {
+          const rows = this.store.getState().csvRows;
+          const row = rows[index];
+          if (row && this.guidedRowHeaderEl) {
+            this.guidedRowHeaderEl.textContent = i18next.t("panel.matching.rowHeader", {
+              index: index + 1,
+              total,
+              km: row.distance.toFixed(1),
+              startTime: row.startTime,
+              endTime: row.endTime,
+            });
+          }
+          if (this.guidedSegmentCountEl) {
+            this.guidedSegmentCountEl.textContent = i18next.t(
+              "panel.matching.segmentsMatched",
+              { count: 0 },
+            );
+          }
+        },
+        onRowMatched: (_index, segments) => {
+          if (this.guidedSegmentCountEl) {
+            this.guidedSegmentCountEl.textContent = i18next.t(
+              "panel.matching.segmentsMatched",
+              { count: segments.length },
+            );
+          }
+        },
+        onError: (message) => {
+          logger.error("MatchingPipeline error:", message);
+        },
+        onDone: () => {
+          this.store.setPhase("done");
+        },
+        onAborted: () => {
+          // Return to csv-loaded phase so the user can restart
+          this.store.setPhase("csv-loaded");
+        },
+      },
+      tabLabel,
+    );
+
+    this.pipeline.start();
   }
 
   private triggerDownload(content: string, filename: string, mimeType: string): void {
