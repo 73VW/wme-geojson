@@ -58,7 +58,7 @@ Same as `HANDOFF.md` §2:
 | **1 — store + CSV foundations** | DONE | `d57f811` | `src/state/SessionStore.ts`, `src/csv/parseSchedule.ts`, `src/csv/serializeSchedule.ts`, `src/persistence/sessionStorage.ts` + 3 test files | 78 tests green, tsc clean, boundary check passes (no SDK/DOM imports in `src/state/` or `src/csv/`). FNV-1a hashing for localStorage keys. **Note for Lot 3:** `validateRow` does NOT advance `currentIndex` when called with `index !== currentIndex` — re-validation of an earlier row is allowed but pushes duplicate `ClosureRange` entries. If the UI lets the user re-validate, dedup must happen in Lot 4 or be guarded in the caller. |
 | **2 — UI refactor (Waze WC)** | TODO | — | `src/ui/MatchPanel.ts`, `src/ui/components/wz.ts`, `src/layers/TrackLayer.ts`, locale keys | Strip old controls, render by phase. |
 | **3 — guided pipeline** | TODO | — | `src/controller/MatchingPipeline.ts`, `src/ui/tabSwitch.ts`, `src/ui/MatchPanel.ts` (guided sub-panel), `src/controller/WalkController.ts` (helpers) | Depends on Lots 1 + 2. |
-| **4 — closures CSV builder** | IN PROGRESS | — | `src/csv/buildClosuresCsv.ts`, `src/ui/promptFinalFields.ts` + tests | Delegated to Sonnet agent with prompt A.4. |
+| **4 — closures CSV builder** | DONE | `fe6663c` | `src/csv/buildClosuresCsv.ts`, `src/csv/__tests__/buildClosuresCsv.test.ts` (20 tests), `src/ui/promptFinalFields.ts`, locale keys under `panel.finalFields` (EN+FR) | 98 tests green, tsc clean. **Implementation note:** for merged-range rows, `RowGeo` is taken from the earliest contributing row (`mergedRange.rowIndex` = first by `startISO`). Touching boundaries (end(A) == start(B)) explicitly do NOT merge. `promptFinalFields` is implemented but not yet wired into MatchPanel — Lot 3 does that. |
 | **5 — persistence + resume wiring** | TODO | — | `src/state/SessionStore.ts` (mutation hooks), `src/ui/MatchPanel.ts` (resume banner) | Depends on Lots 1 + 2 + 3. |
 | **6 — polish + release** | TODO | — | `package.json` bump, `releases/release-0.10.0.user.js`, `README.md`, `HANDOFF.md` | Manual smoke E2E, version bump, regenerate release. |
 
@@ -67,16 +67,18 @@ Status legend: `TODO` (not started), `IN PROGRESS` (active), `BLOCKED`
 
 ## 5. Next action
 
-**Start Lot 4 (closures CSV builder)** — pure module, can run in
-parallel with Lot 2 (UI). Lot 1 types are now in
-`src/state/SessionStore.ts` (`ClosureRange`, `CsvRow`,
-`closuresBySegment`). Draft prompt A.4 below before delegating.
-Then flip Lot 4 to `IN PROGRESS`, commit
-`chore(progress): start Lot 4`, delegate to a Sonnet sub-agent.
+**Start Lot 2 (UI refactor with Waze Web Components).** Foundations
+(Lots 1, 4) are merged. The PO must first draft prompt A.2 in the
+annex below — this is a UI-heavy lot, the prompt needs concrete
+references to (a) the existing `MatchPanel.ts` widgets to remove vs
+keep, (b) the phase-based show/hide logic driven by
+`SessionStore.phase`, (c) the Waze Web Component element names
+(`<wz-button>`, `<wz-text-input>`, etc.) and a fallback registry
+check. Skim `src/ui/MatchPanel.ts` and the existing range-slider
+code before writing the prompt.
 
-Lot 2 (UI refactor) can start whenever a developer is available —
-it does not depend on Lot 4. Drafting prompt A.2 is the next PO
-task before launching it.
+After the prompt is drafted, flip Lot 2 to `IN PROGRESS`, commit
+`chore(progress): start Lot 2`, delegate to a Sonnet sub-agent.
 
 ## 6. Blockers / open questions
 
