@@ -5,6 +5,14 @@
 > pièges connus du SDK Waze, et le plan utilisateur pour la prochaine
 > étape (matching des segments).
 >
+> ⚠️ **Refactor en cours (avril 2026).** Une refonte CSV-driven closures
+> pipeline est en route. Lis [REFACTOR_PROGRESS.md](REFACTOR_PROGRESS.md)
+> EN PREMIER — il documente l'état actuel de cette refonte (Lots 0–5
+> mergés, Lot 6 release manuelle restante) et la procédure de reprise
+> pour n'importe quelle IA. Ce document HANDOFF.md décrit la version
+> 0.9.0 stable d'avant-refonte ; il sera mis à jour quand la 0.10.0
+> sera taggée.
+>
 > Lis aussi `claude.md` (conventions de code) et `prd.md` (spec d'origine
 >
 > - Hypothesis Changelog avec tous les SDK quirks découverts palier après

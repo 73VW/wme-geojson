@@ -17,6 +17,131 @@
 
 ---
 
+## 0. Resume here (for the next AI / Copilot)
+
+**Where things stand right now**
+
+- Lots 0–5 are merged. Lot 6 (release) is the only outstanding work.
+  All deliverables for the CSV-driven closures pipeline are
+  implemented. The script is feature-complete pending manual smoke
+  testing.
+- Working tree is clean (or should be — verify with `git status`).
+- Latest commits (most recent first):
+  ```
+  2f45a56 chore(progress): complete Lot 5, queue Lot 6 (release)
+  077d5ea feat(lot-5): persistence wiring, resume banner, restart from scratch
+  775608b feat(lot-3): guided matching pipeline + closures CSV download
+  4232030 feat(lot-2): phase-driven UI refactor with Waze Web Components
+  fe6663c feat(lot-4): closures CSV builder with overlap dedup + final-fields prompt
+  d57f811 feat(lot-1): SessionStore + CSV parse/serialize + localStorage persistence
+  ```
+
+**Verify the state in 30 seconds**
+
+```bash
+git status                 # must be clean
+git log --oneline -15      # must show the commits above
+npm test                   # 104 tests must pass
+npx tsc --noEmit           # must produce no output
+```
+
+If any of those is dirty/red, **do not proceed with Lot 6** — read
+the blockers section §6 and fix first.
+
+**What to do next: Lot 6 (release)**
+
+This lot is **NOT delegable to a sub-agent** — it requires manual
+clicks in the live WME editor. The PO (you) drives it.
+
+1. Smoke test in WME:
+   - Load `https://beta.waze.com/fr/editor?env=row` with the
+     userscript installed in dev mode (`header-dev.js` →
+     `.out/main.user.js`, see `HANDOFF.md` §6).
+   - Paste a GeoJSON URL into the URL field, click **Load**. The
+     URL should appear in the editor URL (`?geojson=...`); track
+     length should display under the field; the range slider
+     should appear; distance labels should be HIDDEN initially.
+   - Upload the schedule CSV (see Annex B for a sample).
+     Distance labels should now appear, filtered to the CSV's
+     distances.
+   - Click **Start matching**. The map should pan/zoom to the
+     first row's bbox, segments should auto-select, and the
+     userscript tab should remain active (NOT switch to the
+     segment-edit panel).
+   - Validate a row, optionally correcting the selection first.
+     Repeat for ~3 rows.
+   - **Reload the page.** When the CSV is re-uploaded, the
+     resume banner should appear with the correct row index;
+     clicking Resume should jump back into matching at that
+     row. Clicking Start fresh should reset.
+   - Continue to the end. Click **Download closures CSV** —
+     the modal should ask for Reason / Ignore traffic / MTE ID
+     / Comment; the resulting CSV should match Annex C format
+     and the dedup spec in Annex D.
+   - Click **Download enriched input CSV** — segments should
+     be populated.
+
+2. Bump version: edit `package.json` from `0.9.0` to `0.10.0`.
+   No other file references the version.
+
+3. Generate the release:
+   ```bash
+   npm run build
+   ```
+   This produces `releases/release-0.10.0.user.js`. **Critically**:
+   `npm run build` also re-emits older `releases/*.user.js` files
+   via prettier reformatting. Restore them BEFORE staging:
+   ```bash
+   git status releases/
+   # If older releases appear modified:
+   git checkout HEAD -- $(git diff --name-only releases/ | grep -v 0.10.0)
+   git status releases/
+   # Now only release-0.10.0.user.js should be untracked/new.
+   ```
+
+4. Update `README.md`: replace the old "load GeoJSON, walk segments"
+   description with the new flow (URL → CSV → guided matching →
+   download closures CSV). Mention the localStorage resume.
+
+5. Update `HANDOFF.md` §1 (current version): change `0.9.0` →
+   `0.10.0`, list "what works" with the new pipeline, add any new
+   SDK quirks discovered during smoke testing to §3.
+
+6. Final commit:
+   ```bash
+   git add package.json releases/release-0.10.0.user.js README.md HANDOFF.md REFACTOR_PROGRESS.md
+   git commit -m "release: v0.10.0 — CSV-driven closures pipeline"
+   ```
+   And update §4 of this file to mark Lot 6 DONE before committing.
+
+**Common pitfalls to anticipate**
+
+- **`npm run build` re-prettiers old releases.** Always
+  `git checkout HEAD -- releases/release-0.[1-9].*.user.js` before
+  staging. See `HANDOFF.md` §5.
+- **Tab return after `setSelection`.** Implemented via
+  `tabLabel.click()` in `MatchingPipeline`. If WME changes its
+  internal tab activator, this may break — fallback would be to
+  query `[data-id="userscript_tab"]` from the DOM.
+- **`wme-selection-changed` has no payload.** The pipeline reads
+  the current selection via `wmeSDK.Editing.getSelection()` at
+  validate-click time, never on the selection event itself.
+- **`validateRow` does not advance `currentIndex`** if `index !==
+  currentIndex`. The pipeline always validates in order; do not
+  introduce an out-of-order validation path or duplicate
+  ClosureRange entries will accumulate in the store.
+- **Releases under prettier review.** Per HANDOFF.md §5 the
+  `releases/*.user.js` files are immutable artifacts. Only ADD
+  the new `release-0.10.0.user.js`; never modify existing ones.
+
+**If something breaks during smoke testing**
+
+Don't patch ad-hoc. Add a "**Lot 7 — fix X**" row to §4 with
+status `TODO`, write a short A.7 prompt in the annex, and either
+delegate or fix yourself. Keep the lot-by-lot discipline.
+
+---
+
 ## 1. Goal in 5 lines
 
 The script currently loads a GeoJSON track and lets the user trigger
