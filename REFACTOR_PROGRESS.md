@@ -57,7 +57,7 @@ Same as `HANDOFF.md` §2:
 | **0 — bootstrap** | DONE | `2bf442b`, `5f7bddf`, `4eca4eb`, *this commit* | WKT util, matching WIP, AI docs, `.mcp.json` ignored, `REFACTOR_PROGRESS.md` | Clean tree. Old `releases/*.user.js` were prettier-mangled and restored from HEAD per `HANDOFF.md` §5. |
 | **1 — store + CSV foundations** | DONE | `d57f811` | `src/state/SessionStore.ts`, `src/csv/parseSchedule.ts`, `src/csv/serializeSchedule.ts`, `src/persistence/sessionStorage.ts` + 3 test files | 78 tests green, tsc clean, boundary check passes (no SDK/DOM imports in `src/state/` or `src/csv/`). FNV-1a hashing for localStorage keys. **Note for Lot 3:** `validateRow` does NOT advance `currentIndex` when called with `index !== currentIndex` — re-validation of an earlier row is allowed but pushes duplicate `ClosureRange` entries. If the UI lets the user re-validate, dedup must happen in Lot 4 or be guarded in the caller. |
 | **2 — UI refactor (Waze WC)** | DONE | `4232030` | `src/ui/MatchPanel.ts` (1169 → 683 lines), `src/ui/components/wz.ts` (new, 163 lines), `src/bootstrap/loadAndAttachTrack.ts` (new), `src/layers/TrackLayer.ts` (labels-off default), `main.user.ts` (always mount), 8 locale keys (EN+FR) | 98 tests green, tsc clean, releases/ untouched. **Implementation note for Lot 3:** the circular import between `MatchPanel` and `loadAndAttachTrack` is broken via `panel.setLoadFn(fn)` injected from `main.user.ts`. Lot 3 will replace the start-matching button click handler — currently a stub that just sets phase to "matching" and logs a warning. The download-closures button currently emits a header-only file with `reason: "stub"`. |
-| **3 — guided pipeline** | IN PROGRESS | — | `src/controller/MatchingPipeline.ts` (new), `src/ui/MatchPanel.ts` (guided sub-panel + wire stubs), locale keys under `panel.matching` | Delegated to Sonnet agent with prompt A.3. Tab return uses `tabLabel.click()` (no programmatic SDK API). |
+| **3 — guided pipeline** | DONE | `775608b` | `src/controller/MatchingPipeline.ts` (new, ~360 lines), `src/ui/MatchPanel.ts` (guided sub-panel + real wiring), `src/layers/TrackLayer.ts` (`getTrackGeometry()` accessor), locale keys under `panel.matching` | 98 tests green, tsc clean. Tab return uses `tabLabel.click()` (no SDK API exists). RowGeo captured from the **last** bisected bbox view (most natural anchor — matches what the user is currently looking at). Validation reads `wmeSDK.Editing.getSelection()` at click-time so user corrections are captured. Pipeline does NOT touch localStorage — Lot 5 will plug a store subscriber. |
 | **4 — closures CSV builder** | DONE | `fe6663c` | `src/csv/buildClosuresCsv.ts`, `src/csv/__tests__/buildClosuresCsv.test.ts` (20 tests), `src/ui/promptFinalFields.ts`, locale keys under `panel.finalFields` (EN+FR) | 98 tests green, tsc clean. **Implementation note:** for merged-range rows, `RowGeo` is taken from the earliest contributing row (`mergedRange.rowIndex` = first by `startISO`). Touching boundaries (end(A) == start(B)) explicitly do NOT merge. `promptFinalFields` is implemented but not yet wired into MatchPanel — Lot 3 does that. |
 | **5 — persistence + resume wiring** | TODO | — | `src/state/SessionStore.ts` (mutation hooks), `src/ui/MatchPanel.ts` (resume banner) | Depends on Lots 1 + 2 + 3. |
 | **6 — polish + release** | TODO | — | `package.json` bump, `releases/release-0.10.0.user.js`, `README.md`, `HANDOFF.md` | Manual smoke E2E, version bump, regenerate release. |
@@ -67,7 +67,43 @@ Status legend: `TODO` (not started), `IN PROGRESS` (active), `BLOCKED`
 
 ## 5. Next action
 
-**Start Lot 3 (guided matching pipeline).** Lots 1, 2, 4 are merged.
+**Start Lot 5 (persistence + resume wiring).** Lots 1–4 are merged
+end-to-end. The remaining work is to plug `src/persistence/sessionStorage.ts`
+(Lot 1) into the live `SessionStore` so that:
+
+- Every meaningful mutation (`setCsvRows`, `setTrack`, `validateRow`)
+  triggers `save(state, csvText)`.
+- On startup, after the user uploads a CSV, the panel calls
+  `load(geojsonUrl, csvText)` and, if a state with `currentIndex > 0`
+  is found, displays the resume banner that was placeholder-built in
+  Lot 2 (`buildResumeBannerRow`). The banner offers two actions:
+  "Reprendre / Resume" (rehydrate the store from the loaded state)
+  and "Reprendre de zéro / Restart from scratch" (call
+  `clearForCurrent` and reset the store).
+- A "Restart from scratch" button must also be available at any time
+  during matching (per user spec — point 4 of the original brief).
+
+The Lot 5 prompt (A.5) must specify exact hook points in
+`SessionStore` (call `save` from inside `mutate`, but only when
+geojsonUrl AND csvRows are populated — otherwise `save` is a no-op),
+and exact UI placement in `MatchPanel`. Draft A.5, flip Lot 5 to
+`IN PROGRESS`, commit `chore(progress): start Lot 5`, delegate.
+
+Then Lot 6 (PO does it directly): smoke E2E, version bump 0.9.0 →
+0.10.0, generate `releases/release-0.10.0.user.js`, README update,
+HANDOFF.md update. Lot 6 is NOT delegated — it requires manual WME
+testing. The PO should leave detailed manual testing notes in the
+file before tagging the release.
+
+**Lot 3 deferred / known limitations**
+
+- Pipeline previously stripped from `MatchPanel` — recovered into
+  `MatchingPipeline.bisect`. The bisection is a private method, not
+  extracted to `src/matching/bboxViews.ts` as A.3 suggested. If a
+  future lot needs to test it in isolation, extract then.
+- The pipeline subscribes to `controller.onMatchFound` per bbox view
+  to collect IDs. If `WalkController` evolves to a callback-less API,
+  this will need updating.
 The new MatchPanel has a stub `Start matching` button and a stub
 `Download closures CSV` button — Lot 3 replaces both with the real
 flow. Draft prompt A.3 below. Key reference points the prompt must
