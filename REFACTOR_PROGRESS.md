@@ -56,7 +56,7 @@ Same as `HANDOFF.md` §2:
 |---|---|---|---|---|
 | **0 — bootstrap** | DONE | `2bf442b`, `5f7bddf`, `4eca4eb`, *this commit* | WKT util, matching WIP, AI docs, `.mcp.json` ignored, `REFACTOR_PROGRESS.md` | Clean tree. Old `releases/*.user.js` were prettier-mangled and restored from HEAD per `HANDOFF.md` §5. |
 | **1 — store + CSV foundations** | DONE | `d57f811` | `src/state/SessionStore.ts`, `src/csv/parseSchedule.ts`, `src/csv/serializeSchedule.ts`, `src/persistence/sessionStorage.ts` + 3 test files | 78 tests green, tsc clean, boundary check passes (no SDK/DOM imports in `src/state/` or `src/csv/`). FNV-1a hashing for localStorage keys. **Note for Lot 3:** `validateRow` does NOT advance `currentIndex` when called with `index !== currentIndex` — re-validation of an earlier row is allowed but pushes duplicate `ClosureRange` entries. If the UI lets the user re-validate, dedup must happen in Lot 4 or be guarded in the caller. |
-| **2 — UI refactor (Waze WC)** | IN PROGRESS | — | `src/ui/MatchPanel.ts` (rewrite), `src/ui/components/wz.ts` (new), `src/layers/TrackLayer.ts`, `main.user.ts`, `src/bootstrap/loadAndAttachTrack.ts` (new), locale keys | Delegated to Sonnet agent with prompt A.2. |
+| **2 — UI refactor (Waze WC)** | DONE | `4232030` | `src/ui/MatchPanel.ts` (1169 → 683 lines), `src/ui/components/wz.ts` (new, 163 lines), `src/bootstrap/loadAndAttachTrack.ts` (new), `src/layers/TrackLayer.ts` (labels-off default), `main.user.ts` (always mount), 8 locale keys (EN+FR) | 98 tests green, tsc clean, releases/ untouched. **Implementation note for Lot 3:** the circular import between `MatchPanel` and `loadAndAttachTrack` is broken via `panel.setLoadFn(fn)` injected from `main.user.ts`. Lot 3 will replace the start-matching button click handler — currently a stub that just sets phase to "matching" and logs a warning. The download-closures button currently emits a header-only file with `reason: "stub"`. |
 | **3 — guided pipeline** | TODO | — | `src/controller/MatchingPipeline.ts`, `src/ui/tabSwitch.ts`, `src/ui/MatchPanel.ts` (guided sub-panel), `src/controller/WalkController.ts` (helpers) | Depends on Lots 1 + 2. |
 | **4 — closures CSV builder** | DONE | `fe6663c` | `src/csv/buildClosuresCsv.ts`, `src/csv/__tests__/buildClosuresCsv.test.ts` (20 tests), `src/ui/promptFinalFields.ts`, locale keys under `panel.finalFields` (EN+FR) | 98 tests green, tsc clean. **Implementation note:** for merged-range rows, `RowGeo` is taken from the earliest contributing row (`mergedRange.rowIndex` = first by `startISO`). Touching boundaries (end(A) == start(B)) explicitly do NOT merge. `promptFinalFields` is implemented but not yet wired into MatchPanel — Lot 3 does that. |
 | **5 — persistence + resume wiring** | TODO | — | `src/state/SessionStore.ts` (mutation hooks), `src/ui/MatchPanel.ts` (resume banner) | Depends on Lots 1 + 2 + 3. |
@@ -67,18 +67,36 @@ Status legend: `TODO` (not started), `IN PROGRESS` (active), `BLOCKED`
 
 ## 5. Next action
 
-**Start Lot 2 (UI refactor with Waze Web Components).** Foundations
-(Lots 1, 4) are merged. The PO must first draft prompt A.2 in the
-annex below — this is a UI-heavy lot, the prompt needs concrete
-references to (a) the existing `MatchPanel.ts` widgets to remove vs
-keep, (b) the phase-based show/hide logic driven by
-`SessionStore.phase`, (c) the Waze Web Component element names
-(`<wz-button>`, `<wz-text-input>`, etc.) and a fallback registry
-check. Skim `src/ui/MatchPanel.ts` and the existing range-slider
-code before writing the prompt.
+**Start Lot 3 (guided matching pipeline).** Lots 1, 2, 4 are merged.
+The new MatchPanel has a stub `Start matching` button and a stub
+`Download closures CSV` button — Lot 3 replaces both with the real
+flow. Draft prompt A.3 below. Key reference points the prompt must
+embed:
 
-After the prompt is drafted, flip Lot 2 to `IN PROGRESS`, commit
-`chore(progress): start Lot 2`, delegate to a Sonnet sub-agent.
+- `MatchingPipeline` orchestrator (new file
+  `src/controller/MatchingPipeline.ts`).
+- After every `Editing.setSelection`, re-activate the userscript tab
+  by calling `tabLabel.click()` on the element returned by
+  `Sidebar.registerScriptTab()` (the SDK has no `selectTab` API —
+  see `node_modules/wme-sdk-typings/index.d.ts` `Sidebar` declaration).
+  This means `MatchPanel` needs to expose its `tabLabel` element to
+  the pipeline (or wrap the click in a public method).
+- Re-use `WalkController.matchInCurrentViewport(kmA, kmB)`,
+  `computePortions` + `bisect` from the old `runBboxProcess`
+  (preserved git-blame-able in commit `f640016` and the previous
+  MatchPanel version before Lot 2 — see `git show
+  4232030^:src/ui/MatchPanel.ts | grep -n runBboxProcess`).
+- Per row: capture `RowGeo` (lon, lat, zoom) at validation time and
+  pass it through to `buildClosuresCsv` via the existing Lot 4 API.
+- At the end, call `promptFinalFields()` (already implemented in
+  Lot 4) and replace the download-closures stub with the real
+  `buildClosuresCsv(rows, rowGeos, store.closuresBySegment, fields)`.
+- Watch out: `validateRow` does not advance `currentIndex` if
+  `index !== currentIndex`. The pipeline must always validate in
+  order (cursor-driven) to keep the assumption intact.
+
+After the prompt is drafted, flip Lot 3 to `IN PROGRESS`, commit
+`chore(progress): start Lot 3`, delegate to a Sonnet sub-agent.
 
 ## 6. Blockers / open questions
 
