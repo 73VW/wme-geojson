@@ -61,6 +61,16 @@
       "item": "Segment {{id}}",
       "unavailable": "Segment indisponible",
       "active": "(actif)"
+    },
+    "finalFields": {
+      "title": "Exporter les fermetures — détails finaux",
+      "reason": "Raison",
+      "ignoreTraffic": "Ignorer le trafic",
+      "mteId": "ID MTE (optionnel)",
+      "comment": "Commentaire (optionnel)",
+      "ok": "Exporter",
+      "cancel": "Annuler",
+      "errorCommaInField": "Les champs ne doivent pas contenir de virgule (le CSV de sortie utilise la virgule comme séparateur)."
     }
   }
 }

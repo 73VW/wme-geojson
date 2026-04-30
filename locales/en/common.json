@@ -61,6 +61,16 @@
       "item": "Segment {{id}}",
       "unavailable": "Segment unavailable",
       "active": "(active)"
+    },
+    "finalFields": {
+      "title": "Export closures — final details",
+      "reason": "Reason",
+      "ignoreTraffic": "Ignore traffic",
+      "mteId": "MTE ID (optional)",
+      "comment": "Comment (optional)",
+      "ok": "Export",
+      "cancel": "Cancel",
+      "errorCommaInField": "Fields must not contain a comma (the output CSV uses comma as delimiter)."
     }
   }
 }
