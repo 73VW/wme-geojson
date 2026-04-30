@@ -65,13 +65,15 @@
     "urlInput": {
       "label": "URL GeoJSON",
       "placeholder": "https://exemple.com/trace.geojson",
-      "load": "Charger"
+      "load": "Charger",
+      "center": "Centrer"
     },
     "trackLength": "Longueur du tracé : {{km}} km",
     "csvInput": {
       "label": "Importer le CSV de planning"
     },
     "startMatching": "Lancer la correspondance",
+    "startMatchingBurst": "Lancer en burst",
     "downloadEnriched": "Télécharger le CSV enrichi",
     "downloadClosures": "Télécharger le CSV de fermetures",
     "resumeDetected": "Une session précédente a été trouvée. Continuer là où vous en étiez ?",
@@ -85,6 +87,7 @@
       "validate": "Valider",
       "skip": "Passer la ligne",
       "back": "Retour",
+      "burstRunning": "Mode burst : les segments trouvés sont validés automatiquement.",
       "pause": "Pause",
       "restartFromScratch": "Recommencer de zéro",
       "restartConfirm": "Tous les segments validés seront perdus. Recommencer de zéro ?",

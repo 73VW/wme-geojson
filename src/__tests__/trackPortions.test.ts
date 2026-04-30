@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MultiLineString } from "geojson";
-import { computePortions, sliceMultiLineByDistance } from "../matching/trackPortions";
+import { computeMatchingWorkItems, computePortions, sliceMultiLineByDistance } from "../matching/trackPortions";
 
 // ─── computePortions ──────────────────────────────────────────────────────────
 
@@ -29,6 +29,66 @@ describe("computePortions", () => {
     const portions = computePortions([1.0], 5.0);
     expect(portions).toHaveLength(1);
     expect(portions[0]).toMatchObject({ inputDistance: 1.0, kmA: 1.0, kmB: 5.0 });
+  });
+});
+
+describe("computeMatchingWorkItems", () => {
+  it("treats two increasing distances as one explicit interval even when schedule metadata differs", () => {
+    const workItems = computeMatchingWorkItems(
+      [
+        { distance: 1.0, startTime: "08:00", endTime: "09:00", date: "2026-04-30" },
+        { distance: 2.5, startTime: "08:05", endTime: "09:05", date: "2026-04-30" },
+      ],
+      5.0,
+    );
+
+    expect(workItems).toEqual([
+      { rowIndex: 0, inputDistance: 1.0, kmA: 1.0, kmB: 2.5 },
+    ]);
+  });
+
+  it("keeps single-row CSV behavior and matches to the end of the track", () => {
+    const workItems = computeMatchingWorkItems(
+      [
+        { distance: 12.4, startTime: "13:00", endTime: "14:00", date: "2026-04-30" },
+      ],
+      80.0,
+    );
+
+    expect(workItems).toEqual([
+      { rowIndex: 0, inputDistance: 12.4, kmA: 12.4, kmB: 80.0 },
+    ]);
+  });
+
+  it("treats increasing distances as N-1 explicit intervals", () => {
+    const workItems = computeMatchingWorkItems(
+      [
+        { distance: 10.0, startTime: "13:00", endTime: "14:00", date: "2026-04-30" },
+        { distance: 12.0, startTime: "13:07", endTime: "14:07", date: "2026-04-30" },
+        { distance: 15.5, startTime: "13:18", endTime: "14:18", date: "2026-04-30" },
+      ],
+      80.0,
+    );
+
+    expect(workItems).toEqual([
+      { rowIndex: 0, inputDistance: 10.0, kmA: 10.0, kmB: 12.0 },
+      { rowIndex: 1, inputDistance: 12.0, kmA: 12.0, kmB: 15.5 },
+    ]);
+  });
+
+  it("falls back to one work item per row when distances are not strictly increasing", () => {
+    const workItems = computeMatchingWorkItems(
+      [
+        { distance: 12.4, startTime: "13:00", endTime: "14:00", date: "2026-04-30" },
+        { distance: 12.4, startTime: "13:05", endTime: "14:05", date: "2026-04-30" },
+      ],
+      80.0,
+    );
+
+    expect(workItems).toEqual([
+      { rowIndex: 0, inputDistance: 12.4, kmA: 12.4, kmB: 12.4 },
+      { rowIndex: 1, inputDistance: 12.4, kmA: 12.4, kmB: 80.0 },
+    ]);
   });
 });
 

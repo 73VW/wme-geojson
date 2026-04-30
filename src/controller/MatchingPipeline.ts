@@ -19,7 +19,11 @@ import type { NormalizedTrack } from "../geojson/types";
 import type { TrackLayer } from "../layers/TrackLayer";
 import type { WalkController } from "./WalkController";
 import type { SessionStore } from "../state/SessionStore";
-import { computePortions, sliceMultiLineByDistance, bboxOfMultiLineString } from "../matching/trackPortions";
+import {
+  computeMatchingWorkItems,
+  sliceMultiLineByDistance,
+  bboxOfMultiLineString,
+} from "../matching/trackPortions";
 import { waitForMapIdle } from "../utils/waitForMapIdle";
 import { logger } from "../utils/logger";
 
@@ -46,6 +50,10 @@ export interface PipelineEvents {
   onError?: (message: string) => void;
   onDone?: () => void;
   onAborted?: () => void;
+}
+
+export interface MatchingPipelineOptions {
+  burstMode?: boolean;
 }
 
 type PendingRowAction = "validate" | "skip" | "back" | "abort";
@@ -78,6 +86,7 @@ export class MatchingPipeline {
     private readonly track: NormalizedTrack,
     private readonly trackLayer: TrackLayer,
     private readonly events: PipelineEvents,
+    private readonly options: MatchingPipelineOptions,
     // The tab label element returned by Sidebar.registerScriptTab().
     // Clicking it re-activates the userscript tab — the SDK has no
     // programmatic selectTab API, so this is the only available mechanism.
@@ -188,23 +197,20 @@ export class MatchingPipeline {
       return;
     }
 
-    const distances = csvRows.map((r) => r.distance);
-    const portions = computePortions(distances, totalKm);
+    const workItems = computeMatchingWorkItems(csvRows, totalKm);
 
     logger.info("MatchingPipeline.runLoop: portions computed", {
-      portionCount: portions.length,
-      firstPortion: portions[0] ?? null,
+      portionCount: workItems.length,
+      firstPortion: workItems[0] ?? null,
     });
 
-    if (portions.length !== csvRows.length) {
-      this.events.onError?.(
-        `Portion count mismatch: ${portions.length} portions for ${csvRows.length} rows`,
-      );
-      this.running = false;
-      return;
-    }
+    for (let workItemIndex = 0; workItemIndex < workItems.length; workItemIndex++) {
+      const workItem = workItems[workItemIndex];
+      const i = workItem.rowIndex;
+      if (i < currentIndex) {
+        continue;
+      }
 
-    for (let i = currentIndex; i < csvRows.length; i++) {
       if (this.abortRequested) {
         logger.info("MatchingPipeline: aborted before row", i);
         this.events.onAborted?.();
@@ -212,20 +218,19 @@ export class MatchingPipeline {
         return;
       }
 
-      this.events.onRowStarted?.(i, csvRows.length);
+      this.events.onRowStarted?.(i, workItems.length);
 
       const row = csvRows[i];
-      const portion = portions[i];
       const collectedIds = new Set<number>();
 
       logger.info("MatchingPipeline.runLoop: row started", {
         rowIndex: i,
-        totalRows: csvRows.length,
+        totalRows: workItems.length,
         distance: row.distance,
         startTime: row.startTime,
         endTime: row.endTime,
-        kmA: portion.kmA,
-        kmB: portion.kmB,
+        kmA: workItem.kmA,
+        kmB: workItem.kmB,
       });
 
       // --- Compute bbox view(s) via bisection and run matching per view -------
@@ -233,10 +238,10 @@ export class MatchingPipeline {
       const viewGeos: Array<{ lon: number; lat: number; zoom: ZoomLevel }> = [];
       logger.info("MatchingPipeline.runLoop: starting bbox bisection", {
         rowIndex: i,
-        kmA: portion.kmA,
-        kmB: portion.kmB,
+        kmA: workItem.kmA,
+        kmB: workItem.kmB,
       });
-      await this.bisect(portion.kmA, portion.kmB, 0, viewGeos);
+      await this.bisect(workItem.kmA, workItem.kmB, 0, viewGeos);
 
       logger.info("MatchingPipeline.runLoop: bbox bisection complete", {
         rowIndex: i,
@@ -290,10 +295,10 @@ export class MatchingPipeline {
         try {
           logger.info("MatchingPipeline.runLoop: calling matchInCurrentViewport", {
             rowIndex: i,
-            kmA: portion.kmA,
-            kmB: portion.kmB,
+            kmA: workItem.kmA,
+            kmB: workItem.kmB,
           });
-          await this.controller.matchInCurrentViewport(portion.kmA, portion.kmB);
+          await this.controller.matchInCurrentViewport(workItem.kmA, workItem.kmB);
           logger.info("MatchingPipeline.runLoop: matchInCurrentViewport resolved", {
             rowIndex: i,
             collectedCount: collectedIds.size,
@@ -318,6 +323,21 @@ export class MatchingPipeline {
       // --- Select matched segments in WME ------------------------------------
 
       const ids = Array.from(collectedIds);
+      this.events.onRowMatched?.(i, ids);
+
+      if (this.options.burstMode) {
+        const startISO = `${row.date}T${row.startTime}`;
+        const endISO = `${row.date}T${row.endTime}`;
+        logger.info("MatchingPipeline.runLoop: burst mode auto-validating row", {
+          rowIndex: i,
+          idsCount: ids.length,
+          startISO,
+          endISO,
+        });
+        this.store.validateRow(i, ids, startISO, endISO);
+        continue;
+      }
+
       try {
         logger.info("MatchingPipeline.runLoop: setting WME selection", {
           rowIndex: i,
@@ -351,7 +371,6 @@ export class MatchingPipeline {
         rowIndex: i,
       });
 
-      this.events.onRowMatched?.(i, ids);
       logger.info("MatchingPipeline.runLoop: waiting for user validation", {
         rowIndex: i,
         idsCount: ids.length,
@@ -379,7 +398,8 @@ export class MatchingPipeline {
         });
         this.store.rewindToRow(restartIndex);
         this.rowGeos.length = restartIndex;
-        i = restartIndex - 1;
+        const restartWorkItemIndex = workItems.findIndex((item) => item.rowIndex >= restartIndex);
+        workItemIndex = restartWorkItemIndex === -1 ? workItems.length : restartWorkItemIndex - 1;
         continue;
       }
 

@@ -17,7 +17,7 @@
  *  onProgress     — fires after each cell with (visitedCount, totalCount, newIds[]).
  *  onMatchFound   — fires once per newly-matched ID with (id, geometry).
  */
-import type { WmeSDK } from "wme-sdk-typings";
+import type { RoadTypeId, Segment, WmeSDK } from "wme-sdk-typings";
 import type { LineString, MultiLineString, Position } from "geojson";
 import {
   buffer as turfBuffer,
@@ -60,7 +60,7 @@ const CLOSE_VERTEX_DISTANCE_METERS = 10;
 const MIN_CLOSE_VERTEX_SPAN_METERS = 30;
 const START_BOUNDARY_MAX_DISTANCE_METERS = 20;
 const START_BOUNDARY_MAX_ANGLE_DEG = 20;
-const END_BOUNDARY_MAX_DISTANCE_METERS = 20;
+const END_BOUNDARY_MAX_DISTANCE_METERS = 30;
 const END_BOUNDARY_MAX_ANGLE_DEG = 20;
 const TRACK_END_EPSILON_KM = 0.001;
 const PROJECTED_DISTANCE_MAX_METERS = 45;
@@ -68,7 +68,6 @@ const PROJECTED_COVERAGE_MIN_RATIO = 0.6;
 const PROJECTED_SAMPLE_STEP_METERS = 8;
 const PROJECTED_CHAINAGE_EPSILON_KM = 0.01;
 const PROJECTED_OVERRIDE_MIN_SPAN_METERS = 40;
-const MAX_SEGMENTS_FOR_PROJECTED_FALLBACK = 120;
 
 // Per-view matching can run just after map navigation; when data loading lags,
 // getAll() may transiently return an empty array even though the viewport is
@@ -76,6 +75,26 @@ const MAX_SEGMENTS_FOR_PROJECTED_FALLBACK = 120;
 const MATCH_SEGMENTS_RETRY_TIMEOUT_MS = 2_500;
 const MATCH_SEGMENTS_RETRY_INTERVAL_MS = 150;
 const MATCH_COMPUTE_YIELD_EVERY_SEGMENTS = 20;
+
+const EXCLUDED_ROAD_TYPE = {
+  WALKING_TRAIL: 5 as RoadTypeId,
+  WALKWAY: 9 as RoadTypeId,
+  PEDESTRIAN_BOARDWALK: 10 as RoadTypeId,
+  FERRY: 15 as RoadTypeId,
+  STAIRWAY: 16 as RoadTypeId,
+  RAILROAD: 18 as RoadTypeId,
+  RUNWAY_TAXIWAY: 19 as RoadTypeId,
+} as const;
+
+const EXCLUDED_MATCH_ROAD_TYPES = new Set<RoadTypeId>([
+  EXCLUDED_ROAD_TYPE.WALKING_TRAIL,
+  EXCLUDED_ROAD_TYPE.WALKWAY,
+  EXCLUDED_ROAD_TYPE.PEDESTRIAN_BOARDWALK,
+  EXCLUDED_ROAD_TYPE.FERRY,
+  EXCLUDED_ROAD_TYPE.STAIRWAY,
+  EXCLUDED_ROAD_TYPE.RAILROAD,
+  EXCLUDED_ROAD_TYPE.RUNWAY_TAXIWAY,
+]);
 
 // ---------------------------------------------------------------------------
 // Subscriber management helper (reused for all three event types)
@@ -410,7 +429,17 @@ export class WalkController {
       );
     }
 
-    const segmentLikes = allSegments.map((s) => ({
+    const matchableSegments = filterMatchableSegments(allSegments);
+
+    logger.info("WalkController.matchInCurrentViewport: filtered non-matchable road types", {
+      kmA,
+      kmB,
+      beforeCount: allSegments.length,
+      afterCount: matchableSegments.length,
+      excludedCount: allSegments.length - matchableSegments.length,
+    });
+
+    const segmentLikes = matchableSegments.map((s) => ({
       id: s.id,
       geometry: s.geometry,
     }));
@@ -451,30 +480,13 @@ export class WalkController {
 
     await yieldToUi();
 
-    const projectedStartedAt = Date.now();
-    let projectedSpanBySegmentId = new Map<number, number>();
-    let projectedDurationMs = 0;
-    if (allSegments.length <= MAX_SEGMENTS_FOR_PROJECTED_FALLBACK) {
-      try {
-        projectedSpanBySegmentId = await this.findProjectedSliceMatches(allSegments, kmA, kmB);
-      } catch (err) {
-        logger.error("WalkController.matchInCurrentViewport: projection fallback failed", {
-          kmA,
-          kmB,
-          segmentCount: allSegments.length,
-          err,
-        });
-        throw err;
-      }
-      projectedDurationMs = Date.now() - projectedStartedAt;
-    } else {
-      logger.info("WalkController.matchInCurrentViewport: projection fallback skipped", {
-        kmA,
-        kmB,
-        segmentCount: allSegments.length,
-        maxSegments: MAX_SEGMENTS_FOR_PROJECTED_FALLBACK,
-      });
-    }
+    const projectedSpanBySegmentId = new Map<number, number>();
+    const projectedDurationMs = 0;
+    logger.info("WalkController.matchInCurrentViewport: projection fallback disabled", {
+      kmA,
+      kmB,
+      segmentCount: allSegments.length,
+    });
 
     await yieldToUi();
 
@@ -485,7 +497,7 @@ export class WalkController {
     let filteredMatchedIds: Set<number>;
     try {
       filteredMatchedIds = await this.filterEndpointTouchingMatches(
-        allSegments,
+        matchableSegments,
         matchedIds,
         slicedTrack,
         allowEndBoundaryContinuation,
@@ -506,7 +518,7 @@ export class WalkController {
 
     let newIds: number[];
     try {
-      newIds = this.cacheAndEmitMatches(allSegments, filteredMatchedIds);
+      newIds = this.cacheAndEmitMatches(matchableSegments, filteredMatchedIds);
     } catch (err) {
       logger.error("WalkController.matchInCurrentViewport: cacheAndEmitMatches failed", {
         kmA,
@@ -595,7 +607,7 @@ export class WalkController {
         await waitForMapIdle(this.wmeSDK);
 
         // Fetch all segments currently visible in the viewport.
-        const allSegments = this.wmeSDK.DataModel.Segments.getAll();
+        const allSegments = filterMatchableSegments(this.wmeSDK.DataModel.Segments.getAll());
 
         // Adapt SDK Segment objects to the structural SegmentLike type that
         // SegmentMatcher expects (keeps matching/ SDK-free).
@@ -1010,31 +1022,36 @@ export class WalkController {
       return false;
     }
 
-    const first = coordinates[0];
-    const last = coordinates[coordinates.length - 1];
-    const firstDistance = turfDistance(turfPoint(first), turfPoint(endBoundary.endPoint), {
-      units: "meters",
-    });
-    const lastDistance = turfDistance(turfPoint(last), turfPoint(endBoundary.endPoint), {
-      units: "meters",
-    });
+    let nearestIndex = -1;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    for (let index = 0; index < coordinates.length; index++) {
+      const distanceMeters = turfDistance(
+        turfPoint(coordinates[index]),
+        turfPoint(endBoundary.endPoint),
+        { units: "meters" },
+      );
+      if (distanceMeters < nearestDistance) {
+        nearestDistance = distanceMeters;
+        nearestIndex = index;
+      }
+    }
 
-    let endpointIndex = -1;
-    if (firstDistance <= END_BOUNDARY_MAX_DISTANCE_METERS && firstDistance <= lastDistance) {
-      endpointIndex = 0;
-    } else if (lastDistance <= END_BOUNDARY_MAX_DISTANCE_METERS) {
-      endpointIndex = coordinates.length - 1;
-    } else {
+    if (nearestIndex === -1 || nearestDistance > END_BOUNDARY_MAX_DISTANCE_METERS) {
       return false;
     }
 
     const endpointDirection: [number, number] =
-      endpointIndex === 0
+      nearestIndex === 0
         ? [coordinates[1][0] - coordinates[0][0], coordinates[1][1] - coordinates[0][1]]
-        : [
+        : nearestIndex === coordinates.length - 1
+          ? [
             coordinates[coordinates.length - 2][0] - coordinates[coordinates.length - 1][0],
             coordinates[coordinates.length - 2][1] - coordinates[coordinates.length - 1][1],
-          ];
+            ]
+          : [
+              coordinates[nearestIndex + 1][0] - coordinates[nearestIndex - 1][0],
+              coordinates[nearestIndex + 1][1] - coordinates[nearestIndex - 1][1],
+            ];
 
     const alignmentDeg = this.minUndirectedAngleDeg(endBoundary.direction, endpointDirection);
     return alignmentDeg <= END_BOUNDARY_MAX_ANGLE_DEG;
@@ -1073,4 +1090,10 @@ export class WalkController {
 
 async function yieldToUi(): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
+function filterMatchableSegments(
+  segments: ReadonlyArray<Pick<Segment, "id" | "geometry" | "roadType">>,
+): Array<Pick<Segment, "id" | "geometry" | "roadType">> {
+  return segments.filter((segment) => !EXCLUDED_MATCH_ROAD_TYPES.has(segment.roadType));
 }

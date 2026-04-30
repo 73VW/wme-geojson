@@ -25,6 +25,7 @@ const CLOSURES_CSV_HEADER =
 const DIRECTION = "TWO WAY";
 const ROW_KIND = "add";
 const LON_LAT_DECIMAL_PLACES = 5;
+const MAX_SEGMENTS_PER_ROW = 10;
 
 // ISO datetime strings are stored as "YYYY-MM-DDTHH:MM"; the output format
 // wants "YYYY-MM-DD HH:MM" (space instead of T).
@@ -72,6 +73,16 @@ function buildDataRow(
     fields.mteId,
     fields.comment,
   ].join(",");
+}
+
+function chunkSegmentIds(segmentIds: readonly number[]): number[][] {
+  const chunks: number[][] = [];
+
+  for (let start = 0; start < segmentIds.length; start += MAX_SEGMENTS_PER_ROW) {
+    chunks.push(segmentIds.slice(start, start + MAX_SEGMENTS_PER_ROW));
+  }
+
+  return chunks;
 }
 
 // Merge overlapping ClosureRange entries for a single segment.
@@ -224,9 +235,11 @@ export function buildClosuresCsv(
     const endISO = `${row.date}T${row.endTime}`;
     const geo = rowGeos[rowIndex];
 
-    outputLines.push(
-      buildDataRow(remainingSegments, startISO, endISO, geo, finalFields),
-    );
+    for (const segmentChunk of chunkSegmentIds(remainingSegments)) {
+      outputLines.push(
+        buildDataRow(segmentChunk, startISO, endISO, geo, finalFields),
+      );
+    }
   });
 
   // --- Phase 3: append merged-range rows ordered by (segmentId, startISO).
@@ -239,15 +252,17 @@ export function buildClosuresCsv(
   });
 
   for (const mergedRow of mergedRows) {
-    outputLines.push(
-      buildDataRow(
-        [mergedRow.segmentId],
-        mergedRow.startISO,
-        mergedRow.endISO,
-        mergedRow.geo,
-        finalFields,
-      ),
-    );
+    for (const segmentChunk of chunkSegmentIds([mergedRow.segmentId])) {
+      outputLines.push(
+        buildDataRow(
+          segmentChunk,
+          mergedRow.startISO,
+          mergedRow.endISO,
+          mergedRow.geo,
+          finalFields,
+        ),
+      );
+    }
   }
 
   return outputLines.join("\n") + "\n";

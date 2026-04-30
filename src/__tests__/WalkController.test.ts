@@ -1,7 +1,12 @@
 import { describe, it, expect } from "vitest";
 import type { MultiLineString } from "geojson";
-import type { WmeSDK } from "wme-sdk-typings";
+import type { RoadTypeId, WmeSDK } from "wme-sdk-typings";
 import { WalkController } from "../controller/WalkController";
+
+const ROAD_TYPE = {
+  STREET: 1 as RoadTypeId,
+  WALKWAY: 9 as RoadTypeId,
+} as const;
 
 function makeTrack(): MultiLineString {
   return {
@@ -16,7 +21,7 @@ function makeTrack(): MultiLineString {
 }
 
 function makeWmeSdkForSegments(
-  segmentLines: Array<{ id: number; coordinates: number[][] }>,
+  segmentLines: Array<{ id: number; coordinates: number[][]; roadType?: RoadTypeId }>,
 ): WmeSDK {
   const segments = segmentLines.map((segmentLine) => ({
     id: segmentLine.id,
@@ -24,6 +29,7 @@ function makeWmeSdkForSegments(
       type: "LineString" as const,
       coordinates: segmentLine.coordinates,
     },
+    roadType: segmentLine.roadType ?? ROAD_TYPE.STREET,
   }));
 
   return {
@@ -100,6 +106,33 @@ describe("WalkController.matchInCurrentViewport", () => {
 
     expect(controller.getMatchedIds()).toEqual([]);
     expect(progressPayloads).toEqual([{ visited: 1, total: 1, newIds: [] }]);
+  });
+
+  it("ignores excluded non-drivable road types before matching", async () => {
+    const wmeSdk = makeWmeSdkForSegments([
+      {
+        id: 101,
+        coordinates: [
+          [6.145, 46.2],
+          [6.147, 46.2],
+        ],
+        roadType: ROAD_TYPE.WALKWAY,
+      },
+      {
+        id: 202,
+        coordinates: [
+          [6.145, 46.2],
+          [6.147, 46.2],
+        ],
+        roadType: ROAD_TYPE.STREET,
+      },
+    ]);
+
+    const controller = new WalkController(wmeSdk, makeTrack());
+
+    await controller.matchInCurrentViewport(0, 1);
+
+    expect(controller.getMatchedIds()).toEqual([202]);
   });
 
   it("filters endpoint-touch false positives in per-view matching", async () => {

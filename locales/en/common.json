@@ -65,13 +65,15 @@
     "urlInput": {
       "label": "GeoJSON URL",
       "placeholder": "https://example.com/track.geojson",
-      "load": "Load"
+      "load": "Load",
+      "center": "Center"
     },
     "trackLength": "Track length: {{km}} km",
     "csvInput": {
       "label": "Upload schedule CSV"
     },
     "startMatching": "Start matching",
+    "startMatchingBurst": "Start burst mode",
     "downloadEnriched": "Download enriched input CSV",
     "downloadClosures": "Download closures CSV",
     "resumeDetected": "A previous session was found. Continue where you left off?",
@@ -85,6 +87,7 @@
       "validate": "Validate",
       "skip": "Skip row",
       "back": "Back",
+      "burstRunning": "Burst mode: matched segments are auto-validated.",
       "pause": "Pause",
       "restartFromScratch": "Restart from scratch",
       "restartConfirm": "All matched segments will be lost. Restart from scratch?",

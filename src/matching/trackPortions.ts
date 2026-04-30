@@ -13,6 +13,7 @@
 
 import type { BBox, MultiLineString, Position } from "geojson";
 import { bbox as turfBbox } from "@turf/turf";
+import type { CsvRow } from "../state/SessionStore";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -25,6 +26,10 @@ export interface TrackPortion {
   /** Cumulative km end of this slice (exclusive-ish — the slice goes up to but
    *  not past this point). For the last portion this equals `totalKm`. */
   kmB: number;
+}
+
+export interface MatchingWorkItem extends TrackPortion {
+  rowIndex: number;
 }
 
 // ─── computePortions ──────────────────────────────────────────────────────────
@@ -54,6 +59,44 @@ export function computePortions(distancesKm: number[], totalKm: number): TrackPo
     portions.push({ inputDistance: sorted[i], kmA, kmB });
   }
   return portions;
+}
+
+/**
+ * Derive the actual CSV rows that should be matched.
+ *
+ * Single-row CSVs keep the historical behavior and match from that distance to
+ * `totalKm`.
+ *
+ * Multi-row CSVs with strictly increasing distances are treated as explicit
+ * bounds. In that case N rows produce N-1 work items, each spanning from one
+ * bound to the next, and the terminal bound row is not matched directly.
+ *
+ * If distances are not strictly increasing, fall back to the legacy behavior
+ * so the pipeline still has a deterministic slice for each row.
+ */
+export function computeMatchingWorkItems(
+  rows: ReadonlyArray<Pick<CsvRow, "distance" | "startTime" | "endTime" | "date">>,
+  totalKm: number,
+): MatchingWorkItem[] {
+  if (rows.length === 0) {
+    return [];
+  }
+
+  if (hasStrictlyIncreasingDistances(rows)) {
+    return rows.slice(0, -1).map((row, rowIndex) => ({
+      rowIndex,
+      inputDistance: row.distance,
+      kmA: row.distance,
+      kmB: rows[rowIndex + 1].distance,
+    }));
+  }
+
+  return rows.map((row, rowIndex) => ({
+    rowIndex,
+    inputDistance: row.distance,
+    kmA: row.distance,
+    kmB: rowIndex + 1 < rows.length ? rows[rowIndex + 1].distance : totalKm,
+  }));
 }
 
 // ─── sliceMultiLineByDistance ─────────────────────────────────────────────────
@@ -129,6 +172,16 @@ function sumSegmentDistances(line: Position[]): number {
     total += haversineKm(a[0], a[1], b[0], b[1]);
   }
   return total;
+}
+
+function hasStrictlyIncreasingDistances(
+  rows: ReadonlyArray<Pick<CsvRow, "distance" | "startTime" | "endTime" | "date">>,
+): boolean {
+  if (rows.length < 2) {
+    return false;
+  }
+
+  return rows.every((row, index) => index === 0 || rows[index - 1].distance < row.distance);
 }
 
 /**

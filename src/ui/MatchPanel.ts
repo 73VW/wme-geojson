@@ -14,6 +14,7 @@ import { MatchingPipeline } from "../controller/MatchingPipeline";
 import { promptFinalFields } from "./promptFinalFields";
 import { load as persistenceLoad, clearForCurrent } from "../persistence/sessionStorage";
 import { confirmModal } from "./modal";
+import { bboxOfMultiLineString } from "../matching/trackPortions";
 
 
 /**
@@ -80,6 +81,9 @@ export class MatchPanel {
   // Guided sub-panel text elements updated by pipeline events
   private guidedRowHeaderEl: HTMLElement | null = null;
   private guidedSegmentCountEl: HTMLElement | null = null;
+  private guidedInstructionEl: HTMLElement | null = null;
+  private guidedManualActionsEl: HTMLElement | null = null;
+  private matchingMode: "interactive" | "burst" = "interactive";
 
   constructor(
     private readonly wmeSDK: WmeSDK,
@@ -231,6 +235,8 @@ export class MatchPanel {
     }
     this.guidedRowHeaderEl = null;
     this.guidedSegmentCountEl = null;
+    this.guidedInstructionEl = null;
+    this.guidedManualActionsEl = null;
     this.guidedMatchingRow = null;
 
     logger.info("MatchPanel unmounted");
@@ -314,6 +320,10 @@ export class MatchPanel {
     section.appendChild(errorEl);
     this.urlErrorEl = errorEl;
 
+    const buttonRow = document.createElement("div");
+    buttonRow.className = "wmegj-button-stack";
+    buttonRow.style.marginTop = "4px";
+
     // Load button — reads the value from the wz-text-input or native input
     const loadBtn = wzButton({
       text: i18next.t("panel.urlInput.load"),
@@ -322,8 +332,18 @@ export class MatchPanel {
         this.onLoadUrlClick();
       },
     });
-    loadBtn.style.marginTop = "4px";
-    section.appendChild(loadBtn);
+    buttonRow.appendChild(loadBtn);
+
+    const centerBtn = wzButton({
+      text: i18next.t("panel.urlInput.center"),
+      variant: "secondary",
+      onClick: () => {
+        void this.onCenterUrlClick();
+      },
+    });
+    buttonRow.appendChild(centerBtn);
+
+    section.appendChild(buttonRow);
 
     return section;
   }
@@ -355,6 +375,7 @@ export class MatchPanel {
 
     const input = fileInput({
       accept: ".csv",
+      buttonLabel: i18next.t("panel.csvInput.label"),
       onFile: (file) => {
         this.onCsvFileSelected(file);
       },
@@ -369,14 +390,28 @@ export class MatchPanel {
     section.className = "wmegj-section";
     section.style.marginTop = "8px";
 
+    const btnRow = document.createElement("div");
+    btnRow.className = "wmegj-button-stack";
+
     const btn = wzButton({
       text: i18next.t("panel.startMatching"),
       variant: "primary",
       onClick: () => {
-        this.onStartMatchingClick();
+        this.onStartMatchingClick("interactive");
       },
     });
-    section.appendChild(btn);
+    btnRow.appendChild(btn);
+
+    const burstBtn = wzButton({
+      text: i18next.t("panel.startMatchingBurst"),
+      variant: "secondary",
+      onClick: () => {
+        this.onStartMatchingClick("burst");
+      },
+    });
+    btnRow.appendChild(burstBtn);
+
+    section.appendChild(btnRow);
 
     return section;
   }
@@ -410,6 +445,7 @@ export class MatchPanel {
     instructionEl.style.color = "#555";
     instructionEl.textContent = i18next.t("panel.matching.validateOrCorrect");
     section.appendChild(instructionEl);
+    this.guidedInstructionEl = instructionEl;
 
     const countEl = document.createElement("p");
     countEl.style.margin = "0 0 8px 0";
@@ -422,6 +458,7 @@ export class MatchPanel {
     btnRow.className = "wmegj-button-stack";
     btnRow.style.display = "flex";
     btnRow.style.gap = "6px";
+    this.guidedManualActionsEl = btnRow;
 
     const validateBtn = wzButton({
       text: i18next.t("panel.matching.validate"),
@@ -734,6 +771,10 @@ export class MatchPanel {
     this.setRowVisible(this.startMatchingRow, atLeastCsvLoaded && !isMatching);
     this.setRowVisible(this.guidedMatchingRow, isMatching);
     this.setRowVisible(this.downloadRow, atLeastCsvLoaded);
+    if (this.guidedManualActionsEl) {
+      this.guidedManualActionsEl.style.display =
+        isMatching && this.matchingMode === "interactive" ? "flex" : "none";
+    }
     // Resume banner visibility is managed by maybeShowResumeBanner() (Lot 5)
   }
 
@@ -785,6 +826,37 @@ export class MatchPanel {
     this.loadFn(url).catch((err: unknown) => {
       logger.error("MatchPanel: loadFn rejected", err);
     });
+  }
+
+  private async onCenterUrlClick(): Promise<void> {
+    const url = this.getUrlInputValue();
+    if (!url) return;
+
+    if (this.urlErrorEl) {
+      this.urlErrorEl.style.display = "none";
+      this.urlErrorEl.textContent = "";
+    }
+
+    const currentUrl = this.store.getState().geojsonUrl;
+    const needsLoad = currentUrl !== url || this.trackLayer?.getTrackGeometry() === null;
+
+    if (needsLoad) {
+      if (!this.loadFn) {
+        logger.warn("MatchPanel: loadFn not injected yet — call setLoadFn() before mounting");
+        return;
+      }
+      await this.loadFn(url);
+    }
+
+    const geometry = this.trackLayer?.getTrackGeometry() ?? null;
+    const bbox = geometry ? bboxOfMultiLineString(geometry) : null;
+    if (!bbox) {
+      logger.warn("MatchPanel.onCenterUrlClick: no track geometry available to center");
+      return;
+    }
+
+    this.wmeSDK.Map.zoomToExtent({ bbox });
+    logger.info("MatchPanel.onCenterUrlClick: centered map on track bbox", { url, bbox });
   }
 
   private getUrlInputValue(): string {
@@ -924,12 +996,14 @@ export class MatchPanel {
     return null;
   }
 
-  private onStartMatchingClick(): void {
+  private onStartMatchingClick(mode: "interactive" | "burst"): void {
     const { csvRows, geojsonUrl } = this.store.getState();
+    this.matchingMode = mode;
 
     logger.info("MatchPanel.onStartMatchingClick: clicked", {
       rowCount: csvRows.length,
       geojsonUrl,
+      mode,
       hasController: this.controller !== null,
       hasTrackLayer: this.trackLayer !== null,
       hasTabLabel: this.tabLabel !== null,
@@ -975,10 +1049,19 @@ export class MatchPanel {
 
     logger.info("MatchPanel.onStartMatchingClick: switching store phase to matching");
     this.store.setPhase("matching");
+    if (this.guidedInstructionEl) {
+      this.guidedInstructionEl.textContent = i18next.t(
+        mode === "burst" ? "panel.matching.burstRunning" : "panel.matching.validateOrCorrect",
+      );
+    }
+    if (this.guidedManualActionsEl) {
+      this.guidedManualActionsEl.style.display = mode === "burst" ? "none" : "flex";
+    }
 
     logger.info("MatchPanel.onStartMatchingClick: creating MatchingPipeline", {
       rowCount: csvRows.length,
       currentIndex: this.store.getState().currentIndex,
+      mode,
     });
     this.pipeline = new MatchingPipeline(
       this.wmeSDK,
@@ -1027,6 +1110,7 @@ export class MatchPanel {
           this.store.setPhase("csv-loaded");
         },
       },
+      { burstMode: mode === "burst" },
       tabLabel,
     );
 

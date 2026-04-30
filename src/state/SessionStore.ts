@@ -103,8 +103,12 @@ export class SessionStore {
    */
   setCsvRows(rows: CsvRow[], csvText: string): void {
     this.csvText = csvText;
+    const resetRows = rows.map((row) => ({
+      ...row,
+      segments: null,
+    }));
     this.mutate({
-      csvRows: rows,
+      csvRows: resetRows,
       currentIndex: 0,
       closuresBySegment: {},
     });

@@ -376,6 +376,29 @@ describe("buildClosuresCsv — empty closuresBySegment", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildClosuresCsv — output format details", () => {
+  it("splits more than 10 segment IDs into multiple output rows", () => {
+    const segmentIds = Array.from({ length: 12 }, (_value, index) => index + 1);
+    const rows: CsvRow[] = [makeRow("2026-04-29", "13:00", "13:50", segmentIds)];
+    const geos: RowGeo[] = [makeGeo(7.0, 46.0)];
+    const closuresBySegment = Object.fromEntries(
+      segmentIds.map((segmentId) => [
+        segmentId,
+        [makeRange("2026-04-29T13:00", "2026-04-29T13:50", 0)],
+      ]),
+    ) as Record<number, ClosureRange[]>;
+
+    const csv = buildClosuresCsv(rows, geos, closuresBySegment, DEFAULT_FIELDS);
+    const lines = parseLines(csv);
+
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain(",1;2;3;4;5;6;7;8;9;10,");
+    expect(lines[1]).toContain(",11;12,");
+    expect(lines[0]).toContain("2026-04-29 13:00");
+    expect(lines[1]).toContain("2026-04-29 13:50");
+    expect(lines[0]).toContain("lon=7.00000&lat=46.00000");
+    expect(lines[1]).toContain("lon=7.00000&lat=46.00000");
+  });
+
   it("serializes ignoreTraffic=false as 'No'", () => {
     const rows: CsvRow[] = [makeRow("2026-04-29", "13:00", "13:50", [1])];
     const geos: RowGeo[] = [makeGeo(7.0, 46.0)];

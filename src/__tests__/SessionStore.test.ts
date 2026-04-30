@@ -126,6 +126,34 @@ describe("SessionStore auto-save", () => {
     });
   });
 
+  it("treats imported CSV rows as a fresh session even if segments are prefilled", () => {
+    const store = new SessionStore();
+    store.setTrack(SAMPLE_URL, 10);
+    store.setPhase("track-loaded");
+    store.setCsvRows([{ ...SAMPLE_ROW, distance: 0 }], SAMPLE_CSV_TEXT);
+    store.validateRow(0, [123], "2026-04-29T13:00", "2026-04-29T13:50");
+
+    store.setCsvRows(
+      [
+        { ...SAMPLE_ROW, distance: 0, segments: [111, 222] },
+        { ...SAMPLE_ROW, distance: 1, segments: [333] },
+      ],
+      SAMPLE_CSV_TEXT,
+    );
+
+    expect(store.getState()).toEqual({
+      phase: "track-loaded",
+      geojsonUrl: SAMPLE_URL,
+      trackLengthKm: 10,
+      csvRows: [
+        { ...SAMPLE_ROW, distance: 0, segments: null },
+        { ...SAMPLE_ROW, distance: 1, segments: null },
+      ],
+      currentIndex: 0,
+      closuresBySegment: {},
+    });
+  });
+
   it("calls persistence.save after validateRow when url and csvText are set", () => {
     const store = new SessionStore();
     store.setTrack(SAMPLE_URL, 10);
