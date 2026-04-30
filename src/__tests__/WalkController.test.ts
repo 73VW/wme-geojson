@@ -15,7 +15,9 @@ function makeTrack(): MultiLineString {
   };
 }
 
-function makeWmeSdkForSegments(segmentLines: Array<{ id: number; coordinates: number[][] }>): WmeSDK {
+function makeWmeSdkForSegments(
+  segmentLines: Array<{ id: number; coordinates: number[][] }>,
+): WmeSDK {
   const segments = segmentLines.map((segmentLine) => ({
     id: segmentLine.id,
     geometry: {
@@ -271,5 +273,4 @@ describe("WalkController.matchInCurrentViewport", () => {
 
     expect(controller.getMatchedIds()).toEqual([316356276]);
   });
-
 });

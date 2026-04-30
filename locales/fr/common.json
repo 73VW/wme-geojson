@@ -21,6 +21,7 @@
       "start": "Lancer la correspondance",
       "stop": "Arrêter",
       "selectAll": "Tout sélectionner",
+      "exportSelection": "Copier géométrie sélection",
       "selectAllConfirm": "Tout sélectionner",
       "cancel": "Annuler"
     },
@@ -46,6 +47,8 @@
       "stale": "Liste périmée — relancer",
       "viewButton": "Vue pour {{distance}} km",
       "viewButtonIndexed": "Vue {{index}} pour {{distance}} km",
+      "matchButton": "Match",
+      "exportSliceButton": "Copier sous-track",
       "viewCenter": "lon={{lon}}&lat={{lat}}"
     },
     "progress": {

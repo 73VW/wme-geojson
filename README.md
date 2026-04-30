@@ -40,9 +40,9 @@ If you prefer to run the project directly on your machine:
 
 ### Required once
 
-* Install [npm](https://docs.npmjs.com/cli) and [Node.js](https://nodejs.org)
-* Allow local file access for the Tampermonkey extension, as explained [here](https://www.tampermonkey.net/faq.php?locale=en#Q204)
-* Install [Rollup](https://rollupjs.org) globally:
+- Install [npm](https://docs.npmjs.com/cli) and [Node.js](https://nodejs.org)
+- Allow local file access for the Tampermonkey extension, as explained [here](https://www.tampermonkey.net/faq.php?locale=en#Q204)
+- Install [Rollup](https://rollupjs.org) globally:
 
 ```bash
 npm install --global rollup
@@ -50,7 +50,7 @@ npm install --global rollup
 
 (This tool bundles your script for use in Tampermonkey.)
 
-* (Optional) Install Git to manage file versions
+- (Optional) Install Git to manage file versions
 
 ---
 
@@ -70,8 +70,8 @@ git init
 
 3. Update the details in:
 
-* `header.js` and `header-dev.js` → update author, script name, etc.
-* `main.user.ts` → set your script ID and name
+- `header.js` and `header-dev.js` → update author, script name, etc.
+- `main.user.ts` → set your script ID and name
 
 4. Install dependencies:
 
@@ -83,11 +83,11 @@ npm install
 
 ## Coding
 
-* Open the project in an IDE (e.g. [VS Code](https://code.visualstudio.com/))
-* You will get type checking and autocomplete thanks to the WME SDK typings.
-* The `.ts` file containing your script (`main.user.ts`) needs to be translated to javascript in order to be used by Tampermonkey.
-* ⚠️ **Warning**: the content of the .out folder is generated, you should never edit anything in here.
-* During development, run:
+- Open the project in an IDE (e.g. [VS Code](https://code.visualstudio.com/))
+- You will get type checking and autocomplete thanks to the WME SDK typings.
+- The `.ts` file containing your script (`main.user.ts`) needs to be translated to javascript in order to be used by Tampermonkey.
+- ⚠️ **Warning**: the content of the .out folder is generated, you should never edit anything in here.
+- During development, run:
 
 ```bash
 npm run watch
@@ -120,11 +120,11 @@ A file will be created in the `releases/` folder with the version in its name.
 
 You can see all available scripts in `package.json`:
 
-* `compile`: compiles your script once — usually not needed manually
-* `watch`: continuously compiles when code changes — use this when developing
-* `concat`: combines your `header.js` with compiled `.out/main.user.js`
-* `build`: compile + concat
-* `release`: updates version in `header.js` and builds release file
+- `compile`: compiles your script once — usually not needed manually
+- `watch`: continuously compiles when code changes — use this when developing
+- `concat`: combines your `header.js` with compiled `.out/main.user.js`
+- `build`: compile + concat
+- `release`: updates version in `header.js` and builds release file
 
 ---
 

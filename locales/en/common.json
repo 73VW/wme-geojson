@@ -21,6 +21,7 @@
       "start": "Start matching",
       "stop": "Stop",
       "selectAll": "Select all matched",
+      "exportSelection": "Copy selected geometry",
       "selectAllConfirm": "Select all",
       "cancel": "Cancel"
     },
@@ -46,6 +47,8 @@
       "stale": "List out of date — re-run",
       "viewButton": "View for {{distance}} km",
       "viewButtonIndexed": "View {{index}} for {{distance}} km",
+      "matchButton": "Match",
+      "exportSliceButton": "Copy track slice",
       "viewCenter": "lon={{lon}}&lat={{lat}}"
     },
     "progress": {

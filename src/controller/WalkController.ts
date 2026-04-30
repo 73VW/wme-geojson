@@ -122,7 +122,11 @@ export class WalkController {
   private readonly trackTotalKm: number;
 
   /** Flattened full-track line used by projection-based fallback matching. */
-  private readonly fullTrackLine: { type: "Feature"; geometry: LineString; properties: null } | null;
+  private readonly fullTrackLine: {
+    type: "Feature";
+    geometry: LineString;
+    properties: null;
+  } | null;
 
   // Internal event emitters
   private readonly stateEmitter = new EventEmitter<[WalkState]>();
@@ -356,10 +360,7 @@ export class WalkController {
     }));
     const bufferedMatchedIds = matchSegments({ segments: segmentLikes, bufferedTrack });
     const projectedSpanBySegmentId = this.findProjectedSliceMatches(allSegments, kmA, kmB);
-    const matchedIds = new Set<number>([
-      ...bufferedMatchedIds,
-      ...projectedSpanBySegmentId.keys(),
-    ]);
+    const matchedIds = new Set<number>([...bufferedMatchedIds, ...projectedSpanBySegmentId.keys()]);
     const allowEndBoundaryContinuation = kmB >= this.trackTotalKm - TRACK_END_EPSILON_KM;
     const filteredMatchedIds = this.filterEndpointTouchingMatches(
       allSegments,
@@ -700,10 +701,7 @@ export class WalkController {
         const pointsCount = Math.floor(segmentLengthMeters / stepMeters);
         for (let pointIndex = 1; pointIndex < pointsCount; pointIndex++) {
           const ratio = (pointIndex * stepMeters) / segmentLengthMeters;
-          sampled.push([
-            a[0] + (b[0] - a[0]) * ratio,
-            a[1] + (b[1] - a[1]) * ratio,
-          ]);
+          sampled.push([a[0] + (b[0] - a[0]) * ratio, a[1] + (b[1] - a[1]) * ratio]);
         }
       }
 
@@ -784,10 +782,7 @@ export class WalkController {
       units: "meters",
     });
 
-    if (
-      firstDistance > START_BOUNDARY_MAX_DISTANCE_METERS ||
-      firstDistance > lastDistance
-    ) {
+    if (firstDistance > START_BOUNDARY_MAX_DISTANCE_METERS || firstDistance > lastDistance) {
       return false;
     }
 

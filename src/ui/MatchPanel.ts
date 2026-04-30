@@ -8,8 +8,13 @@ import type { WalkController } from "../controller/WalkController";
 import type { WalkState } from "../controller/walkStates";
 import { confirmModal } from "./modal";
 import { parseDistanceList } from "../utils/parseDistances";
-import { computePortions, sliceMultiLineByDistance, bboxOfMultiLineString } from "../matching/trackPortions";
+import {
+  computePortions,
+  sliceMultiLineByDistance,
+  bboxOfMultiLineString,
+} from "../matching/trackPortions";
 import { waitForMapIdle } from "../utils/waitForMapIdle";
+import { wktToGeoJson } from "../utils/wktToGeoJson";
 
 /**
  * If the user tries to select more than this many segments at once, we show
@@ -54,6 +59,7 @@ export class MatchPanel {
   private startBtn: HTMLButtonElement | null = null;
   private stopBtn: HTMLButtonElement | null = null;
   private selectAllBtn: HTMLButtonElement | null = null;
+  private exportSelectionBtn: HTMLButtonElement | null = null;
   private progressEl: HTMLElement | null = null;
   private resultsCountEl: HTMLElement | null = null;
   private resultsEmptyEl: HTMLElement | null = null;
@@ -135,8 +141,11 @@ export class MatchPanel {
       eventName: "wme-selection-changed",
       eventHandler: () => {
         this.syncActiveItem();
+        this.updateExportSelectionButtonState();
       },
     });
+
+    this.updateExportSelectionButtonState();
 
     logger.info("MatchPanel mounted");
   }
@@ -165,6 +174,7 @@ export class MatchPanel {
     this.startBtn = null;
     this.stopBtn = null;
     this.selectAllBtn = null;
+    this.exportSelectionBtn = null;
     this.progressEl = null;
     this.resultsCountEl = null;
     this.resultsEmptyEl = null;
@@ -535,143 +545,191 @@ export class MatchPanel {
     if (this.bboxStaleEl) this.bboxStaleEl.style.display = "none";
 
     try {
-
-    // Clear the previous list
-    if (this.bboxListEl) {
-      while (this.bboxListEl.firstChild) {
-        this.bboxListEl.removeChild(this.bboxListEl.firstChild);
-      }
-    }
-
-    const portions = computePortions(distancesKm, totalKm);
-
-    // Recorded views to render afterwards
-    interface RecordedView {
-      centerLon: number;
-      centerLat: number;
-      zoom: ZoomLevel;
-      inputDistance: number;
-      indexInGroup: number;
-      totalInGroup: number;
-    }
-
-    const allViews: RecordedView[] = [];
-
-    // Inner recursive helper
-    const bisect = async (
-      inputDistance: number,
-      kmA: number,
-      kmB: number,
-      depth: number,
-      collector: Array<{ centerLon: number; centerLat: number; zoom: ZoomLevel }>,
-    ): Promise<void> => {
-      if (this.bboxProcessAborted) return;
-
-      const sliced = sliceMultiLineByDistance(this.track.geometry, kmA, kmB);
-      const box = bboxOfMultiLineString(sliced);
-
-      if (!box) {
-        logger.warn(`runBboxProcess: empty bbox for portion [${kmA}, ${kmB}] — skipping`);
-        return;
-      }
-
-      this.wmeSDK.Map.zoomToExtent({ bbox: box });
-      await waitForMapIdle(this.wmeSDK);
-
-      if (this.bboxProcessAborted) return;
-
-      const zoom = this.wmeSDK.Map.getZoomLevel();
-
-      if (zoom >= MIN_BBOX_ZOOM || depth >= MAX_BISECT_DEPTH) {
-        if (depth >= MAX_BISECT_DEPTH && zoom < MIN_BBOX_ZOOM) {
-          logger.warn(
-            `runBboxProcess: depth cap reached for portion [${kmA}, ${kmB}] at z${zoom} — accepting`,
-          );
+      // Clear the previous list
+      if (this.bboxListEl) {
+        while (this.bboxListEl.firstChild) {
+          this.bboxListEl.removeChild(this.bboxListEl.firstChild);
         }
-        // Read the center from the bbox (mid-point)
-        const centerLon = (box[0] + box[2]) / 2;
-        const centerLat = (box[1] + box[3]) / 2;
-        collector.push({ centerLon, centerLat, zoom: zoom as ZoomLevel });
-        return;
       }
 
-      // Zoom too low — bisect
-      const mid = (kmA + kmB) / 2;
-      await bisect(inputDistance, kmA, mid, depth + 1, collector);
-      if (this.bboxProcessAborted) return;
-      await bisect(inputDistance, mid, kmB, depth + 1, collector);
-    };
+      const portions = computePortions(distancesKm, totalKm);
 
-    let done = 0;
-    const total = portions.length;
-
-    for (const portion of portions) {
-      if (this.bboxProcessAborted) break;
-
-      if (this.bboxStatusEl) {
-        this.bboxStatusEl.textContent = i18next.t("panel.distanceFilter.processing", {
-          done,
-          total,
-        });
+      // Recorded views to render afterwards
+      interface RecordedView {
+        centerLon: number;
+        centerLat: number;
+        zoom: ZoomLevel;
+        inputDistance: number;
+        kmA: number;
+        kmB: number;
+        indexInGroup: number;
+        totalInGroup: number;
       }
 
-      const groupViews: Array<{ centerLon: number; centerLat: number; zoom: ZoomLevel }> = [];
-      await bisect(portion.inputDistance, portion.kmA, portion.kmB, 0, groupViews);
+      const allViews: RecordedView[] = [];
 
-      const groupSize = groupViews.length;
-      for (let idx = 0; idx < groupSize; idx++) {
-        const v = groupViews[idx];
-        allViews.push({
-          ...v,
-          inputDistance: portion.inputDistance,
-          indexInGroup: idx + 1,
-          totalInGroup: groupSize,
-        });
-      }
+      // Inner recursive helper
+      const bisect = async (
+        inputDistance: number,
+        kmA: number,
+        kmB: number,
+        depth: number,
+        collector: Array<{ centerLon: number; centerLat: number; zoom: ZoomLevel }>,
+      ): Promise<void> => {
+        if (this.bboxProcessAborted) return;
 
-      done++;
-    }
+        const sliced = sliceMultiLineByDistance(this.track.geometry, kmA, kmB);
+        const box = bboxOfMultiLineString(sliced);
 
-    // ── Render results ─────────────────────────────────────────────────────
-    if (this.bboxListEl) {
-      for (const view of allViews) {
-        const li = document.createElement("li");
-        li.style.marginBottom = "2px";
+        if (!box) {
+          logger.warn(`runBboxProcess: empty bbox for portion [${kmA}, ${kmB}] — skipping`);
+          return;
+        }
 
-        const btn = document.createElement("button");
-        btn.type = "button";
-        // The i18n template already appends " km", so pass just the number.
-        const distLabel = view.inputDistance.toFixed(1);
-        if (view.totalInGroup === 1) {
-          btn.textContent = i18next.t("panel.distanceFilter.viewButton", {
-            distance: distLabel,
-          });
-        } else {
-          btn.textContent = i18next.t("panel.distanceFilter.viewButtonIndexed", {
-            index: view.indexInGroup,
-            distance: distLabel,
+        this.wmeSDK.Map.zoomToExtent({ bbox: box });
+        await waitForMapIdle(this.wmeSDK);
+
+        if (this.bboxProcessAborted) return;
+
+        const zoom = this.wmeSDK.Map.getZoomLevel();
+
+        if (zoom >= MIN_BBOX_ZOOM || depth >= MAX_BISECT_DEPTH) {
+          if (depth >= MAX_BISECT_DEPTH && zoom < MIN_BBOX_ZOOM) {
+            logger.warn(
+              `runBboxProcess: depth cap reached for portion [${kmA}, ${kmB}] at z${zoom} — accepting`,
+            );
+          }
+          // Read the center from the bbox (mid-point)
+          const centerLon = (box[0] + box[2]) / 2;
+          const centerLat = (box[1] + box[3]) / 2;
+          collector.push({ centerLon, centerLat, zoom: zoom as ZoomLevel });
+          return;
+        }
+
+        // Zoom too low — bisect
+        const mid = (kmA + kmB) / 2;
+        await bisect(inputDistance, kmA, mid, depth + 1, collector);
+        if (this.bboxProcessAborted) return;
+        await bisect(inputDistance, mid, kmB, depth + 1, collector);
+      };
+
+      let done = 0;
+      const total = portions.length;
+
+      for (const portion of portions) {
+        if (this.bboxProcessAborted) break;
+
+        if (this.bboxStatusEl) {
+          this.bboxStatusEl.textContent = i18next.t("panel.distanceFilter.processing", {
+            done,
+            total,
           });
         }
-        btn.addEventListener("click", () => {
-          this.wmeSDK.Map.setMapCenter({
-            lonLat: { lon: view.centerLon, lat: view.centerLat },
-            zoomLevel: view.zoom,
+
+        const groupViews: Array<{ centerLon: number; centerLat: number; zoom: ZoomLevel }> = [];
+        await bisect(portion.inputDistance, portion.kmA, portion.kmB, 0, groupViews);
+
+        const groupSize = groupViews.length;
+        for (let idx = 0; idx < groupSize; idx++) {
+          const v = groupViews[idx];
+          allViews.push({
+            ...v,
+            inputDistance: portion.inputDistance,
+            kmA: portion.kmA,
+            kmB: portion.kmB,
+            indexInGroup: idx + 1,
+            totalInGroup: groupSize,
           });
-        });
-        li.appendChild(btn);
+        }
 
-        const small = document.createElement("small");
-        small.style.marginLeft = "6px";
-        small.style.color = "#555";
-        small.textContent = i18next.t("panel.distanceFilter.viewCenter", {
-          lon: view.centerLon.toFixed(5),
-          lat: view.centerLat.toFixed(5),
-        });
-        li.appendChild(small);
-
-        this.bboxListEl.appendChild(li);
+        done++;
       }
-    }
+
+      // ── Render results ─────────────────────────────────────────────────────
+      if (this.bboxListEl) {
+        for (const view of allViews) {
+          const li = document.createElement("li");
+          li.style.marginBottom = "2px";
+
+          const btn = document.createElement("button");
+          btn.type = "button";
+          // The i18n template already appends " km", so pass just the number.
+          const distLabel = view.inputDistance.toFixed(1);
+          if (view.totalInGroup === 1) {
+            btn.textContent = i18next.t("panel.distanceFilter.viewButton", {
+              distance: distLabel,
+            });
+          } else {
+            btn.textContent = i18next.t("panel.distanceFilter.viewButtonIndexed", {
+              index: view.indexInGroup,
+              distance: distLabel,
+            });
+          }
+          btn.addEventListener("click", () => {
+            this.wmeSDK.Map.setMapCenter({
+              lonLat: { lon: view.centerLon, lat: view.centerLat },
+              zoomLevel: view.zoom,
+            });
+          });
+          li.appendChild(btn);
+
+          const matchBtn = document.createElement("button");
+          matchBtn.type = "button";
+          matchBtn.style.marginLeft = "4px";
+          matchBtn.textContent = i18next.t("panel.distanceFilter.matchButton");
+          matchBtn.addEventListener("click", () => {
+            this.resetResults();
+            this.wmeSDK.Map.setMapCenter({
+              lonLat: { lon: view.centerLon, lat: view.centerLat },
+              zoomLevel: view.zoom,
+            });
+            waitForMapIdle(this.wmeSDK)
+              .then(() => this.controller.matchInCurrentViewport(view.kmA, view.kmB))
+              .then(() => this.onSelectAllClick())
+              .catch((err: unknown) => {
+                logger.error("MatchPanel: per-view match rejected", err);
+              });
+          });
+          li.appendChild(matchBtn);
+
+          const exportSliceBtn = document.createElement("button");
+          exportSliceBtn.type = "button";
+          exportSliceBtn.style.marginLeft = "4px";
+          exportSliceBtn.textContent = i18next.t("panel.distanceFilter.exportSliceButton");
+          exportSliceBtn.addEventListener("click", () => {
+            const sliced = sliceMultiLineByDistance(this.track.geometry, view.kmA, view.kmB);
+            const payload = {
+              source: "geojson-track-slice",
+              inputDistanceKm: view.inputDistance,
+              kmA: view.kmA,
+              kmB: view.kmB,
+              geometry: sliced,
+            };
+
+            this.copyTextToClipboard(JSON.stringify(payload, null, 2))
+              .then(() => {
+                logger.info(
+                  `MatchPanel: copied track slice for [${view.kmA}, ${view.kmB}] to clipboard`,
+                );
+              })
+              .catch((err: unknown) => {
+                logger.error("MatchPanel: export track slice failed", err);
+              });
+          });
+          li.appendChild(exportSliceBtn);
+
+          const small = document.createElement("small");
+          small.style.marginLeft = "6px";
+          small.style.color = "#555";
+          small.textContent = i18next.t("panel.distanceFilter.viewCenter", {
+            lon: view.centerLon.toFixed(5),
+            lat: view.centerLat.toFixed(5),
+          });
+          li.appendChild(small);
+
+          this.bboxListEl.appendChild(li);
+        }
+      }
     } finally {
       // ── Restore UI state, even if an SDK call threw mid-run ──────────────
       this.bboxProcessRunning = false;
@@ -692,7 +750,8 @@ export class MatchPanel {
     });
     wrapper.appendChild(centerBtn);
 
-    // "Start matching" — enabled in idle, done, cancelled, error states.
+    // Global brute-force matching is intentionally hidden during per-view
+    // validation; keep the wiring in place so fallback mode can be restored.
     const startBtn = document.createElement("button");
     startBtn.textContent = i18next.t("panel.buttons.start");
     startBtn.addEventListener("click", () => {
@@ -704,7 +763,6 @@ export class MatchPanel {
         logger.error("MatchPanel: controller.start rejected", err);
       });
     });
-    wrapper.appendChild(startBtn);
     this.startBtn = startBtn;
 
     // "Stop" — visible only while walking.
@@ -730,6 +788,17 @@ export class MatchPanel {
     });
     wrapper.appendChild(selectAllBtn);
     this.selectAllBtn = selectAllBtn;
+
+    const exportSelectionBtn = document.createElement("button");
+    exportSelectionBtn.textContent = i18next.t("panel.buttons.exportSelection");
+    exportSelectionBtn.disabled = true;
+    exportSelectionBtn.addEventListener("click", () => {
+      this.onExportSelectionClick().catch((err: unknown) => {
+        logger.error("MatchPanel: export selection rejected", err);
+      });
+    });
+    wrapper.appendChild(exportSelectionBtn);
+    this.exportSelectionBtn = exportSelectionBtn;
 
     // Apply initial visibility for idle state.
     this.applyButtonState(this.controller.state);
@@ -954,6 +1023,83 @@ export class MatchPanel {
     }
   }
 
+  private getSelectedSegmentIds(): number[] {
+    const selection = this.wmeSDK.Editing.getSelection();
+    if (!selection || selection.objectType !== "segment") {
+      return [];
+    }
+    return selection.ids;
+  }
+
+  private updateExportSelectionButtonState(): void {
+    if (!this.exportSelectionBtn) {
+      return;
+    }
+
+    const selectedIds = this.getSelectedSegmentIds();
+    this.exportSelectionBtn.disabled = selectedIds.length === 0;
+  }
+
+  private async onExportSelectionClick(): Promise<void> {
+    const selectedIds = this.getSelectedSegmentIds();
+    if (selectedIds.length === 0) {
+      this.updateExportSelectionButtonState();
+      return;
+    }
+
+    const features: Array<{
+      type: "Feature";
+      properties: { segmentId: number; wkt: string };
+      geometry: ReturnType<typeof wktToGeoJson>;
+    }> = [];
+
+    for (const segmentId of selectedIds) {
+      try {
+        const wkt = this.wmeSDK.DataModel.Segments.getWKTGeometry({ segmentId });
+        const geometry = wktToGeoJson(wkt);
+        features.push({
+          type: "Feature",
+          properties: { segmentId, wkt },
+          geometry,
+        });
+      } catch (err) {
+        logger.warn(`MatchPanel: failed to export selected segment ${segmentId}`, err);
+      }
+    }
+
+    const payload = {
+      source: "wme-selection",
+      selectedSegmentIds: selectedIds,
+      exportedCount: features.length,
+      exportedAt: new Date().toISOString(),
+      features,
+    };
+
+    await this.copyTextToClipboard(JSON.stringify(payload, null, 2));
+    logger.info(`MatchPanel: copied ${features.length} selected segment geometries to clipboard`);
+  }
+
+  private async copyTextToClipboard(text: string): Promise<void> {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand("copy");
+    document.body.removeChild(textarea);
+
+    if (!copied) {
+      throw new Error("Clipboard copy failed");
+    }
+  }
+
   /**
    * Center the map on the bounding box of the loaded track.
    * SDK: Map.zoomToExtent (index.d.ts line 4042).
@@ -1007,13 +1153,15 @@ export class MatchPanel {
   }
 
   private applyButtonState(state: WalkState): void {
-    if (!this.startBtn || !this.stopBtn) {
+    if (!this.stopBtn) {
       return;
     }
 
     const canStart =
       state === "idle" || state === "done" || state === "cancelled" || state === "error";
-    this.startBtn.disabled = !canStart;
+    if (this.startBtn) {
+      this.startBtn.disabled = !canStart;
+    }
 
     const isWalking = state === "walking";
     this.stopBtn.style.display = isWalking ? "" : "none";

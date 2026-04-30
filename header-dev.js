@@ -13,7 +13,7 @@
 // @grant        GM.xmlHttpRequest
 // @grant        unsafeWindow
 // @connect      *
-// @require      file://wsl.localhost/Debian/home/mael/opensource/wme-geojson/.out/main.user.js
+// @require		file://wsl.localhost/Debian/home/mael/opensource/wme-geojson/.out/main.user.js
 // ==/UserScript==
 
 // Dev notes:
