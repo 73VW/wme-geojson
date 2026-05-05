@@ -6,7 +6,7 @@
 > resume work after a context-window flush, a session change, or an
 > unscheduled stop.
 >
-> Read this file *first*. Then read [HANDOFF.md](HANDOFF.md) for the
+> Read this file _first_. Then read [HANDOFF.md](HANDOFF.md) for the
 > repo's permanent state, [claude.md](claude.md) / [agents.md](agents.md)
 > for conventions, and the full plan at
 > `~/.claude/plans/hey-alors-copilot-a-enchanted-sonnet.md` (only on the
@@ -105,16 +105,19 @@ requires manual clicks in the live WME editor by the PO.
      be populated.
 
 2. Only after Lot 7 is green, bump version: edit `package.json` from
-  `0.9.0` to `0.10.0`.
+   `0.9.0` to `0.10.0`.
    No other file references the version.
 
 3. Generate the release:
+
    ```bash
    npm run build
    ```
+
    This produces `releases/release-0.10.0.user.js`. **Critically**:
    `npm run build` also re-emits older `releases/*.user.js` files
    via prettier reformatting. Restore them BEFORE staging:
+
    ```bash
    git status releases/
    # If older releases appear modified:
@@ -151,7 +154,7 @@ requires manual clicks in the live WME editor by the PO.
   the current selection via `wmeSDK.Editing.getSelection()` at
   validate-click time, never on the selection event itself.
 - **`validateRow` does not advance `currentIndex`** if `index !==
-  currentIndex`. The pipeline always validates in order; do not
+currentIndex`. The pipeline always validates in order; do not
   introduce an out-of-order validation path or duplicate
   ClosureRange entries will accumulate in the store.
 - **Releases under prettier review.** Per HANDOFF.md §5 the
@@ -179,15 +182,15 @@ dedicated row per merged time range.
 
 ## 2. Frozen user decisions (do not re-litigate)
 
-| Decision | Choice |
-|---|---|
-| UI style | Native Waze Web Components (`wz-button`, `wz-text-input`, …) |
-| Enriched-input CSV | Downloadable at any time during the session, plus the final closures CSV |
-| Persistence | `localStorage`, scoped per `(geojsonUrl, csvFingerprint)`; reset on track/CSV change |
-| Resume after reload | Auto-resume at the last unvalidated row; "restart from scratch" button always available |
-| Direction | `TWO WAY` hard-coded |
-| Final prompts | Only `Reason`, `Ignore traffic`, `MTE ID`, `Comment` are prompted (globally applied). Per-row `lon/lat`, `zoom`, `start_date`, `end_date`, `segments` are derived |
-| Track tab return | After every `Editing.setSelection`, the userscript tab must be re-activated (default WME side-effect opens the edit panel) |
+| Decision            | Choice                                                                                                                                                            |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| UI style            | Native Waze Web Components (`wz-button`, `wz-text-input`, …)                                                                                                      |
+| Enriched-input CSV  | Downloadable at any time during the session, plus the final closures CSV                                                                                          |
+| Persistence         | `localStorage`, scoped per `(geojsonUrl, csvFingerprint)`; reset on track/CSV change                                                                              |
+| Resume after reload | Auto-resume at the last unvalidated row; "restart from scratch" button always available                                                                           |
+| Direction           | `TWO WAY` hard-coded                                                                                                                                              |
+| Final prompts       | Only `Reason`, `Ignore traffic`, `MTE ID`, `Comment` are prompted (globally applied). Per-row `lon/lat`, `zoom`, `start_date`, `end_date`, `segments` are derived |
+| Track tab return    | After every `Editing.setSelection`, the userscript tab must be re-activated (default WME side-effect opens the edit panel)                                        |
 
 ## 3. Architecture invariants
 
@@ -201,16 +204,16 @@ Same as `HANDOFF.md` §2:
 
 ## 4. Lot status board
 
-| Lot | Status | Commits | Files | Notes |
-|---|---|---|---|---|
-| **0 — bootstrap** | DONE | `2bf442b`, `5f7bddf`, `4eca4eb`, *this commit* | WKT util, matching WIP, AI docs, `.mcp.json` ignored, `REFACTOR_PROGRESS.md` | Clean tree. Old `releases/*.user.js` were prettier-mangled and restored from HEAD per `HANDOFF.md` §5. |
-| **1 — store + CSV foundations** | DONE | `d57f811` | `src/state/SessionStore.ts`, `src/csv/parseSchedule.ts`, `src/csv/serializeSchedule.ts`, `src/persistence/sessionStorage.ts` + 3 test files | 78 tests green, tsc clean, boundary check passes (no SDK/DOM imports in `src/state/` or `src/csv/`). FNV-1a hashing for localStorage keys. **Note for Lot 3:** `validateRow` does NOT advance `currentIndex` when called with `index !== currentIndex` — re-validation of an earlier row is allowed but pushes duplicate `ClosureRange` entries. If the UI lets the user re-validate, dedup must happen in Lot 4 or be guarded in the caller. |
-| **2 — UI refactor (Waze WC)** | DONE | `4232030` | `src/ui/MatchPanel.ts` (1169 → 683 lines), `src/ui/components/wz.ts` (new, 163 lines), `src/bootstrap/loadAndAttachTrack.ts` (new), `src/layers/TrackLayer.ts` (labels-off default), `main.user.ts` (always mount), 8 locale keys (EN+FR) | 98 tests green, tsc clean, releases/ untouched. **Implementation note for Lot 3:** the circular import between `MatchPanel` and `loadAndAttachTrack` is broken via `panel.setLoadFn(fn)` injected from `main.user.ts`. Lot 3 will replace the start-matching button click handler — currently a stub that just sets phase to "matching" and logs a warning. The download-closures button currently emits a header-only file with `reason: "stub"`. |
-| **3 — guided pipeline** | DONE | `775608b` | `src/controller/MatchingPipeline.ts` (new, ~360 lines), `src/ui/MatchPanel.ts` (guided sub-panel + real wiring), `src/layers/TrackLayer.ts` (`getTrackGeometry()` accessor), locale keys under `panel.matching` | 98 tests green, tsc clean. Tab return uses `tabLabel.click()` (no SDK API exists). RowGeo captured from the **last** bisected bbox view (most natural anchor — matches what the user is currently looking at). Validation reads `wmeSDK.Editing.getSelection()` at click-time so user corrections are captured. Pipeline does NOT touch localStorage — Lot 5 will plug a store subscriber. |
-| **4 — closures CSV builder** | DONE | `fe6663c` | `src/csv/buildClosuresCsv.ts`, `src/csv/__tests__/buildClosuresCsv.test.ts` (20 tests), `src/ui/promptFinalFields.ts`, locale keys under `panel.finalFields` (EN+FR) | 98 tests green, tsc clean. **Implementation note:** for merged-range rows, `RowGeo` is taken from the earliest contributing row (`mergedRange.rowIndex` = first by `startISO`). Touching boundaries (end(A) == start(B)) explicitly do NOT merge. `promptFinalFields` is implemented but not yet wired into MatchPanel — Lot 3 does that. |
-| **5 — persistence + resume wiring** | DONE | `077d5ea` | `src/state/SessionStore.ts` (auto-save in `mutate`, `rehydrate` method, `setCsvRows(rows, csvText)` signature), `src/ui/MatchPanel.ts` (resume banner + restart-from-scratch button), `src/__tests__/SessionStore.test.ts` (6 new tests) | 104 tests green, tsc clean. **Implementation note:** the Sonnet agent finished ~70% (auto-save + rehydrate + part of the resume detection) before being interrupted; the PO finished `renderResumeBanner`, the restart button, and the SessionStore tests directly. The `maybeShowResumeBanner` placeholder was deleted (replaced by `renderResumeBanner` called from `onCsvFileSelected`). |
-| **6 — polish + release** | BLOCKED | — | `package.json` bump, `releases/release-0.10.0.user.js`, `README.md`, `HANDOFF.md` | Blocked by Lot 7 validation in WME. |
-| **7 — stabilisation pré-release** | IN PROGRESS | — | `src/bootstrap/loadAndAttachTrack.ts`, `src/state/SessionStore.ts`, `src/ui/MatchPanel.ts`, `src/ui/components/wz.ts`, `src/__tests__/SessionStore.test.ts` | Current fixes: remove stale layer on GeoJSON reload, reset session when track URL changes, improve button/text/value binding for Waze/fallback UI, tighten phase-driven visibility, add regression test. Local validation is green (`npm test`: 105 tests, `npx tsc --noEmit`, `npm run build`). Remaining work: confirm visually in WME that buttons render correctly and labels still stay hidden until CSV load. |
+| Lot                                 | Status      | Commits                                        | Files                                                                                                                                                                                                                                     | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------------------------- | ----------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **0 — bootstrap**                   | DONE        | `2bf442b`, `5f7bddf`, `4eca4eb`, _this commit_ | WKT util, matching WIP, AI docs, `.mcp.json` ignored, `REFACTOR_PROGRESS.md`                                                                                                                                                              | Clean tree. Old `releases/*.user.js` were prettier-mangled and restored from HEAD per `HANDOFF.md` §5.                                                                                                                                                                                                                                                                                                                                             |
+| **1 — store + CSV foundations**     | DONE        | `d57f811`                                      | `src/state/SessionStore.ts`, `src/csv/parseSchedule.ts`, `src/csv/serializeSchedule.ts`, `src/persistence/sessionStorage.ts` + 3 test files                                                                                               | 78 tests green, tsc clean, boundary check passes (no SDK/DOM imports in `src/state/` or `src/csv/`). FNV-1a hashing for localStorage keys. **Note for Lot 3:** `validateRow` does NOT advance `currentIndex` when called with `index !== currentIndex` — re-validation of an earlier row is allowed but pushes duplicate `ClosureRange` entries. If the UI lets the user re-validate, dedup must happen in Lot 4 or be guarded in the caller.      |
+| **2 — UI refactor (Waze WC)**       | DONE        | `4232030`                                      | `src/ui/MatchPanel.ts` (1169 → 683 lines), `src/ui/components/wz.ts` (new, 163 lines), `src/bootstrap/loadAndAttachTrack.ts` (new), `src/layers/TrackLayer.ts` (labels-off default), `main.user.ts` (always mount), 8 locale keys (EN+FR) | 98 tests green, tsc clean, releases/ untouched. **Implementation note for Lot 3:** the circular import between `MatchPanel` and `loadAndAttachTrack` is broken via `panel.setLoadFn(fn)` injected from `main.user.ts`. Lot 3 will replace the start-matching button click handler — currently a stub that just sets phase to "matching" and logs a warning. The download-closures button currently emits a header-only file with `reason: "stub"`. |
+| **3 — guided pipeline**             | DONE        | `775608b`                                      | `src/controller/MatchingPipeline.ts` (new, ~360 lines), `src/ui/MatchPanel.ts` (guided sub-panel + real wiring), `src/layers/TrackLayer.ts` (`getTrackGeometry()` accessor), locale keys under `panel.matching`                           | 98 tests green, tsc clean. Tab return uses `tabLabel.click()` (no SDK API exists). RowGeo captured from the **last** bisected bbox view (most natural anchor — matches what the user is currently looking at). Validation reads `wmeSDK.Editing.getSelection()` at click-time so user corrections are captured. Pipeline does NOT touch localStorage — Lot 5 will plug a store subscriber.                                                         |
+| **4 — closures CSV builder**        | DONE        | `fe6663c`                                      | `src/csv/buildClosuresCsv.ts`, `src/csv/__tests__/buildClosuresCsv.test.ts` (20 tests), `src/ui/promptFinalFields.ts`, locale keys under `panel.finalFields` (EN+FR)                                                                      | 98 tests green, tsc clean. **Implementation note:** for merged-range rows, `RowGeo` is taken from the earliest contributing row (`mergedRange.rowIndex` = first by `startISO`). Touching boundaries (end(A) == start(B)) explicitly do NOT merge. `promptFinalFields` is implemented but not yet wired into MatchPanel — Lot 3 does that.                                                                                                          |
+| **5 — persistence + resume wiring** | DONE        | `077d5ea`                                      | `src/state/SessionStore.ts` (auto-save in `mutate`, `rehydrate` method, `setCsvRows(rows, csvText)` signature), `src/ui/MatchPanel.ts` (resume banner + restart-from-scratch button), `src/__tests__/SessionStore.test.ts` (6 new tests)  | 104 tests green, tsc clean. **Implementation note:** the Sonnet agent finished ~70% (auto-save + rehydrate + part of the resume detection) before being interrupted; the PO finished `renderResumeBanner`, the restart button, and the SessionStore tests directly. The `maybeShowResumeBanner` placeholder was deleted (replaced by `renderResumeBanner` called from `onCsvFileSelected`).                                                        |
+| **6 — polish + release**            | BLOCKED     | —                                              | `package.json` bump, `releases/release-0.10.0.user.js`, `README.md`, `HANDOFF.md`                                                                                                                                                         | Blocked by Lot 7 validation in WME.                                                                                                                                                                                                                                                                                                                                                                                                                |
+| **7 — stabilisation pré-release**   | IN PROGRESS | —                                              | `src/bootstrap/loadAndAttachTrack.ts`, `src/state/SessionStore.ts`, `src/ui/MatchPanel.ts`, `src/ui/components/wz.ts`, `src/__tests__/SessionStore.test.ts`                                                                               | Current fixes: remove stale layer on GeoJSON reload, reset session when track URL changes, improve button/text/value binding for Waze/fallback UI, tighten phase-driven visibility, add regression test. Local validation is green (`npm test`: 105 tests, `npx tsc --noEmit`, `npm run build`). Remaining work: confirm visually in WME that buttons render correctly and labels still stay hidden until CSV load.                                |
 
 Status legend: `TODO` (not started), `IN PROGRESS` (active), `BLOCKED`
 (see Blockers section), `DONE`.
@@ -220,13 +223,15 @@ Status legend: `TODO` (not started), `IN PROGRESS` (active), `BLOCKED`
 **Finish Lot 7 (stabilisation), then resume Lot 6.**
 
 1. Validate the current Lot 7 fixes in live WME:
-  - GeoJSON reload must not throw a layer-name collision.
-  - Changing track URL must reset stale CSV progress.
-  - Buttons must render text in the WME sidebar.
-  - Guided matching panel must stay hidden before `matching`.
-  - Distance labels must remain hidden until the CSV is loaded.
+
+- GeoJSON reload must not throw a layer-name collision.
+- Changing track URL must reset stale CSV progress.
+- Buttons must render text in the WME sidebar.
+- Guided matching panel must stay hidden before `matching`.
+- Distance labels must remain hidden until the CSV is loaded.
+
 2. If one of those checks fails, add/update a Lot 7 follow-up item in
-  this file before touching release tasks.
+   this file before touching release tasks.
 3. Once Lot 7 is green, bump `package.json` version `0.9.0` → `0.10.0`.
 4. Run `npm run build` and verify the new
    `releases/release-0.10.0.user.js` is produced. **Do NOT commit
@@ -389,7 +394,7 @@ deviations from the spec and why.
 
 ### A.2 — Lot 2: UI refresh (Waze Web Components)
 
-```
+````
 You are working on the wme-geojson Tampermonkey userscript at
 /workspaces/wme-geojson. TypeScript, Rollup, vitest.
 
@@ -460,7 +465,7 @@ export interface FileInputProps {
   onFile?: (file: File) => void;
 }
 export function fileInput(props: FileInputProps): HTMLInputElement;
-```
+````
 
 Implementation: each factory uses
 `document.createElement("wz-button")` etc., sets attributes for
@@ -476,6 +481,7 @@ No tests for this module — it's pure DOM glue.
 ### 2.2 — Rewrite `src/ui/MatchPanel.ts`
 
 Remove everything that the new flow does not need:
+
 - `Center on track` button.
 - The full distance-filter section (textarea + Compute views + bbox
   list of buttons) — `buildDistanceFilter`, the `bbox*` private
@@ -490,6 +496,7 @@ Remove everything that the new flow does not need:
   used solely to highlight the active result item, etc.).
 
 Keep:
+
 - The state badge driven by `WalkController.onStateChange`.
 - `buildRangeSlider()` — the dual-handle min/max km range slider.
   This is a great visual filter and the user wants it kept.
@@ -537,6 +544,7 @@ and call `renderPhase` whenever the state changes.
 Locale keys to add to BOTH `locales/en/common.json` and
 `locales/fr/common.json` (under existing `panel` namespace where it
 fits, otherwise create sub-namespaces):
+
 - `panel.urlInput.label`, `panel.urlInput.placeholder`,
   `panel.urlInput.load`
 - `panel.trackLength` (e.g. `"Track length: {{km}} km"`)
@@ -544,9 +552,10 @@ fits, otherwise create sub-namespaces):
 - `panel.startMatching`
 - `panel.downloadEnriched`, `panel.downloadClosures`
 - `panel.resumeDetected`, `panel.startFresh`
-Provide reasonable French and English values.
+  Provide reasonable French and English values.
 
 The new MatchPanel constructor signature:
+
 ```ts
 new MatchPanel(
   wmeSDK: WmeSDK,
@@ -594,6 +603,7 @@ if (url) {
 "Load URL" button in the panel can re-use it.
 
 Inside loadAndAttachTrack:
+
 1. `loadTrack(url)` (existing).
 2. Build TrackLayer, draw track.
 3. Build WalkController.
@@ -630,6 +640,7 @@ disk (run `git status` — if it appears modified, `git checkout HEAD
 -- releases/` to restore). Do NOT commit any release file change.
 
 **Do NOT:**
+
 - Update REFACTOR_PROGRESS.md (PO does that).
 - Commit (PO does that).
 - Wire the real Start-matching pipeline (Lot 3).
@@ -637,6 +648,7 @@ disk (run `git status` — if it appears modified, `git checkout HEAD
 - Wire localStorage resume detection (Lot 5).
 
 **Report back with:**
+
 - Files created / files materially modified (one line each).
 - Locale keys added.
 - Test summary (`Tests N passed (N)`) and tsc output (must be empty).
@@ -644,11 +656,13 @@ disk (run `git status` — if it appears modified, `git checkout HEAD
 - Any deviation and the reason.
 
 Keep the report under 350 words.
+
 ```
 
 ### A.3 — Lot 3: guided matching pipeline
 
 ```
+
 You are working on the wme-geojson Tampermonkey userscript at
 /workspaces/wme-geojson. TypeScript, Rollup, vitest.
 
@@ -659,6 +673,7 @@ CSV" stub with the real flow that prompts the user for the four
 final fields and builds the actual closures CSV.
 
 **Required reading before writing code:**
+
 1. /workspaces/wme-geojson/REFACTOR_PROGRESS.md — sections 2 (frozen
    decisions), 3 (architecture), 4 (Lot status board to know what
    is already merged), Annex A.3 (this prompt).
@@ -673,7 +688,7 @@ final fields and builds the actual closures CSV.
    pipeline MUST always validate the current row in order.
 5. /workspaces/wme-geojson/src/csv/buildClosuresCsv.ts — Lot 4. Use
    the exact API: `buildClosuresCsv(rows, rowGeos, closuresBySegment,
-   fields)`. `rowGeos` is indexed in the same order as csvRows.
+fields)`. `rowGeos` is indexed in the same order as csvRows.
 6. /workspaces/wme-geojson/src/ui/promptFinalFields.ts — Lot 4
    modal. Returns `Promise<FinalFields | null>` (null on cancel).
 7. /workspaces/wme-geojson/src/controller/WalkController.ts — exposes
@@ -687,7 +702,7 @@ final fields and builds the actual closures CSV.
 9. The previous bbox-bisection logic (zoomToExtent + waitForMapIdle +
    bisect when zoom < MIN_BBOX_ZOOM=15, depth cap MAX_BISECT_DEPTH=8)
    is no longer in `MatchPanel.ts` after Lot 2. To recover it, run:
-       git show 4232030^:src/ui/MatchPanel.ts | sed -n '533,740p'
+   git show 4232030^:src/ui/MatchPanel.ts | sed -n '533,740p'
    That section is the canonical implementation. Re-implement it as
    a private method of `MatchingPipeline` (or a free function in
    `src/matching/bboxViews.ts` if cleanly separable). Keep the
@@ -736,23 +751,23 @@ Behavioural contract:
    const portions = computePortions(distances, totalKm)
    ```
    `portions[i]` belongs to `csvRows[i]`. Verify `portions.length ===
-   csvRows.length` and `onError` if not.
+csvRows.length` and `onError` if not.
 2. Loop from `currentIndex` to `csvRows.length - 1`. For each row:
    - Emit `onRowStarted(i, csvRows.length)`.
    - Compute the bbox view(s) for the portion via the bisection
      logic ported from the previous MatchPanel (point #9 above).
      For each bbox view:
-       a. `wmeSDK.Map.zoomToExtent({ bbox })`.
-       b. `await waitForMapIdle(wmeSDK)`.
-       c. Subscribe to `controller.onMatchFound` to collect IDs into
-          a per-row `Set<number>`.
-       d. `await controller.matchInCurrentViewport(kmA, kmB)`.
-       e. Unsubscribe.
+     a. `wmeSDK.Map.zoomToExtent({ bbox })`.
+     b. `await waitForMapIdle(wmeSDK)`.
+     c. Subscribe to `controller.onMatchFound` to collect IDs into
+     a per-row `Set<number>`.
+     d. `await controller.matchInCurrentViewport(kmA, kmB)`.
+     e. Unsubscribe.
    - After all bbox views processed: capture `RowGeo` = the LAST
      view's `getMapCenter()` + `getZoomLevel()` (not the first —
      the last view is what the user is currently looking at).
    - `await wmeSDK.Editing.setSelection({ selection: { ids:
-     [...collected], objectType: "segment" } })` — wrap in try/catch,
+[...collected], objectType: "segment" } })` — wrap in try/catch,
      emit `onError` and continue if it throws.
    - `tabLabel.click()` — re-activate the userscript tab (the SDK
      has no programmatic selectTab; clicking the tab label element
@@ -761,7 +776,7 @@ Behavioural contract:
    - Emit `onRowMatched(i, [...collected])`.
    - Wait for `validateCurrentRow()` to be called (UI button).
      Implementation: store a `private pendingValidator: (() =>
-     void) | null` and resolve a promise from inside the row loop.
+void) | null` and resolve a promise from inside the row loop.
    - On `validateCurrentRow()`: read CURRENT selection via
      `wmeSDK.Editing.getSelection()` (captures user corrections),
      extract segment IDs (filter `objectType === "segment"`), then
@@ -785,10 +800,11 @@ called from `buildDOM` and added between `startMatchingRow` and
 existing `renderPhase` mechanism).
 
 Contents:
+
 - A header line: "Row N / M — distance K km, HH:MM → HH:MM".
 - A status line: i18n key `panel.matching.validateOrCorrect`
   (FR: `"Validez ou corrigez et validez"`, EN: `"Validate, or
-  correct then validate"`).
+correct then validate"`).
 - A line: "X segments matched" (live count, updated on
   `onRowMatched`).
 - Two `wzButton`: **Validate** (primary, calls
@@ -796,6 +812,7 @@ Contents:
   `pipeline.abort()`).
 
 Wire the existing stub `Start matching` button click handler:
+
 - Build the pipeline (constructor takes `tabLabel` — the panel must
   remember it from `mount()`).
 - Subscribe to events to update the sub-panel text + count.
@@ -811,11 +828,12 @@ removed.
 
 The Lot 2 stub for `Download closures CSV` currently emits a header-
 only file. Replace its click handler with:
+
 1. Validate that `phase === "done"` — otherwise show a non-blocking
    message and return.
 2. `await promptFinalFields()`. If null (cancelled), return.
 3. Build the CSV via `buildClosuresCsv(rows, pipeline.getRowGeos(),
-   store.closuresBySegment, finalFields)`. Trigger Blob download
+store.closuresBySegment, finalFields)`. Trigger Blob download
    named `closures.csv`.
 
 The pipeline reference must be stored on the panel after `start()`
@@ -832,6 +850,7 @@ and expose `getTabLabel(): HTMLElement | null`.
 ### 3.5 — Locale keys
 
 Add to BOTH locale files under `panel.matching`:
+
 - `rowHeader` — e.g. `"Row {{index}} / {{total}} — {{km}} km, {{startTime}} → {{endTime}}"`
 - `validateOrCorrect` — `"Validez ou corrigez et validez"` (FR),
   `"Validate, or correct then validate"` (EN)
@@ -867,6 +886,7 @@ Verify `git status` shows no `releases/*.user.js` modifications. If
 present, restore with `git checkout HEAD -- releases/`.
 
 **Do NOT:**
+
 - Update REFACTOR_PROGRESS.md (PO does that).
 - Commit (PO does that).
 - Wire localStorage resume detection (Lot 5).
@@ -874,6 +894,7 @@ present, restore with `git checkout HEAD -- releases/`.
 - Bump the package version or generate a new release (Lot 6).
 
 **Report back with:**
+
 - Files created / files materially modified, one line each.
 - Locale keys added.
 - Test summary and tsc output.
@@ -881,15 +902,18 @@ present, restore with `git checkout HEAD -- releases/`.
 - Any deviation and the reason.
 
 Keep the report under 350 words.
+
 ```
 
 ### A.4 — Lot 4: closures CSV builder
 
 ```
+
 You are working on the wme-geojson Tampermonkey userscript at
 /workspaces/wme-geojson. TypeScript, Rollup, vitest.
 
 **Required reading before writing code:**
+
 1. /workspaces/wme-geojson/REFACTOR_PROGRESS.md — overall refactor
    context. Your task is Lot 4 (this prompt is A.4 in the annex).
    Read sections 2 (frozen decisions), 3 (architecture), and Annex
@@ -910,10 +934,10 @@ You are working on the wme-geojson Tampermonkey userscript at
 
    ```ts
    export interface FinalFields {
-     reason: string;          // e.g. "Tour de Romandie 2026"
-     ignoreTraffic: boolean;  // serialized as "Yes" | "No"
-     mteId: string;           // optional, "" if absent
-     comment: string;         // optional, "" if absent
+     reason: string; // e.g. "Tour de Romandie 2026"
+     ignoreTraffic: boolean; // serialized as "Yes" | "No"
+     mteId: string; // optional, "" if absent
+     comment: string; // optional, "" if absent
    }
    export interface RowGeo {
      // Per-CsvRow geometry context, captured during matching (Lot 3).
@@ -957,6 +981,7 @@ You are working on the wme-geojson Tampermonkey userscript at
 
    CSV header (exact text — do not modify, the Advanced Closures
    script parses by header):
+
    ```
    header,reason,start date (yyyy-mm-dd hh:mm),end date (yyyy-mm-dd hh:mm),direction (A to B|B to A|TWO WAY),ignore trafic (Yes|No),segment IDs (id1;id2;...),lon/lat (like in a permalink: lon=xxx&lat=yyy),zoom (2 to 10),MTE ID,comment (optional)
    ```
@@ -1010,12 +1035,13 @@ You are working on the wme-geojson Tampermonkey userscript at
    Strings via `i18next.t(...)`. Add the keys to BOTH
    `locales/en/common.json` AND `locales/fr/common.json` under a new
    namespace `panel.finalFields`:
-     - title, reason, ignoreTraffic, mteId, comment, ok, cancel,
-       errorCommaInField
+   - title, reason, ignoreTraffic, mteId, comment, ok, cancel,
+     errorCommaInField
 
    Do NOT add this UI to MatchPanel yet (Lot 3 wires it in).
 
 **Hard constraints:**
+
 - `src/csv/buildClosuresCsv.ts` MUST NOT import anything from
   `wme-sdk-typings`, `window.*`, or `document.*`. Verify with
   grep before reporting done.
@@ -1024,30 +1050,36 @@ You are working on the wme-geojson Tampermonkey userscript at
 - Existing tests must still pass.
 
 **Validation commands:**
+
 ```
 npm test
 npx tsc --noEmit
 ```
+
 Both must be clean. Spot-check `npm run build` succeeds.
 
 **Do NOT:**
+
 - Update REFACTOR_PROGRESS.md (PO does that).
 - Commit (PO does that).
 - Wire `promptFinalFields` into MatchPanel (Lot 3 does that).
 - Touch the SessionStore — types are FROZEN from Lot 1.
 
 **Report back with:**
+
 - Files created with one-line description each.
 - Test summary (tests passed / failed counts).
 - Output of `npx tsc --noEmit` (must be empty).
 - Any deviation from the spec and the reason.
 
 Keep the report under 300 words.
+
 ```
 
 ### A.5 — Lot 5: persistence + resume wiring
 
 ```
+
 You are working on the wme-geojson Tampermonkey userscript at
 /workspaces/wme-geojson. TypeScript, Rollup, vitest.
 
@@ -1058,6 +1090,7 @@ matching and resume where they left off, with a "restart from
 scratch" escape hatch.
 
 **Required reading:**
+
 1. /workspaces/wme-geojson/REFACTOR_PROGRESS.md — sections 2, 3, 4,
    and Annex A.5 (this prompt). Also re-read sections "Frozen user
    decisions" — the resume behaviour is "auto-resume at the last
@@ -1108,7 +1141,7 @@ immediately advancing to phase `csv-loaded`. The banner contains:
   - **Reprendre / Resume** (primary) — calls a new private
     `applyLoadedState(loaded: SessionState)` that rehydrates the
     store via a new public method `SessionStore.rehydrate(state:
-    SessionState, csvText: string): void` (pure setter, mirrors the
+SessionState, csvText: string): void` (pure setter, mirrors the
     `mutate` notify path). Then advance the panel to phase
     `csv-loaded` (or `matching` if the loaded `phase` was `matching`).
   - **Reprendre de zéro / Restart from scratch** (secondary) — calls
@@ -1127,6 +1160,7 @@ loaded (unusual flow), call resume detection then.
 
 Add a small **Reprendre de zéro / Restart** button to the
 `guidedMatchingRow` (built in Lot 3). On click:
+
 - Confirm via the existing `confirmModal` (`src/ui/modal.ts`) — show
   a warning that all matched segments will be lost.
 - If confirmed: call `pipeline.abort()`, `clearForCurrent(...)`,
@@ -1143,6 +1177,7 @@ i18n key `panel.matching.restartFromScratch` (FR/EN), and
 Add a vitest test for the new `rehydrate` method in
 `src/__tests__/SessionStore.test.ts` (NEW file — Lot 1 had no test
 for the store class itself, only for parse/serialize/storage). Tests:
+
 - `rehydrate` replaces state and notifies subscribers.
 - A subsequent `validateRow` continues from the rehydrated
   `currentIndex`.
@@ -1171,12 +1206,14 @@ After build: `git status` must show no `releases/*.user.js`
 modification (restore from HEAD if it does).
 
 **Do NOT:**
+
 - Update REFACTOR_PROGRESS.md (PO does that).
 - Commit (PO does that).
 - Bump the version (Lot 6).
 - Generate release-0.10.0.user.js (Lot 6).
 
 **Report back with:**
+
 - Files created / files materially modified, one line each.
 - Locale keys added.
 - Test summary (tests passed) and tsc output.
@@ -1184,6 +1221,7 @@ modification (restore from HEAD if it does).
 - Any deviation and the reason.
 
 Keep the report under 350 words.
+
 ```
 
 ---
@@ -1194,19 +1232,23 @@ The full CSV the user will be feeding the script. Useful for tests in
 Lot 1, Lot 4, and manual smoke testing in Lot 6.
 
 ```
+
 distance,start_time,end_time,date,segments
 0.0,13:00,13:50,2026-04-29,
 1.9,13:02,13:52,2026-04-29,
 3.8,13:04,13:55,2026-04-29,
 ... (99 rows total — see original conversation transcript)
 86.2,14:54,15:52,2026-04-29,
+
 ```
 
 ## Annex C — Target advanced-closures CSV format
 
 ```
+
 header,reason,start date (yyyy-mm-dd hh:mm),end date (yyyy-mm-dd hh:mm),direction (A to B|B to A|TWO WAY),ignore trafic (Yes|No),segment IDs (id1;id2;...),lon/lat (like in a permalink: lon=xxx&lat=yyy),zoom (2 to 10),MTE ID,comment (optional)
 add,Tour de Romandie 2026,2026-04-29 13:25,2026-04-29 14:17,TWO WAY,Yes,201847641;212223597,lon=7.05464&lat=46.17835,14,,Autogenerated
+
 ```
 
 Note: the example header text says "zoom (2 to 10)" but real WME zoom
@@ -1241,3 +1283,4 @@ Concrete example (from the user's spec):
 
 If algorithmically simpler, generating one closure row per segment
 (rather than per group) is allowed.
+```
