@@ -37,6 +37,7 @@ export function wzButton(props: WzButtonProps): HTMLElement {
   const isRegistered =
     typeof customElements !== "undefined" && customElements.get(tagName) !== undefined;
   const variant = props.variant ?? "secondary";
+  const color = variant === "danger" ? "secondary" : variant;
 
   if (!isRegistered) {
     warnMissingTag(tagName);
@@ -54,10 +55,13 @@ export function wzButton(props: WzButtonProps): HTMLElement {
 
   const el = document.createElement(tagName);
   el.className = `wmegj-button-host wmegj-button-host--${variant}`;
-  el.setAttribute("text", props.text);
+  el.setAttribute("color", color);
+  el.setAttribute("size", "md");
+  el.setAttribute("type", "button");
   el.textContent = props.text;
   (el as unknown as { text?: string }).text = props.text;
-  el.setAttribute("variant", variant);
+  (el as unknown as { color?: string }).color = color;
+  (el as unknown as { size?: string }).size = "md";
   if (props.disabled) {
     el.setAttribute("disabled", "");
     (el as unknown as { disabled?: boolean }).disabled = true;

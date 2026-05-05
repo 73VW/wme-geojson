@@ -5,7 +5,7 @@
  *  1. Compute bbox view(s) for the portion via recursive bisection.
  *  2. Navigate the map + wait for idle.
  *  3. Run matchInCurrentViewport to populate the WalkController's match set.
- *  4. Select the matched segments in WME, then re-activate the userscript tab.
+ *  4. Select the matched segments in WME.
  *  5. Emit onRowMatched and wait for the UI's "Validate" button.
  *  6. On validate: read current WME selection (user may have corrected it),
  *     call store.validateRow, and advance.
@@ -50,6 +50,7 @@ export interface PipelineEvents {
   onError?: (message: string) => void;
   onDone?: () => void;
   onAborted?: () => void;
+  onPaused?: () => void;
 }
 
 export interface PipelineStepEvent {
@@ -70,7 +71,7 @@ export interface MatchingPipelineOptions {
   burstMode?: boolean;
 }
 
-type PendingRowAction = "validate" | "skip" | "back" | "abort";
+type PendingRowAction = "validate" | "skip" | "back" | "abort" | "pause";
 
 // ---------------------------------------------------------------------------
 // MatchingPipeline
@@ -81,6 +82,8 @@ export class MatchingPipeline {
 
   // Abort flag: set by abort(), checked between rows and bbox views
   private abortRequested = false;
+  private pauseRequested = false;
+  private paused = false;
 
   // Tracks whether the loop is currently executing
   private running = false;
@@ -100,10 +103,6 @@ export class MatchingPipeline {
     private readonly trackLayer: TrackLayer,
     private readonly events: PipelineEvents,
     private readonly options: MatchingPipelineOptions,
-    // The tab label element returned by Sidebar.registerScriptTab().
-    // Clicking it re-activates the userscript tab — the SDK has no
-    // programmatic selectTab API, so this is the only available mechanism.
-    private readonly tabLabel: HTMLElement,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -123,6 +122,8 @@ export class MatchingPipeline {
       rowCount: this.store.getState().csvRows.length,
     });
     this.abortRequested = false;
+    this.pauseRequested = false;
+    this.paused = false;
     this.running = true;
 
     // Fire-and-forget: the pipeline runs asynchronously; errors surface via
@@ -146,6 +147,27 @@ export class MatchingPipeline {
     // If we are paused waiting for the user's validate click, unblock the
     // pause point so the loop can see the abort flag and exit cleanly.
     this.pendingAbortReject?.();
+  }
+
+  /**
+   * Request a soft pause. The current navigation/matching unit is allowed to
+   * complete, then the loop emits onPaused without switching to done/aborted.
+   */
+  pause(): void {
+    logger.info("MatchingPipeline.pause: requested");
+    this.pauseRequested = true;
+    this.pendingResolver?.("pause");
+  }
+
+  resume(): void {
+    logger.info("MatchingPipeline.resume: requested", {
+      paused: this.paused,
+      running: this.running,
+    });
+    if (!this.paused || this.running) {
+      return;
+    }
+    this.start();
   }
 
   /**
@@ -182,6 +204,10 @@ export class MatchingPipeline {
 
   isRunning(): boolean {
     return this.running;
+  }
+
+  isPaused(): boolean {
+    return this.paused;
   }
 
   /** Read-only snapshot of per-leaf groups captured during the run. */
@@ -224,10 +250,7 @@ export class MatchingPipeline {
         continue;
       }
 
-      if (this.abortRequested) {
-        logger.info("MatchingPipeline: aborted before row", i);
-        this.events.onAborted?.();
-        this.running = false;
+      if (this.stopIfRequested("before row", i)) {
         return;
       }
 
@@ -266,9 +289,7 @@ export class MatchingPipeline {
         values: { count: leafSlices.length },
       });
 
-      if (this.abortRequested) {
-        this.events.onAborted?.();
-        this.running = false;
+      if (this.stopIfRequested("after planning", i)) {
         return;
       }
 
@@ -276,7 +297,7 @@ export class MatchingPipeline {
 
       for (let leafIndex = 0; leafIndex < leafSlices.length; leafIndex++) {
         const leafSlice = leafSlices[leafIndex];
-        if (this.abortRequested) break;
+        if (this.abortRequested || this.pauseRequested) break;
 
         const leafIds = new Set<number>();
         this.events.onStep?.({
@@ -312,7 +333,7 @@ export class MatchingPipeline {
           leafSlice,
         });
 
-        if (this.abortRequested) break;
+        if (this.abortRequested || this.pauseRequested) break;
 
         // Subscribe to matchFound before calling matchInCurrentViewport so we
         // capture all results including the sync ones.
@@ -358,6 +379,10 @@ export class MatchingPipeline {
         }
       }
 
+      if (this.stopIfRequested("after leaf matching", i)) {
+        return;
+      }
+
       // --- Select matched segments in WME ------------------------------------
 
       const ids = Array.from(collectedIds);
@@ -374,6 +399,9 @@ export class MatchingPipeline {
         });
         this.setValidatedGroups(i, rowGroups, ids);
         this.store.validateRow(i, ids, startISO, endISO);
+        if (this.stopIfRequested("after burst row validation", i)) {
+          return;
+        }
         continue;
       }
 
@@ -430,19 +458,6 @@ export class MatchingPipeline {
         // Continue — the user may still manually correct the selection before validating.
       }
 
-      // Re-activate the userscript sidebar tab. After Editing.setSelection the
-      // WME default behaviour is to open the segment edit panel, which hides
-      // the userscript tab. Clicking the tab label element (returned by
-      // Sidebar.registerScriptTab) is the only available way to switch back
-      // since the SDK has no programmatic selectTab API.
-      logger.info("MatchingPipeline.runLoop: clicking userscript tab label", {
-        rowIndex: i,
-      });
-      this.tabLabel.click();
-      logger.info("MatchingPipeline.runLoop: userscript tab label clicked", {
-        rowIndex: i,
-      });
-
       logger.info("MatchingPipeline.runLoop: waiting for user validation", {
         rowIndex: i,
         idsCount: ids.length,
@@ -459,6 +474,13 @@ export class MatchingPipeline {
       if (action === "abort") {
         // Abort was requested while waiting for the user
         this.events.onAborted?.();
+        this.running = false;
+        return;
+      }
+
+      if (action === "pause") {
+        this.events.onPaused?.();
+        this.paused = true;
         this.running = false;
         return;
       }
@@ -511,6 +533,25 @@ export class MatchingPipeline {
     logger.info("MatchingPipeline.runLoop: completed all rows");
     this.events.onDone?.();
     this.running = false;
+  }
+
+  private stopIfRequested(location: string, rowIndex: number): boolean {
+    if (this.abortRequested) {
+      logger.info(`MatchingPipeline: aborted ${location}`, { rowIndex });
+      this.events.onAborted?.();
+      this.running = false;
+      return true;
+    }
+
+    if (this.pauseRequested) {
+      logger.info(`MatchingPipeline: paused ${location}`, { rowIndex });
+      this.events.onPaused?.();
+      this.paused = true;
+      this.running = false;
+      return true;
+    }
+
+    return false;
   }
 
   // ---------------------------------------------------------------------------
