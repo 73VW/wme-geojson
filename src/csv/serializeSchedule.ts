@@ -13,9 +13,7 @@ export function serializeSchedule(rows: CsvRow[]): string {
     // Distance is stored as a number; preserve one decimal place to match the
     // source format. parseSchedule accepts any numeric, so round-trips are safe
     // regardless of the original precision.
-    lines.push(
-      `${row.distance},${row.startTime},${row.endTime},${row.date},${segmentsField}`,
-    );
+    lines.push(`${row.distance},${row.startTime},${row.endTime},${row.date},${segmentsField}`);
   }
 
   // Trailing newline mirrors what most CSV writers produce and keeps

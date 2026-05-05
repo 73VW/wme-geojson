@@ -14,11 +14,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K): HTMLElementTagNameMa
   return document.createElement(tag);
 }
 
-function labeledInput(
-  labelText: string,
-  inputEl: HTMLInputElement,
-  id: string,
-): HTMLDivElement {
+function labeledInput(labelText: string, inputEl: HTMLInputElement, id: string): HTMLDivElement {
   const wrapper = el("div");
   wrapper.style.display = "flex";
   wrapper.style.flexDirection = "column";
@@ -132,11 +128,7 @@ export async function promptFinalFields(
 
     // Reason row
     form.appendChild(
-      labeledInput(
-        i18next.t("panel.finalFields.reason"),
-        reasonInput,
-        "pff-reason",
-      ),
+      labeledInput(i18next.t("panel.finalFields.reason"), reasonInput, "pff-reason"),
     );
 
     // Ignore traffic row — checkbox with inline label
@@ -158,21 +150,11 @@ export async function promptFinalFields(
     form.appendChild(ignoreRow);
 
     // MTE ID row
-    form.appendChild(
-      labeledInput(
-        i18next.t("panel.finalFields.mteId"),
-        mteIdInput,
-        "pff-mte-id",
-      ),
-    );
+    form.appendChild(labeledInput(i18next.t("panel.finalFields.mteId"), mteIdInput, "pff-mte-id"));
 
     // Comment row
     form.appendChild(
-      labeledInput(
-        i18next.t("panel.finalFields.comment"),
-        commentInput,
-        "pff-comment",
-      ),
+      labeledInput(i18next.t("panel.finalFields.comment"), commentInput, "pff-comment"),
     );
 
     form.appendChild(errorBanner);

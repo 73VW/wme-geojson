@@ -67,8 +67,7 @@ export function parseSchedule(text: string): CsvRow[] {
 
     // The segments column may be absent (row has exactly 4 cols) or present
     // but empty (row has 5 cols with an empty string).
-    const segmentsRaw =
-      cols.length > COL_SEGMENTS ? cols[COL_SEGMENTS].trim() : "";
+    const segmentsRaw = cols.length > COL_SEGMENTS ? cols[COL_SEGMENTS].trim() : "";
 
     const segments = parseSegments(segmentsRaw);
 

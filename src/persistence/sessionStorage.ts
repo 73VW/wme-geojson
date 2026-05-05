@@ -53,10 +53,7 @@ export function save(state: SessionState, csvText: string): void {
   }
 }
 
-export function load(
-  geojsonUrl: string,
-  csvText: string,
-): SessionState | null {
+export function load(geojsonUrl: string, csvText: string): SessionState | null {
   const storage = getStorage();
   if (!storage) {
     return null;
@@ -124,15 +121,12 @@ function isSessionState(value: unknown): value is SessionState {
   const v = value as Record<string, unknown>;
 
   const hasPhase = typeof v["phase"] === "string";
-  const hasGeojsonUrl =
-    v["geojsonUrl"] === null || typeof v["geojsonUrl"] === "string";
-  const hasTrackLengthKm =
-    v["trackLengthKm"] === null || typeof v["trackLengthKm"] === "number";
+  const hasGeojsonUrl = v["geojsonUrl"] === null || typeof v["geojsonUrl"] === "string";
+  const hasTrackLengthKm = v["trackLengthKm"] === null || typeof v["trackLengthKm"] === "number";
   const hasCsvRows = Array.isArray(v["csvRows"]);
   const hasCurrentIndex = typeof v["currentIndex"] === "number";
   const hasClosuresBySegment =
-    typeof v["closuresBySegment"] === "object" &&
-    v["closuresBySegment"] !== null;
+    typeof v["closuresBySegment"] === "object" && v["closuresBySegment"] !== null;
 
   return (
     hasPhase &&

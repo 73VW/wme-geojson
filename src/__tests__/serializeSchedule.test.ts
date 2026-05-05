@@ -64,9 +64,7 @@ describe("serializeSchedule", () => {
   it("round-trips after mutating a row's segments", () => {
     const original = parseSchedule(SAMPLE_CSV);
     // Simulate a user validating the first row
-    const mutated = original.map((row, i) =>
-      i === 0 ? { ...row, segments: [999, 1000] } : row,
-    );
+    const mutated = original.map((row, i) => (i === 0 ? { ...row, segments: [999, 1000] } : row));
     const reparsed = parseSchedule(serializeSchedule(mutated));
     expect(reparsed[0].segments).toEqual([999, 1000]);
     // Unmodified rows survive the round-trip unchanged

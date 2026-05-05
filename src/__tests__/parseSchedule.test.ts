@@ -71,8 +71,7 @@ describe("parseSchedule", () => {
   });
 
   it("tolerates CRLF line endings", () => {
-    const csv =
-      "distance,start_time,end_time,date,segments\r\n2.0,08:00,09:00,2026-01-01,\r\n";
+    const csv = "distance,start_time,end_time,date,segments\r\n2.0,08:00,09:00,2026-01-01,\r\n";
     const rows = parseSchedule(csv);
     expect(rows[0].distance).toBe(2.0);
   });
