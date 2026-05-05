@@ -236,7 +236,7 @@ describe("matchSegments", () => {
 
 function bufferFor(geometry: { type: "MultiLineString"; coordinates: number[][][] }) {
   const result = turfBuffer(
-    { type: "Feature" as const, geometry, properties: null },
+    { type: "Feature" as const, geometry, properties: { track: geometry } },
     15,
     { units: "meters" },
   );
@@ -323,16 +323,13 @@ describe("matchSegments — parallel-street / junction-kink false positives", ()
     geometry: s.geometry,
   }));
 
-  it(
-    "rejects both the parallel half of a divided street and a junction kink",
-    () => {
-      const matched = matchSegments({ segments, bufferedTrack });
+  it("rejects both the parallel half of a divided street and a junction kink", () => {
+    const matched = matchSegments({ segments, bufferedTrack });
 
-      for (const id of PARALLEL_FALSE_POSITIVE_IDS) {
-        expect(matched.has(id), `expected ${id} to be filtered out`).toBe(false);
-      }
-    },
-  );
+    for (const id of PARALLEL_FALSE_POSITIVE_IDS) {
+      expect(matched.has(id), `expected ${id} to be filtered out`).toBe(false);
+    }
+  });
 
   it("still matches every segment that genuinely follows the route", () => {
     const matched = matchSegments({ segments, bufferedTrack });
@@ -350,16 +347,13 @@ describe("matchSegments — hairpin spur false positive", () => {
     geometry: s.geometry,
   }));
 
-  it(
-    "rejects spur segments that share only the apex node of an out-and-back hairpin",
-    () => {
-      const matched = matchSegments({ segments, bufferedTrack });
+  it("rejects spur segments that share only the apex node of an out-and-back hairpin", () => {
+    const matched = matchSegments({ segments, bufferedTrack });
 
-      for (const id of HAIRPIN_FALSE_POSITIVE_IDS) {
-        expect(matched.has(id), `expected ${id} to be filtered out`).toBe(false);
-      }
-    },
-  );
+    for (const id of HAIRPIN_FALSE_POSITIVE_IDS) {
+      expect(matched.has(id), `expected ${id} to be filtered out`).toBe(false);
+    }
+  });
 
   it("still matches every segment that genuinely follows the hairpin", () => {
     const matched = matchSegments({ segments, bufferedTrack });
@@ -401,16 +395,13 @@ describe("matchSegments — roundabout-loop false positive (row 80)", () => {
     geometry: s.geometry,
   }));
 
-  it(
-    "rejects a roundabout-style detour whose mid-vertices bulge off the track",
-    () => {
-      const matched = matchSegments({ segments, bufferedTrack });
+  it("rejects a roundabout-style detour whose mid-vertices bulge off the track", () => {
+    const matched = matchSegments({ segments, bufferedTrack });
 
-      for (const id of ROUNDABOUT_LOOP_FALSE_POSITIVE_IDS) {
-        expect(matched.has(id), `expected ${id} to be filtered out`).toBe(false);
-      }
-    },
-  );
+    for (const id of ROUNDABOUT_LOOP_FALSE_POSITIVE_IDS) {
+      expect(matched.has(id), `expected ${id} to be filtered out`).toBe(false);
+    }
+  });
 
   it("still matches every segment that genuinely follows the route", () => {
     const matched = matchSegments({ segments, bufferedTrack });

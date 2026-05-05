@@ -58,6 +58,9 @@ const YIELD_BETWEEN_CELLS_MS = 50;
 const MIN_CLOSE_VERTICES_FOR_VIEW_MATCH = 2;
 const CLOSE_VERTEX_DISTANCE_METERS = 10;
 const MIN_CLOSE_VERTEX_SPAN_METERS = 30;
+const CLOSE_SAMPLE_DISTANCE_METERS = 15;
+const MIN_CLOSE_SAMPLE_RATIO_FOR_VIEW_MATCH = 0.6;
+const MIN_CLOSE_SAMPLE_PROJECTED_SPAN_METERS = 30;
 const START_BOUNDARY_MAX_DISTANCE_METERS = 20;
 const START_BOUNDARY_MAX_ANGLE_DEG = 20;
 const END_BOUNDARY_MAX_DISTANCE_METERS = 30;
@@ -66,6 +69,7 @@ const TRACK_END_EPSILON_KM = 0.001;
 const PROJECTED_DISTANCE_MAX_METERS = 45;
 const PROJECTED_COVERAGE_MIN_RATIO = 0.6;
 const PROJECTED_SAMPLE_STEP_METERS = 8;
+const PROJECTED_MAX_SAMPLES_PER_SEGMENT = 25;
 const PROJECTED_CHAINAGE_EPSILON_KM = 0.01;
 const PROJECTED_OVERRIDE_MIN_SPAN_METERS = 40;
 
@@ -449,7 +453,7 @@ export class WalkController {
     let bufferedMatchedIds: Set<number>;
     try {
       bufferedMatchedIds = await matchSegmentsAsync(
-        { segments: segmentLikes, bufferedTrack },
+        { segments: segmentLikes, bufferedTrack, track: slicedTrack },
         {
           chunkSize: MATCH_COMPUTE_YIELD_EVERY_SEGMENTS,
           yieldBetweenChunks: yieldToUi,
@@ -475,18 +479,25 @@ export class WalkController {
 
     await yieldToUi();
 
-    const projectedSpanBySegmentId = new Map<number, number>();
-    const projectedDurationMs = 0;
-    logger.info("WalkController.matchInCurrentViewport: projection fallback disabled", {
+    const allowEndBoundaryContinuation = kmB >= this.trackTotalKm - TRACK_END_EPSILON_KM;
+    const shouldRunProjectionTolerance =
+      allowEndBoundaryContinuation && bufferedMatchedIds.size === 0;
+    const projectedStartedAt = Date.now();
+    const projectedSpanBySegmentId = shouldRunProjectionTolerance
+      ? await this.findProjectedSliceMatches(matchableSegments, slicedTrack, kmA, kmB)
+      : new Map<number, number>();
+    const projectedDurationMs = Date.now() - projectedStartedAt;
+    logger.info("WalkController.matchInCurrentViewport: projection fallback complete", {
       kmA,
       kmB,
-      segmentCount: allSegments.length,
+      skipped: !shouldRunProjectionTolerance,
+      projectedCount: projectedSpanBySegmentId.size,
+      projectedDurationMs,
     });
 
     await yieldToUi();
 
     const matchedIds = new Set<number>([...bufferedMatchedIds, ...projectedSpanBySegmentId.keys()]);
-    const allowEndBoundaryContinuation = kmB >= this.trackTotalKm - TRACK_END_EPSILON_KM;
 
     const filterStartedAt = Date.now();
     let filteredMatchedIds: Set<number>;
@@ -612,7 +623,11 @@ export class WalkController {
         }));
 
         // Match against the buffered track.
-        const cellMatchedIds = matchSegments({ segments: segmentLikes, bufferedTrack });
+        const cellMatchedIds = matchSegments({
+          segments: segmentLikes,
+          bufferedTrack,
+          track: this.track,
+        });
 
         const newIds = this.cacheAndEmitMatches(allSegments, cellMatchedIds);
 
@@ -750,6 +765,11 @@ export class WalkController {
         }
       }
 
+      if (this.hasEnoughSampledSliceCoverage(segment.geometry.coordinates, slicedTrackLines)) {
+        filtered.add(id);
+        continue;
+      }
+
       if (this.isStartBoundaryContinuation(segment.geometry.coordinates, startBoundary)) {
         filtered.add(id);
         continue;
@@ -763,6 +783,63 @@ export class WalkController {
     return filtered;
   }
 
+  private hasEnoughSampledSliceCoverage(
+    coordinates: ReadonlyArray<Position>,
+    slicedTrackLines: ReadonlyArray<{
+      type: "Feature";
+      geometry: LineString;
+      properties: null;
+    }>,
+  ): boolean {
+    const sampledCoordinates = this.limitSampledCoordinates(
+      this.sampleSegmentCoordinates(coordinates, PROJECTED_SAMPLE_STEP_METERS),
+    );
+    if (sampledCoordinates.length === 0) {
+      return false;
+    }
+
+    let closeSamples = 0;
+    const projectedLocationsKm: number[] = [];
+    for (const coordinate of sampledCoordinates) {
+      let distanceMeters = Number.POSITIVE_INFINITY;
+      let projectedLocationKm: number | null = null;
+      for (const lineFeature of slicedTrackLines) {
+        const projected = nearestPointOnLine(lineFeature, turfPoint(coordinate), {
+          units: "kilometers",
+        });
+        const currentDistanceMeters = turfDistance(turfPoint(coordinate), projected, {
+          units: "meters",
+        });
+        if (currentDistanceMeters < distanceMeters) {
+          distanceMeters = currentDistanceMeters;
+          projectedLocationKm =
+            typeof projected.properties.location === "number"
+              ? projected.properties.location
+              : null;
+        }
+      }
+
+      if (distanceMeters <= CLOSE_SAMPLE_DISTANCE_METERS) {
+        closeSamples += 1;
+        if (projectedLocationKm !== null) {
+          projectedLocationsKm.push(projectedLocationKm);
+        }
+      }
+    }
+
+    if (closeSamples / sampledCoordinates.length < MIN_CLOSE_SAMPLE_RATIO_FOR_VIEW_MATCH) {
+      return false;
+    }
+
+    if (projectedLocationsKm.length < 2) {
+      return false;
+    }
+
+    const projectedSpanMeters =
+      (Math.max(...projectedLocationsKm) - Math.min(...projectedLocationsKm)) * 1000;
+    return projectedSpanMeters >= MIN_CLOSE_SAMPLE_PROJECTED_SPAN_METERS;
+  }
+
   /**
    * Projection fallback for per-view matching:
    * - project sampled points of each segment on the full track
@@ -774,12 +851,24 @@ export class WalkController {
    */
   private async findProjectedSliceMatches(
     allSegments: ReadonlyArray<{ id: number; geometry: LineString }>,
+    slicedTrack: MultiLineString,
     kmA: number,
     kmB: number,
   ): Promise<Map<number, number>> {
     if (!this.fullTrackLine) {
       return new Map<number, number>();
     }
+
+    const flattenedSlice = slicedTrack.coordinates.flat();
+    if (flattenedSlice.length < 2) {
+      return new Map<number, number>();
+    }
+
+    const slicedTrackLine = {
+      type: "Feature" as const,
+      geometry: turfLineString(flattenedSlice).geometry,
+      properties: null,
+    };
 
     const isLastSlice = kmB >= this.trackTotalKm - TRACK_END_EPSILON_KM;
     const matchedSpanById = new Map<number, number>();
@@ -795,9 +884,8 @@ export class WalkController {
         continue;
       }
 
-      const sampledCoordinates = this.sampleSegmentCoordinates(
-        segment.geometry.coordinates,
-        PROJECTED_SAMPLE_STEP_METERS,
+      const sampledCoordinates = this.limitSampledCoordinates(
+        this.sampleSegmentCoordinates(segment.geometry.coordinates, PROJECTED_SAMPLE_STEP_METERS),
       );
       if (sampledCoordinates.length === 0) {
         continue;
@@ -807,16 +895,21 @@ export class WalkController {
       const projectedLocationsKm: number[] = [];
       for (const coordinate of sampledCoordinates) {
         const samplePoint = turfPoint(coordinate);
-        const projected = nearestPointOnLine(this.fullTrackLine, samplePoint, {
+        const projectedOnSlice = nearestPointOnLine(slicedTrackLine, samplePoint, {
           units: "kilometers",
         });
-        const distanceMeters = turfDistance(samplePoint, projected, { units: "meters" });
-        if (distanceMeters <= PROJECTED_DISTANCE_MAX_METERS) {
-          closeSamples += 1;
-          const locationKm = projected.properties.location;
-          if (typeof locationKm === "number" && Number.isFinite(locationKm)) {
-            projectedLocationsKm.push(locationKm);
-          }
+        const distanceMeters = turfDistance(samplePoint, projectedOnSlice, { units: "meters" });
+        if (distanceMeters > PROJECTED_DISTANCE_MAX_METERS) {
+          continue;
+        }
+
+        closeSamples += 1;
+        const projectedOnFullTrack = nearestPointOnLine(this.fullTrackLine, samplePoint, {
+          units: "kilometers",
+        });
+        const locationKm = projectedOnFullTrack.properties.location;
+        if (typeof locationKm === "number" && Number.isFinite(locationKm)) {
+          projectedLocationsKm.push(locationKm);
         }
       }
 
@@ -888,6 +981,19 @@ export class WalkController {
     }
 
     return sampled;
+  }
+
+  private limitSampledCoordinates(coordinates: Position[]): Position[] {
+    if (coordinates.length <= PROJECTED_MAX_SAMPLES_PER_SEGMENT) {
+      return coordinates;
+    }
+
+    return Array.from({ length: PROJECTED_MAX_SAMPLES_PER_SEGMENT }, (_, index) => {
+      const sourceIndex = Math.round(
+        (index * (coordinates.length - 1)) / (PROJECTED_MAX_SAMPLES_PER_SEGMENT - 1),
+      );
+      return coordinates[sourceIndex];
+    });
   }
 
   private distanceAlongSegment(

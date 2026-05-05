@@ -47,4 +47,5 @@ export interface SegmentLike {
 export interface MatchArgs {
   segments: ReadonlyArray<SegmentLike>;
   bufferedTrack: Feature<Polygon | MultiPolygon>;
+  track?: MultiLineString;
 }
