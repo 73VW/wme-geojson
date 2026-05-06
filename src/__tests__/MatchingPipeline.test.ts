@@ -91,6 +91,22 @@ describe("MatchingPipeline burst controls", () => {
     await waitUntil(() => store.getState().currentIndex === 0);
     expect(store.getState().csvRows[0].segments).toBeNull();
   });
+
+  it("allows going back before the row where a resumed run started", async () => {
+    const { pipeline, store, wmeSDK } = makePipeline({ burstMode: false });
+    store.validateRow(0, [101], "2026-05-03T13:00", "2026-05-03T13:30");
+
+    pipeline.start();
+    await waitUntil(() => wmeSDK.Editing.setSelection.mock.calls.length === 1);
+    expect(wmeSDK.Editing.setSelection.mock.calls[0][0].selection.ids).toEqual([202]);
+
+    pipeline.goBackOneRow();
+    await waitUntil(() => wmeSDK.Editing.setSelection.mock.calls.length === 2);
+
+    expect(store.getState().currentIndex).toBe(0);
+    expect(store.getState().csvRows[0].segments).toBeNull();
+    expect(wmeSDK.Editing.setSelection.mock.calls[1][0].selection.ids).toEqual([101]);
+  });
 });
 
 function makePipeline(options: {

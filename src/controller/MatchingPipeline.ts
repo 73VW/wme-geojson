@@ -221,12 +221,12 @@ export class MatchingPipeline {
 
   private async runLoop(): Promise<void> {
     const state = this.store.getState();
-    const { csvRows, currentIndex } = state;
+    const { csvRows } = state;
     const totalKm = state.trackLengthKm ?? 0;
 
     logger.info("MatchingPipeline.runLoop: starting", {
       rowCount: csvRows.length,
-      currentIndex,
+      currentIndex: state.currentIndex,
       totalKm,
     });
 
@@ -246,7 +246,7 @@ export class MatchingPipeline {
     for (let workItemIndex = 0; workItemIndex < workItems.length; workItemIndex++) {
       const workItem = workItems[workItemIndex];
       const i = workItem.rowIndex;
-      if (i < currentIndex) {
+      if (i < this.store.getState().currentIndex) {
         continue;
       }
 

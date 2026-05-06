@@ -681,7 +681,12 @@ export class MatchPanel {
       },
     });
     this.guidedResumeBtn.classList.add("wmegj-guided-button--resume");
-    this.guidedRestartBtn = this.appendGuidedButton(matchActions, {
+
+    const restartActions = document.createElement("div");
+    restartActions.className = "wmegj-guided-reset-actions";
+    matchPane.appendChild(restartActions);
+
+    this.guidedRestartBtn = this.appendGuidedButton(restartActions, {
       text: i18next.t("panel.matching.restartFromScratch"),
       variant: "danger",
       onClick: () => {
@@ -1018,6 +1023,39 @@ export class MatchPanel {
     this.pipeline?.skipCurrentRow();
   }
 
+  private resetGuidedSessionState(options: { closePanel?: boolean } = {}): void {
+    if (options.closePanel) {
+      this.matchingPanelOpen = false;
+    }
+
+    this.guidedBusy = false;
+    this.pendingManualRestartOffset = null;
+    this.currentRowIndex = null;
+    this.currentRowKmA = null;
+    this.currentRowKmB = null;
+    this.currentMatchedIds = [];
+    this.trackLayer?.setHighlightedSlice(null);
+    this.resetGuidedSteps();
+    this.setDebugFeedback("");
+    this.setGuidedLoading(false);
+
+    if (this.guidedRowHeaderEl) {
+      this.guidedRowHeaderEl.textContent = "—";
+    }
+    if (this.guidedSegmentCountEl) {
+      this.guidedSegmentCountEl.textContent = i18next.t("panel.matching.segmentsMatched", {
+        count: 0,
+      });
+    }
+    if (this.guidedInstructionEl) {
+      this.guidedInstructionEl.textContent = i18next.t("panel.matching.validateOrCorrect");
+    }
+    if (this.guidedManualActionsEl) {
+      this.guidedManualActionsEl.style.display = "flex";
+    }
+    this.updateGuidedControls();
+  }
+
   private onBackMatchingClick(): void {
     if (this.matchingMode === "burst" && this.pipeline?.isRunning()) {
       this.pendingManualRestartOffset = -1;
@@ -1047,7 +1085,7 @@ export class MatchPanel {
     );
     this.setButtonDisabled(this.guidedPauseBtn, !isRunning);
     this.setButtonDisabled(this.guidedResumeBtn, !isPaused);
-    this.setButtonDisabled(this.guidedRestartBtn, isRunning && this.guidedBusy);
+    this.setButtonDisabled(this.guidedRestartBtn, !hasCsv);
     this.setButtonDisabled(this.guidedCopyDebugBtn, disableForBusy);
     this.setButtonDisabled(this.guidedDownloadEnrichedBtn, isRunning);
 
@@ -1058,7 +1096,7 @@ export class MatchPanel {
     this.setButtonVisible(this.guidedBackBtn, isWaitingForUser || (isRunning && !isInteractive));
     this.setButtonVisible(this.guidedPauseBtn, isRunning && !isInteractive);
     this.setButtonVisible(this.guidedResumeBtn, isPaused);
-    this.setButtonVisible(this.guidedRestartBtn, !isRunning || isPaused);
+    this.setButtonVisible(this.guidedRestartBtn, hasCsv);
 
     if (this.guidedStatusEl) {
       const key = isRunning
@@ -1104,10 +1142,12 @@ export class MatchPanel {
       .then((confirmed) => {
         if (!confirmed) return;
         this.pipeline?.abort();
+        this.pipeline = null;
         const url = this.store.getState().geojsonUrl;
         if (url && this.lastCsvText) {
           clearForCurrent(url, this.lastCsvText);
         }
+        this.resetGuidedSessionState();
         // Re-load the same CSV (cached) to land back at csv-loaded with a
         // fresh state — saves the user from re-uploading the file.
         if (this.lastCsvText && this.lastCsvRows.length > 0) {
@@ -1208,6 +1248,9 @@ export class MatchPanel {
       variant: "primary",
       onClick: () => {
         banner.style.display = "none";
+        this.pipeline?.abort();
+        this.pipeline = null;
+        this.resetGuidedSessionState({ closePanel: true });
         this.store.rehydrate(saved, csvText);
       },
     });
@@ -1220,6 +1263,9 @@ export class MatchPanel {
         const url = this.store.getState().geojsonUrl;
         if (url) clearForCurrent(url, csvText);
         banner.style.display = "none";
+        this.pipeline?.abort();
+        this.pipeline = null;
+        this.resetGuidedSessionState({ closePanel: true });
         this.store.setCsvRows(rows, csvText);
         this.store.setPhase("csv-loaded");
       },
@@ -1461,6 +1507,10 @@ export class MatchPanel {
   }
 
   private onCsvFileSelected(file: File): void {
+    this.pipeline?.abort();
+    this.pipeline = null;
+    this.resetGuidedSessionState({ closePanel: true });
+    this.hideResumeBanner();
     this.setCsvLoading(true, i18next.t("panel.csvInput.reading"));
     this.clearCsvError();
 
@@ -1520,6 +1570,14 @@ export class MatchPanel {
       this.showCsvError(message);
     } finally {
       this.setCsvLoading(false);
+    }
+  }
+
+  private hideResumeBanner(): void {
+    if (!this.resumeBannerRow) return;
+    this.resumeBannerRow.style.display = "none";
+    while (this.resumeBannerRow.firstChild) {
+      this.resumeBannerRow.removeChild(this.resumeBannerRow.firstChild);
     }
   }
 
@@ -2131,6 +2189,14 @@ export class MatchPanel {
         align-items: stretch;
       }
 
+      .wmegj-guided-reset-actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid #edf0f4;
+      }
+
       .wmegj-guided-button {
         min-width: 0;
         min-height: 42px;
@@ -2188,7 +2254,10 @@ export class MatchPanel {
       }
 
       .wmegj-guided-button--restart {
-        grid-column: 1 / -1;
+        width: auto;
+        min-width: 0;
+        min-height: 34px;
+        padding: 7px 12px;
       }
 
       .wmegj-guided-button:hover:not(:disabled) {
