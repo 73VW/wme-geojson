@@ -70,7 +70,12 @@
     },
     "trackLength": "Track length: {{km}} km",
     "csvInput": {
-      "label": "Upload schedule CSV"
+      "label": "Upload schedule CSV",
+      "reading": "Reading file...",
+      "processing": "Parsing CSV...",
+      "labels": "Preparing labels...",
+      "loading": "Loading file...",
+      "error": "Unable to read the file."
     },
     "openMatchingPanel": "Open matching panel",
     "startMatching": "Start matching",

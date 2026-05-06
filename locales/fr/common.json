@@ -70,7 +70,12 @@
     },
     "trackLength": "Longueur du tracé : {{km}} km",
     "csvInput": {
-      "label": "Importer le CSV de planning"
+      "label": "Importer le CSV de planning",
+      "reading": "Lecture du fichier...",
+      "processing": "Analyse du CSV...",
+      "labels": "Préparation des labels...",
+      "loading": "Chargement du fichier...",
+      "error": "Impossible de lire le fichier."
     },
     "openMatchingPanel": "Ouvrir le panneau de correspondance",
     "startMatching": "Lancer la correspondance",

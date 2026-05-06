@@ -44,6 +44,78 @@ export function computeDistanceLabels(geometry: MultiLineString): DistanceLabel[
 }
 
 /**
+ * Build labels at exact requested cumulative distances.
+ *
+ * Unlike computeDistanceLabels(), these labels are not restricted to existing
+ * vertices. They are linearly interpolated along the segment containing the
+ * requested distance, matching the slicing/highlight behaviour.
+ */
+export function computeDistanceLabelsAtDistances(
+  geometry: MultiLineString,
+  distancesKm: ReadonlyArray<number>,
+): DistanceLabel[] {
+  const labels: DistanceLabel[] = [];
+  const seenKeys = new Set<string>();
+
+  for (const km of distancesKm) {
+    if (!Number.isFinite(km)) continue;
+
+    const key = km.toFixed(6);
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
+
+    const label = computeDistanceLabelAtDistance(geometry, km);
+    if (label) labels.push(label);
+  }
+
+  return labels.sort((a, b) => a.km - b.km);
+}
+
+function computeDistanceLabelAtDistance(
+  geometry: MultiLineString,
+  targetKm: number,
+): DistanceLabel | null {
+  let cumulativeKm = 0;
+
+  for (let subLineIndex = 0; subLineIndex < geometry.coordinates.length; subLineIndex++) {
+    const line = geometry.coordinates[subLineIndex];
+    if (line.length === 0) continue;
+
+    if (targetKm <= cumulativeKm) {
+      const first = line[0];
+      return {
+        coord: [first[0], first[1]],
+        km: targetKm,
+        subLineIndex,
+        vertexIndex: 0,
+      };
+    }
+
+    for (let i = 1; i < line.length; i++) {
+      const prev = line[i - 1];
+      const curr = line[i];
+      const segmentKm = segmentDistanceKm(prev, curr);
+      const segmentStartKm = cumulativeKm;
+      const segmentEndKm = cumulativeKm + segmentKm;
+
+      if (targetKm <= segmentEndKm) {
+        const t = segmentKm === 0 ? 0 : Math.max(0, targetKm - segmentStartKm) / segmentKm;
+        return {
+          coord: [prev[0] + (curr[0] - prev[0]) * t, prev[1] + (curr[1] - prev[1]) * t],
+          km: targetKm,
+          subLineIndex,
+          vertexIndex: i,
+        };
+      }
+
+      cumulativeKm = segmentEndKm;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Distance between two GeoJSON positions in kilometres. turf.distance accepts
  * 2D-or-3D coordinates and ignores the third dimension itself, so callers can
  * pass [lon, lat, ele] as-is.

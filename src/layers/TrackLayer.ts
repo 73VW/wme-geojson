@@ -1,12 +1,21 @@
 import type { WmeSDK } from "wme-sdk-typings";
-import type { Position } from "geojson";
+import type { MultiLineString, Position } from "geojson";
 import type { NormalizedTrack } from "../geojson/types";
 import { logger } from "../utils/logger";
-import { computeDistanceLabels, formatLabelKm, type DistanceLabel } from "./distanceLabels";
+import {
+  computeDistanceLabels,
+  computeDistanceLabelsAtDistances,
+  formatLabelKm,
+  type DistanceLabel,
+} from "./distanceLabels";
 
 const TRACK_STROKE_COLOR = "#ff00aa";
 const TRACK_STROKE_WIDTH = 4;
 const TRACK_STROKE_OPACITY = 0.85;
+
+const SLICE_STROKE_COLOR = "#00d9ff";
+const SLICE_STROKE_WIDTH = 7;
+const SLICE_STROKE_OPACITY = 0.75;
 
 const LABEL_FONT_SIZE = "11px";
 const LABEL_FONT_COLOR = "#222222";
@@ -17,6 +26,7 @@ const LABEL_POINT_COLOR = "#ff00aa";
 
 const LINE_KIND = "line";
 const LABEL_KIND = "label";
+const SLICE_KIND = "slice";
 
 /**
  * Wraps the WME SDK layer for displaying a GeoJSON track and its
@@ -47,12 +57,14 @@ export class TrackLayer {
   // dimension; redraw() reads both, so the filters compose as an intersection.
   private currentRangeLo = 0;
   private currentRangeHi = 0;
-  // Allowed distance buckets, encoded as `Math.round(km * 10)` (i.e. 100-m
-  // resolution). Starts as an empty set (no labels shown) — Lot 2 requires
-  // that labels are hidden by default until the CSV is loaded and its distances
-  // are passed via setVisibleDistances(). null would show all labels, so we
-  // use an empty Set instead to suppress all labels initially.
-  private currentDistanceKeys: ReadonlySet<number> | null = new Set<number>();
+  // Requested distance labels. Starts as an empty array (no labels shown) —
+  // Lot 2 requires labels to stay hidden until the CSV distances are passed via
+  // setVisibleDistances(). null means "show every cached vertex label".
+  private currentDistanceLabels: readonly DistanceLabel[] | null = [];
+
+  // Optional slice highlight drawn on top of the base track. Cleared on every
+  // redraw and re-emitted last so it stays visually above the base lines.
+  private highlightedSlice: MultiLineString | null = null;
 
   constructor(private readonly wmeSDK: WmeSDK) {}
 
@@ -70,7 +82,7 @@ export class TrackLayer {
     this.currentRangeHi = this.totalKm;
     // Start with no labels visible — caller must invoke setVisibleDistances()
     // with the CSV distances to opt in (Lot 2 default-hidden requirement).
-    this.currentDistanceKeys = new Set<number>();
+    this.currentDistanceLabels = [];
 
     this.wmeSDK.Map.addLayer({
       layerName: TrackLayer.LAYER_NAME,
@@ -122,26 +134,34 @@ export class TrackLayer {
   }
 
   /**
-   * Restrict which labels are rendered to those whose distance, rounded to the
-   * nearest 100 m, matches one of `distancesKm`. Pass `null` (or empty) to
-   * disable the list filter and show every label in the visible range. The
-   * track stroke is unaffected — only labels are filtered. Composes with
-   * setVisibleRange as an intersection.
+   * Restrict which labels are rendered to the requested distances. Requested
+   * labels are interpolated along the track, so the marker sits on the same
+   * cumulative-km point used by slice highlighting and matching. Pass `null`
+   * (or empty) to disable the list filter and show every vertex label in the
+   * visible range. The track stroke is unaffected — only labels are filtered.
+   * Composes with setVisibleRange as an intersection.
    */
   setVisibleDistances(distancesKm: ReadonlyArray<number> | null): void {
     if (!this.currentTrack) return;
     if (!distancesKm || distancesKm.length === 0) {
-      this.currentDistanceKeys = null;
+      this.currentDistanceLabels = null;
     } else {
-      // Encode each distance as round(km * 10) so the lookup is a plain
-      // integer-set membership; comparing floats directly would miss matches
-      // due to representation drift (0.1 + 0.2 ≠ 0.3 etc).
-      const keys = new Set<number>();
-      for (const d of distancesKm) {
-        if (Number.isFinite(d)) keys.add(Math.round(d * 10));
-      }
-      this.currentDistanceKeys = keys;
+      this.currentDistanceLabels = computeDistanceLabelsAtDistances(
+        this.currentTrack.geometry,
+        distancesKm,
+      );
     }
+    this.redraw();
+  }
+
+  /**
+   * Overlay a brightly-coloured copy of the given sub-line(s) on top of the
+   * base track. Used to surface "the slice currently being matched/validated"
+   * so the operator can sanity-check that slice boundaries align with the
+   * km labels. Pass `null` to clear the overlay.
+   */
+  setHighlightedSlice(geometry: MultiLineString | null): void {
+    this.highlightedSlice = geometry;
     this.redraw();
   }
 
@@ -169,7 +189,7 @@ export class TrackLayer {
    * The bbox-views section should only appear when a list is active.
    */
   hasDistanceFilter(): boolean {
-    return this.currentDistanceKeys !== null;
+    return this.currentDistanceLabels !== null;
   }
 
   /**
@@ -184,6 +204,7 @@ export class TrackLayer {
     this.currentTrack = null;
     this.allLabels = [];
     this.totalKm = 0;
+    this.highlightedSlice = null;
   }
 
   // ---------------------------------------------------------------------------
@@ -217,7 +238,32 @@ export class TrackLayer {
 
     this.wmeSDK.Map.removeAllFeaturesFromLayer({ layerName: TrackLayer.LAYER_NAME });
     this.drawTrackInRange(this.currentRangeLo, this.currentRangeHi);
+    this.drawHighlightedSlice();
     this.drawLabels(this.filterLabels());
+  }
+
+  /**
+   * Add the highlighted-slice features last in z-order (after the base track,
+   * before the labels) so the cyan overlay is visible without hiding the km
+   * point markers.
+   */
+  private drawHighlightedSlice(): void {
+    if (!this.highlightedSlice) return;
+
+    this.highlightedSlice.coordinates.forEach((lineCoords, index) => {
+      if (lineCoords.length < 2) return;
+      const coords2d: Position[] = lineCoords.map((c) => [c[0], c[1]]);
+      const featureId = `slice-highlight-${index}`;
+      this.wmeSDK.Map.addFeatureToLayer({
+        layerName: TrackLayer.LAYER_NAME,
+        feature: {
+          id: featureId,
+          type: "Feature",
+          geometry: { type: "LineString", coordinates: coords2d },
+          properties: { kind: SLICE_KIND, featureId },
+        },
+      });
+    });
   }
 
   /**
@@ -226,24 +272,8 @@ export class TrackLayer {
   private filterLabels(): DistanceLabel[] {
     const lo = this.currentRangeLo;
     const hi = this.currentRangeHi;
-    const keys = this.currentDistanceKeys;
-    return Array.from(
-      this.allLabels
-        .reduce((acc, l) => {
-          if (l.km < lo || l.km > hi) return acc;
-
-          const k = Math.round(l.km * 10);
-          if (keys && !keys.has(k)) return acc;
-
-          const prev = acc.get(k);
-          if (!prev || l.km > prev.km) {
-            acc.set(k, l);
-          }
-
-          return acc;
-        }, new Map())
-        .values(),
-    );
+    const labels = this.currentDistanceLabels ?? this.allLabels;
+    return labels.filter((label) => label.km >= lo && label.km <= hi);
   }
 
   /**
@@ -324,6 +354,15 @@ export class TrackLayer {
           strokeColor: TRACK_STROKE_COLOR,
           strokeWidth: TRACK_STROKE_WIDTH,
           strokeOpacity: TRACK_STROKE_OPACITY,
+          strokeLinecap: "round" as const,
+        },
+      },
+      {
+        predicate: (props: { kind?: string | number | null }) => props.kind === SLICE_KIND,
+        style: {
+          strokeColor: SLICE_STROKE_COLOR,
+          strokeWidth: SLICE_STROKE_WIDTH,
+          strokeOpacity: SLICE_STROKE_OPACITY,
           strokeLinecap: "round" as const,
         },
       },

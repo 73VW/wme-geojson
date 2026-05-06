@@ -7,6 +7,27 @@ import {
   MATCHED_SEGMENTS as ROW_108_4_SEGMENTS,
   EXPECTED_MATCHED_IDS as ROW_108_4_EXPECTED_IDS,
 } from "./fixtures/sliceBoundaryFalseNegative4";
+import {
+  TRACK_SLICE as ROW_108_6_TRACK,
+  MATCHED_SEGMENTS as ROW_108_6_SEGMENTS,
+  FALSE_POSITIVE_IDS as ROW_108_6_FALSE_POSITIVE_IDS,
+  TRUE_POSITIVE_IDS as ROW_108_6_TRUE_POSITIVE_IDS,
+} from "./fixtures/sliceBoundaryFalsePositive475058307";
+import {
+  TRACK_WITH_TAIL as ROW_108_6_FN_TRACK_WITH_TAIL,
+  SLICE_LENGTH_KM as ROW_108_6_FN_SLICE_LENGTH_KM,
+  MATCHED_SEGMENTS as ROW_108_6_FN_SEGMENTS,
+  EXPECTED_MATCHED_IDS as ROW_108_6_FN_EXPECTED_IDS,
+} from "./fixtures/sliceBoundaryFalseNegative302908393";
+import {
+  TRACK_SLICE as ROW_118_8_TRACK,
+  FALSE_POSITIVE_SEGMENT as ROW_118_8_FALSE_POSITIVE_SEGMENT,
+} from "./fixtures/nearParallelFalsePositive147204891";
+import {
+  TRACK_WITH_TAIL as ROW_119_8_TRACK_WITH_TAIL,
+  SLICE_LENGTH_KM as ROW_119_8_SLICE_LENGTH_KM,
+  SEGMENT_147210427 as ROW_119_8_SEGMENT_147210427,
+} from "./fixtures/sliceBoundaryFalseNegative147210427";
 
 const ROAD_TYPE = {
   STREET: 1 as RoadTypeId,
@@ -326,6 +347,76 @@ describe("WalkController.matchInCurrentViewport", () => {
     for (const id of ROW_108_4_EXPECTED_IDS) {
       expect(controller.getMatchedIds(), `expected ${id} to be matched`).toContain(id);
     }
+  });
+
+  it("keeps segment 302908393 on row 108.6 -> 109.1 when the slice is not the last portion", async () => {
+    const wmeSdk = makeWmeSdkForSegments(
+      ROW_108_6_FN_SEGMENTS.map((segment) => ({
+        id: segment.id,
+        coordinates: segment.geometry.coordinates,
+      })),
+    );
+
+    const controller = new WalkController(wmeSdk, ROW_108_6_FN_TRACK_WITH_TAIL);
+    await controller.matchInCurrentViewport(0, ROW_108_6_FN_SLICE_LENGTH_KM);
+
+    for (const id of ROW_108_6_FN_EXPECTED_IDS) {
+      expect(controller.getMatchedIds(), `expected ${id} to be matched`).toContain(id);
+    }
+  });
+
+  it("drops segment 475058307 while keeping the true row 108.6 -> 109.1 matches", async () => {
+    const wmeSdk = makeWmeSdkForSegments(
+      ROW_108_6_SEGMENTS.map((segment) => ({
+        id: segment.id,
+        coordinates: segment.geometry.coordinates,
+      })),
+    );
+
+    const controller = new WalkController(wmeSdk, ROW_108_6_TRACK);
+    await controller.matchInCurrentViewport(0, 1);
+
+    for (const id of ROW_108_6_TRUE_POSITIVE_IDS) {
+      expect(controller.getMatchedIds(), `expected ${id} to remain matched`).toContain(id);
+    }
+
+    for (const id of ROW_108_6_FALSE_POSITIVE_IDS) {
+      expect(controller.getMatchedIds(), `expected ${id} to be filtered out`).not.toContain(id);
+    }
+  });
+
+  it("drops a near-parallel segment that stays just outside the route centerline", async () => {
+    const wmeSdk = makeWmeSdkForSegments([
+      {
+        id: ROW_118_8_FALSE_POSITIVE_SEGMENT.id,
+        coordinates: ROW_118_8_FALSE_POSITIVE_SEGMENT.geometry.coordinates,
+      },
+    ]);
+
+    const controller = new WalkController(wmeSdk, ROW_118_8_TRACK);
+    await controller.matchInCurrentViewport(0, 1);
+
+    expect(
+      controller.getMatchedIds(),
+      `expected ${ROW_118_8_FALSE_POSITIVE_SEGMENT.id} to be filtered out`,
+    ).not.toContain(ROW_118_8_FALSE_POSITIVE_SEGMENT.id);
+  });
+
+  it("keeps segment 147210427 when it straddles the 119.8 -> 120.3 slice boundary", async () => {
+    const wmeSdk = makeWmeSdkForSegments([
+      {
+        id: ROW_119_8_SEGMENT_147210427.id,
+        coordinates: ROW_119_8_SEGMENT_147210427.geometry.coordinates,
+      },
+    ]);
+
+    const controller = new WalkController(wmeSdk, ROW_119_8_TRACK_WITH_TAIL);
+    await controller.matchInCurrentViewport(0, ROW_119_8_SLICE_LENGTH_KM);
+
+    expect(
+      controller.getMatchedIds(),
+      `expected ${ROW_119_8_SEGMENT_147210427.id} to be matched`,
+    ).toContain(ROW_119_8_SEGMENT_147210427.id);
   });
 
   it("drops a short branch that only touches the start of a slice", async () => {

@@ -142,6 +142,7 @@ function makePipeline(options: {
   const track: NormalizedTrack = { trackId: null, geometry: TRACK_GEOMETRY };
   const trackLayer = {
     getTrackGeometry: () => TRACK_GEOMETRY,
+    setHighlightedSlice: () => {},
   } as unknown as TrackLayer;
 
   const pipeline = new MatchingPipeline(

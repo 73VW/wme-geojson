@@ -259,6 +259,16 @@ export class MatchingPipeline {
       const row = csvRows[i];
       const collectedIds = new Set<number>();
 
+      // Overlay the row's slice on the track layer in a contrasting colour so
+      // the operator can confirm visually that the slice boundaries align with
+      // the displayed km labels before validating.
+      const rowSliceGeometry = sliceMultiLineByDistance(
+        this.track.geometry,
+        workItem.kmA,
+        workItem.kmB,
+      );
+      this.trackLayer.setHighlightedSlice(rowSliceGeometry);
+
       logger.info("MatchingPipeline.runLoop: row started", {
         rowIndex: i,
         totalRows: workItems.length,
@@ -473,12 +483,14 @@ export class MatchingPipeline {
       });
       if (action === "abort") {
         // Abort was requested while waiting for the user
+        this.trackLayer.setHighlightedSlice(null);
         this.events.onAborted?.();
         this.running = false;
         return;
       }
 
       if (action === "pause") {
+        this.trackLayer.setHighlightedSlice(null);
         this.events.onPaused?.();
         this.paused = true;
         this.running = false;
@@ -531,6 +543,7 @@ export class MatchingPipeline {
     }
 
     logger.info("MatchingPipeline.runLoop: completed all rows");
+    this.trackLayer.setHighlightedSlice(null);
     this.events.onDone?.();
     this.running = false;
   }
@@ -538,6 +551,7 @@ export class MatchingPipeline {
   private stopIfRequested(location: string, rowIndex: number): boolean {
     if (this.abortRequested) {
       logger.info(`MatchingPipeline: aborted ${location}`, { rowIndex });
+      this.trackLayer.setHighlightedSlice(null);
       this.events.onAborted?.();
       this.running = false;
       return true;
@@ -545,6 +559,7 @@ export class MatchingPipeline {
 
     if (this.pauseRequested) {
       logger.info(`MatchingPipeline: paused ${location}`, { rowIndex });
+      this.trackLayer.setHighlightedSlice(null);
       this.events.onPaused?.();
       this.paused = true;
       this.running = false;

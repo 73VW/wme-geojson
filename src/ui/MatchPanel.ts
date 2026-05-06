@@ -53,6 +53,8 @@ export class MatchPanel {
   private trackLengthValueEl: HTMLElement | null = null;
   private rangeSliderRow: HTMLElement | null = null;
   private csvUploadRow: HTMLElement | null = null;
+  private csvLoadingEl: HTMLElement | null = null;
+  private csvLoadingTextEl: HTMLElement | null = null;
   private startMatchingRow: HTMLElement | null = null;
   private guidedMatchingRow: HTMLElement | null = null;
   private downloadRow: HTMLElement | null = null;
@@ -256,6 +258,8 @@ export class MatchPanel {
     this.trackLengthRow = null;
     this.rangeSliderRow = null;
     this.csvUploadRow = null;
+    this.csvLoadingEl = null;
+    this.csvLoadingTextEl = null;
     this.startMatchingRow = null;
     this.downloadRow = null;
     this.resumeBannerRow = null;
@@ -442,6 +446,24 @@ export class MatchPanel {
       },
     });
     section.appendChild(input);
+
+    const loadingEl = document.createElement("div");
+    loadingEl.className = "wmegj-csv-loader";
+    loadingEl.style.display = "none";
+    loadingEl.setAttribute("aria-live", "polite");
+
+    const spinnerEl = document.createElement("span");
+    spinnerEl.className = "wmegj-guided-spinner";
+    spinnerEl.setAttribute("aria-hidden", "true");
+    loadingEl.appendChild(spinnerEl);
+
+    const loadingTextEl = document.createElement("span");
+    loadingTextEl.textContent = i18next.t("panel.csvInput.loading");
+    loadingEl.appendChild(loadingTextEl);
+
+    section.appendChild(loadingEl);
+    this.csvLoadingEl = loadingEl;
+    this.csvLoadingTextEl = loadingTextEl;
 
     return section;
   }
@@ -979,6 +1001,15 @@ export class MatchPanel {
     this.updateGuidedControls();
   }
 
+  private setCsvLoading(isLoading: boolean, message?: string): void {
+    if (message && this.csvLoadingTextEl) {
+      this.csvLoadingTextEl.textContent = message;
+    }
+    if (this.csvLoadingEl) {
+      this.csvLoadingEl.style.display = isLoading ? "flex" : "none";
+    }
+  }
+
   private onSkipMatchingClick(): void {
     if (this.matchingMode === "burst" && this.pipeline?.isRunning()) {
       this.pipeline.pause();
@@ -1010,7 +1041,10 @@ export class MatchPanel {
     this.setButtonDisabled(this.guidedStartBurstBtn, !canStart);
     this.setButtonDisabled(this.guidedValidateBtn, !isWaitingForUser || disableForBusy);
     this.setButtonDisabled(this.guidedSkipBtn, !isWaitingForUser || disableForBusy);
-    this.setButtonDisabled(this.guidedBackBtn, !(isWaitingForUser || (isRunning && !isInteractive)));
+    this.setButtonDisabled(
+      this.guidedBackBtn,
+      !(isWaitingForUser || (isRunning && !isInteractive)),
+    );
     this.setButtonDisabled(this.guidedPauseBtn, !isRunning);
     this.setButtonDisabled(this.guidedResumeBtn, !isPaused);
     this.setButtonDisabled(this.guidedRestartBtn, isRunning && this.guidedBusy);
@@ -1021,10 +1055,7 @@ export class MatchPanel {
     this.setButtonVisible(this.guidedStartBurstBtn, canStart);
     this.setButtonVisible(this.guidedValidateBtn, isRunning && isInteractive);
     this.setButtonVisible(this.guidedSkipBtn, isRunning && isInteractive);
-    this.setButtonVisible(
-      this.guidedBackBtn,
-      isWaitingForUser || (isRunning && !isInteractive),
-    );
+    this.setButtonVisible(this.guidedBackBtn, isWaitingForUser || (isRunning && !isInteractive));
     this.setButtonVisible(this.guidedPauseBtn, isRunning && !isInteractive);
     this.setButtonVisible(this.guidedResumeBtn, isPaused);
     this.setButtonVisible(this.guidedRestartBtn, !isRunning || isPaused);
@@ -1430,55 +1461,87 @@ export class MatchPanel {
   }
 
   private onCsvFileSelected(file: File): void {
+    this.setCsvLoading(true, i18next.t("panel.csvInput.reading"));
+    this.clearCsvError();
+
     const reader = new FileReader();
     reader.onload = () => {
       const text = reader.result;
-      if (typeof text !== "string") return;
-      try {
-        const rows = parseSchedule(text);
-        // Cache so the restart-from-scratch button can re-load without asking
-        // the user to re-upload the file.
-        this.lastCsvText = text;
-        this.lastCsvRows = rows;
-
-        // Show only the labels whose distances appear in the CSV so the track
-        // decorations match the pipeline waypoints from the start.
-        if (this.trackLayer) {
-          const distanceKeys = rows.map((r) => r.distance);
-          this.trackLayer.setVisibleDistances(distanceKeys);
-        }
-
-        const url = this.store.getState().geojsonUrl;
-        const saved = url ? persistenceLoad(url, text) : null;
-        if (saved && saved.currentIndex > 0) {
-          // Defer the actual store mutation until the user picks Resume or
-          // Start fresh — see renderResumeBanner().
-          this.renderResumeBanner(saved, rows, text);
-        } else {
-          this.store.setCsvRows(rows, text);
-          this.store.setPhase("csv-loaded");
-        }
-
-        logger.info(`MatchPanel: loaded ${rows.length} CSV rows`);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        logger.error("MatchPanel: CSV parse failed", err);
-        // Surface the parse error visually near the file input
-        if (this.csvUploadRow) {
-          let errEl = this.csvUploadRow.querySelector<HTMLElement>(".wmegj-csv-error");
-          if (!errEl) {
-            errEl = document.createElement("p");
-            errEl.className = "wmegj-csv-error";
-            errEl.style.color = "#c0392b";
-            errEl.style.fontSize = "11px";
-            errEl.style.margin = "2px 0 0 0";
-            this.csvUploadRow.appendChild(errEl);
-          }
-          errEl.textContent = message;
-        }
+      if (typeof text !== "string") {
+        this.setCsvLoading(false);
+        return;
       }
+      void this.processCsvText(text);
+    };
+    reader.onerror = () => {
+      const message =
+        reader.error instanceof DOMException ? reader.error.message : i18next.t("panel.csvInput.error");
+      this.setCsvLoading(false);
+      this.showCsvError(message);
     };
     reader.readAsText(file);
+  }
+
+  private async processCsvText(text: string): Promise<void> {
+    try {
+      this.setCsvLoading(true, i18next.t("panel.csvInput.processing"));
+      await waitForNextPaint();
+
+      const rows = parseSchedule(text);
+      // Cache so the restart-from-scratch button can re-load without asking
+      // the user to re-upload the file.
+      this.lastCsvText = text;
+      this.lastCsvRows = rows;
+
+      // Show only the labels whose distances appear in the CSV so the track
+      // decorations match the pipeline waypoints from the start.
+      if (this.trackLayer) {
+        this.setCsvLoading(true, i18next.t("panel.csvInput.labels"));
+        await waitForNextPaint();
+        const distanceKeys = rows.map((r) => r.distance);
+        this.trackLayer.setVisibleDistances(distanceKeys);
+      }
+
+      const url = this.store.getState().geojsonUrl;
+      const saved = url ? persistenceLoad(url, text) : null;
+      if (saved && saved.currentIndex > 0) {
+        // Defer the actual store mutation until the user picks Resume or
+        // Start fresh — see renderResumeBanner().
+        this.renderResumeBanner(saved, rows, text);
+      } else {
+        this.store.setCsvRows(rows, text);
+        this.store.setPhase("csv-loaded");
+      }
+
+      logger.info(`MatchPanel: loaded ${rows.length} CSV rows`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error("MatchPanel: CSV parse failed", err);
+      this.showCsvError(message);
+    } finally {
+      this.setCsvLoading(false);
+    }
+  }
+
+  private clearCsvError(): void {
+    const errEl = this.csvUploadRow?.querySelector<HTMLElement>(".wmegj-csv-error");
+    if (errEl) {
+      errEl.textContent = "";
+      errEl.style.display = "none";
+    }
+  }
+
+  private showCsvError(message: string): void {
+    if (!this.csvUploadRow) return;
+
+    let errEl = this.csvUploadRow.querySelector<HTMLElement>(".wmegj-csv-error");
+    if (!errEl) {
+      errEl = document.createElement("p");
+      errEl.className = "wmegj-csv-error";
+      this.csvUploadRow.appendChild(errEl);
+    }
+    errEl.textContent = message;
+    errEl.style.display = "";
   }
 
   private onDownloadEnrichedClick(): void {
@@ -1900,6 +1963,26 @@ export class MatchPanel {
         cursor: pointer;
       }
 
+      .wmegj-csv-loader {
+        align-items: center;
+        gap: 8px;
+        margin: 6px 0 0 0;
+        padding: 6px 8px;
+        border: 1px solid #d6dbe3;
+        border-radius: 4px;
+        background: #f6f8fb;
+        color: #344054;
+        font-size: 11px;
+        line-height: 1.3;
+      }
+
+      .wmegj-csv-error {
+        margin: 4px 0 0 0;
+        color: #c0392b;
+        font-size: 11px;
+        line-height: 1.3;
+      }
+
       .wmegj-button-stack {
         display: flex;
         flex-wrap: wrap;
@@ -2182,4 +2265,12 @@ export class MatchPanel {
     `;
     container.appendChild(style);
   }
+}
+
+function waitForNextPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => {
+      setTimeout(resolve, 0);
+    });
+  });
 }
