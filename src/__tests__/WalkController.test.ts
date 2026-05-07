@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import type { MultiLineString } from "geojson";
 import type { RoadTypeId, WmeSDK } from "wme-sdk-typings";
 import { WalkController } from "../controller/WalkController";
@@ -28,6 +28,19 @@ import {
   SLICE_LENGTH_KM as ROW_119_8_SLICE_LENGTH_KM,
   SEGMENT_147210427 as ROW_119_8_SEGMENT_147210427,
 } from "./fixtures/sliceBoundaryFalseNegative147210427";
+
+const matchSegmentsAsyncSegmentIds = vi.hoisted((): number[][] => []);
+
+vi.mock("../matching/SegmentMatcher", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../matching/SegmentMatcher")>();
+  return {
+    ...actual,
+    matchSegmentsAsync: vi.fn(async (...args: Parameters<typeof actual.matchSegmentsAsync>) => {
+      matchSegmentsAsyncSegmentIds.push(args[0].segments.map((segment) => segment.id));
+      return actual.matchSegmentsAsync(...args);
+    }),
+  };
+});
 
 const ROAD_TYPE = {
   STREET: 1 as RoadTypeId,
@@ -68,6 +81,10 @@ function makeWmeSdkForSegments(
 }
 
 describe("WalkController.matchInCurrentViewport", () => {
+  beforeEach(() => {
+    matchSegmentsAsyncSegmentIds.length = 0;
+  });
+
   it("matches only the requested track portion and resets previous results", async () => {
     const wmeSdk = makeWmeSdkForSegments([
       {
@@ -159,6 +176,124 @@ describe("WalkController.matchInCurrentViewport", () => {
     await controller.matchInCurrentViewport(0, 1);
 
     expect(controller.getMatchedIds()).toEqual([202]);
+  });
+
+  it("waits for a non-empty WME segment snapshot to settle before matching", async () => {
+    const partialSegments = [
+      {
+        id: 101,
+        geometry: {
+          type: "LineString" as const,
+          coordinates: [
+            [6.145, 46.2],
+            [6.147, 46.2],
+          ],
+        },
+        roadType: ROAD_TYPE.STREET,
+      },
+      {
+        id: 202,
+        geometry: {
+          type: "LineString" as const,
+          coordinates: [
+            [6.148, 46.2],
+            [6.149, 46.2],
+          ],
+        },
+        roadType: ROAD_TYPE.STREET,
+      },
+    ];
+    const settledSegments = [
+      ...partialSegments,
+      {
+        id: 303,
+        geometry: {
+          type: "LineString" as const,
+          coordinates: [
+            [6.15, 46.2],
+            [6.151, 46.2],
+          ],
+        },
+        roadType: ROAD_TYPE.STREET,
+      },
+    ];
+    const getAll = vi
+      .fn()
+      .mockReturnValueOnce(partialSegments)
+      .mockReturnValue(settledSegments);
+    const wmeSdk = {
+      DataModel: {
+        Segments: {
+          getAll,
+        },
+      },
+      State: {
+        isMapLoading: () => false,
+      },
+    } as unknown as WmeSDK;
+
+    const controller = new WalkController(wmeSdk, makeTrack());
+    await controller.matchInCurrentViewport(0, 1);
+
+    expect(getAll).toHaveBeenCalledTimes(4);
+    expect(matchSegmentsAsyncSegmentIds[0]).toEqual([101, 202, 303]);
+    expect(controller.getMatchedIds()).toContain(303);
+  });
+
+  it("prefilters segments by expanded slice bbox before buffered matching", async () => {
+    const wmeSdk = makeWmeSdkForSegments([
+      {
+        id: 101,
+        coordinates: [
+          [6.145, 46.2],
+          [6.147, 46.2],
+        ],
+      },
+      {
+        id: 202,
+        coordinates: [
+          [6.165, 46.2],
+          [6.1665, 46.2],
+        ],
+      },
+      {
+        id: 303,
+        coordinates: [
+          [6.5, 46.5],
+          [6.501, 46.5],
+        ],
+      },
+    ]);
+
+    const controller = new WalkController(wmeSdk, makeTrack());
+    await controller.matchInCurrentViewport(0, 1);
+
+    expect(matchSegmentsAsyncSegmentIds[0]).toEqual([101]);
+  });
+
+  it("keeps expanded-bbox edge candidates so close sparse matches are not lost early", async () => {
+    const wmeSdk = makeWmeSdkForSegments([
+      {
+        id: 101,
+        coordinates: [
+          [6.1486, 46.2],
+          [6.1502, 46.2],
+        ],
+      },
+      {
+        id: 202,
+        coordinates: [
+          [6.5, 46.5],
+          [6.501, 46.5],
+        ],
+      },
+    ]);
+
+    const controller = new WalkController(wmeSdk, makeTrack());
+    await controller.matchInCurrentViewport(0, 1);
+
+    expect(matchSegmentsAsyncSegmentIds[0]).toEqual([101]);
+    expect(controller.getMatchedIds()).toContain(101);
   });
 
   it("filters endpoint-touch false positives in per-view matching", async () => {

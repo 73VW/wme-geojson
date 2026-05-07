@@ -81,10 +81,12 @@ const PAST_BOUNDARY_MIN_SPAN_METERS = 20;
 const PAST_BOUNDARY_CHAINAGE_EPSILON_KM = 0.001;
 
 // Per-view matching can run just after map navigation; when data loading lags,
-// getAll() may transiently return an empty array even though the viewport is
-// valid. Keep a short retry window and log attempts for field diagnostics.
+// getAll() may transiently return an empty or partial array even though the
+// viewport is valid. Keep a short retry window and log attempts for field
+// diagnostics.
 const MATCH_SEGMENTS_RETRY_TIMEOUT_MS = 2_500;
 const MATCH_SEGMENTS_RETRY_INTERVAL_MS = 150;
+const MATCH_SEGMENTS_STABLE_POLLS = 2;
 const MATCH_COMPUTE_YIELD_EVERY_SEGMENTS = 20;
 
 const EXCLUDED_ROAD_TYPE = {
@@ -107,11 +109,54 @@ const EXCLUDED_MATCH_ROAD_TYPES = new Set<RoadTypeId>([
   EXCLUDED_ROAD_TYPE.RUNWAY_TAXIWAY,
 ]);
 
+const DIAGNOSTIC_MATCH_SEGMENT_IDS = new Set<number>([207843869, 207845213, 207845214]);
+
 // ---------------------------------------------------------------------------
 // Subscriber management helper (reused for all three event types)
 // ---------------------------------------------------------------------------
 
 type Callback<T extends unknown[]> = (...args: T) => void;
+
+interface SampledSliceMatchMetrics {
+  inputSegments: number;
+  alreadyMatchedSkipped: number;
+  bboxRejected: number;
+  bboxCandidates: number;
+  boundaryRejected: number;
+  boundaryCandidates: number;
+  coverageRejected: number;
+  coverageAccepted: number;
+}
+
+interface EndpointFilterMetrics {
+  inputMatched: number;
+  missingSegment: number;
+  keptProjectedOverride: number;
+  keptBoundaryCoverage: number;
+  droppedBoundaryCoverage: number;
+  keptAllVerticesClose: number;
+  keptCloseVertexSpan: number;
+  keptSampledCoverage: number;
+  keptStartBoundaryContinuation: number;
+  keptEndBoundaryContinuation: number;
+  droppedEndpointTouch: number;
+}
+
+interface ProjectedSliceMatchMetrics {
+  inputSegments: number;
+  noGeometrySkipped: number;
+  noSamplesSkipped: number;
+  sampledSegments: number;
+  noProjectedLocations: number;
+  coverageRejected: number;
+  chainageRejected: number;
+  chainageAccepted: number;
+}
+
+interface CachedSegmentBBox {
+  geometry: LineString;
+  bbox: [number, number, number, number];
+}
 
 class EventEmitter<T extends unknown[]> {
   private readonly subscribers = new Map<number, Callback<T>>();
@@ -146,6 +191,9 @@ export class WalkController {
 
   /** Geometry cache: segmentId → LineString.  Populated during walk. */
   private readonly geometryCache = new Map<number, LineString>();
+
+  /** BBox cache: segmentId → bbox, invalidated when WME swaps geometry objects. */
+  private readonly segmentBBoxCache = new Map<number, CachedSegmentBBox>();
 
   /** Accumulated set of all matched segment IDs across all cells. */
   private readonly matchedIds = new Set<number>();
@@ -392,17 +440,9 @@ export class WalkController {
     }
 
     const matchStartedAt = Date.now();
-    let allSegments = this.wmeSDK.DataModel.Segments.getAll();
-    let attempts = 1;
-
-    while (
-      allSegments.length === 0 &&
-      Date.now() - matchStartedAt < MATCH_SEGMENTS_RETRY_TIMEOUT_MS
-    ) {
-      await new Promise<void>((resolve) => setTimeout(resolve, MATCH_SEGMENTS_RETRY_INTERVAL_MS));
-      allSegments = this.wmeSDK.DataModel.Segments.getAll();
-      attempts += 1;
-    }
+    const segmentSnapshot = await this.getSettledSegmentsSnapshot(matchStartedAt);
+    const allSegments = segmentSnapshot.segments;
+    const attempts = segmentSnapshot.attempts;
 
     const mapApi = (this.wmeSDK as unknown as { Map?: unknown }).Map as
       | {
@@ -413,12 +453,12 @@ export class WalkController {
     const zoom = mapApi?.getZoomLevel?.() ?? null;
     const extent = mapApi?.getMapExtent?.() ?? null;
 
-    logger.info("WalkController.matchInCurrentViewport: segments snapshot", {
+    logger.info("[match-load-debug] WalkController.matchInCurrentViewport: segments snapshot", {
       kmA,
       kmB,
       count: allSegments.length,
       attempts,
-      elapsedMs: Date.now() - matchStartedAt,
+      elapsedMs: segmentSnapshot.elapsedMs,
       zoom,
       extent,
     });
@@ -450,17 +490,37 @@ export class WalkController {
       geometry: s.geometry,
     }));
 
+    const bboxPrefilterStartedAt = Date.now();
+    const sliceBbox = this.getMultiLineBBox(slicedTrack);
+    const bboxCandidateSegments = segmentLikes.filter((segment) =>
+      this.bboxIntersects(
+        sliceBbox,
+        this.getCachedSegmentBBox(segment.id, segment.geometry),
+        SAMPLED_CANDIDATE_BBOX_PADDING_DEGREES,
+      ),
+    );
+    const bboxPrefilterDurationMs = Date.now() - bboxPrefilterStartedAt;
+
+    logger.info("WalkController.matchInCurrentViewport: bbox prefilter complete", {
+      kmA,
+      kmB,
+      bboxPrefilterInput: segmentLikes.length,
+      bboxPrefilterKept: bboxCandidateSegments.length,
+      bboxPrefilterRejected: segmentLikes.length - bboxCandidateSegments.length,
+      bboxPrefilterDurationMs,
+    });
+
     logger.info("WalkController.matchInCurrentViewport: starting buffered intersects", {
       kmA,
       kmB,
-      segmentCount: segmentLikes.length,
+      segmentCount: bboxCandidateSegments.length,
     });
 
     const bufferedStartedAt = Date.now();
     let bufferedMatchedIds: Set<number>;
     try {
       bufferedMatchedIds = await matchSegmentsAsync(
-        { segments: segmentLikes, bufferedTrack, track: slicedTrack },
+        { segments: bboxCandidateSegments, bufferedTrack, track: slicedTrack },
         {
           chunkSize: MATCH_COMPUTE_YIELD_EVERY_SEGMENTS,
           yieldBetweenChunks: yieldToUi,
@@ -470,7 +530,7 @@ export class WalkController {
       logger.error("WalkController.matchInCurrentViewport: matchSegments failed", {
         kmA,
         kmB,
-        segmentCount: segmentLikes.length,
+        segmentCount: bboxCandidateSegments.length,
         err,
       });
       throw err;
@@ -487,17 +547,19 @@ export class WalkController {
     await yieldToUi();
 
     const sampledStartedAt = Date.now();
-    const sampledMatchedIds = await this.findSampledSliceMatches(
-      matchableSegments,
+    const sampledResult = await this.findSampledSliceMatches(
+      bboxCandidateSegments,
       bufferedMatchedIds,
       slicedTrack,
     );
+    const sampledMatchedIds = sampledResult.ids;
     const sampledDurationMs = Date.now() - sampledStartedAt;
     logger.info("WalkController.matchInCurrentViewport: sampled candidates complete", {
       kmA,
       kmB,
       sampledCount: sampledMatchedIds.size,
       sampledDurationMs,
+      metrics: sampledResult.metrics,
     });
 
     await yieldToUi();
@@ -506,9 +568,13 @@ export class WalkController {
     const shouldRunProjectionTolerance =
       allowEndBoundaryContinuation && bufferedMatchedIds.size === 0;
     const projectedStartedAt = Date.now();
-    const projectedSpanBySegmentId = shouldRunProjectionTolerance
+    const projectedResult = shouldRunProjectionTolerance
       ? await this.findProjectedSliceMatches(matchableSegments, slicedTrack, kmA, kmB)
-      : new Map<number, number>();
+      : {
+          spanBySegmentId: new Map<number, number>(),
+          metrics: this.createProjectedSliceMatchMetrics(matchableSegments.length),
+        };
+    const projectedSpanBySegmentId = projectedResult.spanBySegmentId;
     const projectedDurationMs = Date.now() - projectedStartedAt;
     logger.info("WalkController.matchInCurrentViewport: projection fallback complete", {
       kmA,
@@ -516,6 +582,7 @@ export class WalkController {
       skipped: !shouldRunProjectionTolerance,
       projectedCount: projectedSpanBySegmentId.size,
       projectedDurationMs,
+      metrics: projectedResult.metrics,
     });
 
     await yieldToUi();
@@ -527,9 +594,9 @@ export class WalkController {
     ]);
 
     const filterStartedAt = Date.now();
-    let filteredMatchedIds: Set<number>;
+    let filteredResult: { ids: Set<number>; metrics: EndpointFilterMetrics };
     try {
-      filteredMatchedIds = await this.filterEndpointTouchingMatches(
+      filteredResult = await this.filterEndpointTouchingMatches(
         matchableSegments,
         matchedIds,
         slicedTrack,
@@ -545,7 +612,17 @@ export class WalkController {
       });
       throw err;
     }
+    const filteredMatchedIds = filteredResult.ids;
     const filterDurationMs = Date.now() - filterStartedAt;
+    logger.info("WalkController.matchInCurrentViewport: endpoint filter complete", {
+      kmA,
+      kmB,
+      inputCount: matchedIds.size,
+      filteredCount: filteredMatchedIds.size,
+      removedCount: matchedIds.size - filteredMatchedIds.size,
+      filterDurationMs,
+      metrics: filteredResult.metrics,
+    });
 
     await yieldToUi();
 
@@ -562,6 +639,22 @@ export class WalkController {
       throw err;
     }
 
+    this.logDiagnosticSegmentStages({
+      kmA,
+      kmB,
+      allSegments,
+      matchableSegments,
+      bboxCandidateSegments,
+      bufferedMatchedIds,
+      sampledMatchedIds,
+      projectedSpanBySegmentId,
+      combinedMatchedIds: matchedIds,
+      filteredMatchedIds,
+      emittedIds: newIds,
+      slicedTrack,
+      allowEndBoundaryContinuation,
+    });
+
     logger.info("WalkController.matchInCurrentViewport: match stages", {
       kmA,
       kmB,
@@ -575,6 +668,15 @@ export class WalkController {
       sampledDurationMs,
       projectedDurationMs,
       filterDurationMs,
+      totalComputeDurationMs:
+        bufferedDurationMs + sampledDurationMs + projectedDurationMs + filterDurationMs,
+      bboxPrefilterInput: segmentLikes.length,
+      bboxPrefilterKept: bboxCandidateSegments.length,
+      bboxPrefilterRejected: segmentLikes.length - bboxCandidateSegments.length,
+      bboxPrefilterDurationMs,
+      sampledMetrics: sampledResult.metrics,
+      projectedMetrics: projectedResult.metrics,
+      filterMetrics: filteredResult.metrics,
       sampleEmittedIds: newIds.slice(0, 10),
     });
 
@@ -714,13 +816,255 @@ export class WalkController {
     return newIds;
   }
 
+  private async getSettledSegmentsSnapshot(
+    startedAt: number,
+  ): Promise<{ segments: Segment[]; attempts: number; elapsedMs: number }> {
+    logger.info("[match-load-debug] WalkController.getSettledSegmentsSnapshot: calling Segments.getAll", {
+      attempt: 1,
+      elapsedMs: Date.now() - startedAt,
+      isMapLoading: this.isMapLoading(),
+    });
+    let segments = this.wmeSDK.DataModel.Segments.getAll();
+    let attempts = 1;
+
+    while (segments.length === 0 && Date.now() - startedAt < MATCH_SEGMENTS_RETRY_TIMEOUT_MS) {
+      await new Promise<void>((resolve) => setTimeout(resolve, MATCH_SEGMENTS_RETRY_INTERVAL_MS));
+      logger.info("[match-load-debug] WalkController.getSettledSegmentsSnapshot: retrying Segments.getAll after empty snapshot", {
+        attempt: attempts + 1,
+        previousCount: segments.length,
+        elapsedMs: Date.now() - startedAt,
+        isMapLoading: this.isMapLoading(),
+      });
+      segments = this.wmeSDK.DataModel.Segments.getAll();
+      attempts += 1;
+    }
+
+    if (!this.hasMapLoadingState()) {
+      return { segments, attempts, elapsedMs: Date.now() - startedAt };
+    }
+
+    let stablePolls = 0;
+    while (
+      stablePolls < MATCH_SEGMENTS_STABLE_POLLS &&
+      Date.now() - startedAt < MATCH_SEGMENTS_RETRY_TIMEOUT_MS
+    ) {
+      await new Promise<void>((resolve) => setTimeout(resolve, MATCH_SEGMENTS_RETRY_INTERVAL_MS));
+      logger.info("[match-load-debug] WalkController.getSettledSegmentsSnapshot: polling Segments.getAll for stable snapshot", {
+        attempt: attempts + 1,
+        currentCount: segments.length,
+        stablePolls,
+        elapsedMs: Date.now() - startedAt,
+        isMapLoading: this.isMapLoading(),
+      });
+      const nextSegments = this.wmeSDK.DataModel.Segments.getAll();
+      attempts += 1;
+
+      if (nextSegments.length > segments.length) {
+        segments = nextSegments;
+        stablePolls = 0;
+        continue;
+      }
+
+      if (nextSegments.length === segments.length && !this.isMapLoading()) {
+        stablePolls += 1;
+      } else {
+        stablePolls = 0;
+      }
+    }
+
+    return { segments, attempts, elapsedMs: Date.now() - startedAt };
+  }
+
+  private hasMapLoadingState(): boolean {
+    return typeof this.wmeSDK.State?.isMapLoading === "function";
+  }
+
+  private isMapLoading(): boolean {
+    try {
+      return this.wmeSDK.State?.isMapLoading?.() ?? false;
+    } catch {
+      return false;
+    }
+  }
+
+  private logDiagnosticSegmentStages(args: {
+    kmA: number;
+    kmB: number;
+    allSegments: ReadonlyArray<Segment>;
+    matchableSegments: ReadonlyArray<{ id: number; geometry: LineString }>;
+    bboxCandidateSegments: ReadonlyArray<{ id: number; geometry: LineString }>;
+    bufferedMatchedIds: ReadonlySet<number>;
+    sampledMatchedIds: ReadonlySet<number>;
+    projectedSpanBySegmentId: ReadonlyMap<number, number>;
+    combinedMatchedIds: ReadonlySet<number>;
+    filteredMatchedIds: ReadonlySet<number>;
+    emittedIds: ReadonlyArray<number>;
+    slicedTrack: MultiLineString;
+    allowEndBoundaryContinuation: boolean;
+  }): void {
+    const allById = new Map(args.allSegments.map((segment) => [segment.id, segment]));
+    const matchableIds = new Set(args.matchableSegments.map((segment) => segment.id));
+    const bboxCandidateIds = new Set(args.bboxCandidateSegments.map((segment) => segment.id));
+    const emittedIds = new Set(args.emittedIds);
+    const sliceBbox = this.getMultiLineBBox(args.slicedTrack);
+
+    const diagnostics = Array.from(DIAGNOSTIC_MATCH_SEGMENT_IDS).map((id) => {
+      const segment = allById.get(id);
+      if (!segment) {
+        return {
+          id,
+          loaded: false,
+          matchable: false,
+          bboxCandidate: false,
+          buffered: false,
+          sampled: false,
+          projected: false,
+          combined: false,
+          filtered: false,
+          emitted: false,
+        };
+      }
+
+      const segmentBbox = this.getCachedSegmentBBox(id, segment.geometry);
+      return {
+        id,
+        loaded: true,
+        roadType: segment.roadType,
+        matchable: matchableIds.has(id),
+        excludedRoadType: EXCLUDED_MATCH_ROAD_TYPES.has(segment.roadType),
+        bboxCandidate: bboxCandidateIds.has(id),
+        bboxIntersectsSlice: this.bboxIntersects(
+          sliceBbox,
+          segmentBbox,
+          SAMPLED_CANDIDATE_BBOX_PADDING_DEGREES,
+        ),
+        segmentBbox,
+        buffered: args.bufferedMatchedIds.has(id),
+        sampled: args.sampledMatchedIds.has(id),
+        projected: args.projectedSpanBySegmentId.has(id),
+        projectedSpanMeters: args.projectedSpanBySegmentId.get(id) ?? null,
+        combined: args.combinedMatchedIds.has(id),
+        filtered: args.filteredMatchedIds.has(id),
+        emitted: emittedIds.has(id),
+        geometryPointCount: segment.geometry.coordinates.length,
+        geometryStart: segment.geometry.coordinates[0] ?? null,
+        geometryEnd: segment.geometry.coordinates[segment.geometry.coordinates.length - 1] ?? null,
+        endpointDiagnostics: this.getEndpointFilterDiagnostics(
+          segment.geometry.coordinates,
+          args.slicedTrack,
+          args.allowEndBoundaryContinuation,
+        ),
+      };
+    });
+
+    const diagnosticPayload = {
+      kmA: args.kmA,
+      kmB: args.kmB,
+      trackTotalKm: this.trackTotalKm,
+      allowEndBoundaryContinuation: args.allowEndBoundaryContinuation,
+      allSegmentsCount: args.allSegments.length,
+      matchableCount: args.matchableSegments.length,
+      bboxCandidateCount: args.bboxCandidateSegments.length,
+      targetIds: Array.from(DIAGNOSTIC_MATCH_SEGMENT_IDS),
+      diagnostics,
+    };
+
+    logger.info(
+      "[match-load-debug] WalkController.matchInCurrentViewport: diagnostic target segment stages",
+      diagnosticPayload,
+    );
+    logger.info(
+      "[match-load-debug] WalkController.matchInCurrentViewport: diagnostic target segment stages JSON",
+      JSON.stringify(diagnosticPayload),
+    );
+  }
+
+  private getEndpointFilterDiagnostics(
+    coordinates: ReadonlyArray<Position>,
+    slicedTrack: MultiLineString,
+    allowEndBoundaryContinuation: boolean,
+  ): Record<string, unknown> {
+    const slicedTrackLines = this.toLineFeatures(slicedTrack);
+    const flattenedSliceCoords = slicedTrack.coordinates.flat();
+    const slicedTrackPolyline =
+      flattenedSliceCoords.length >= 2
+        ? {
+            type: "Feature" as const,
+            geometry: turfLineString(flattenedSliceCoords).geometry,
+            properties: null,
+          }
+        : null;
+    const slicedTrackLengthKm = slicedTrackPolyline
+      ? turfLength(slicedTrackPolyline, { units: "kilometers" })
+      : 0;
+
+    const closeVertexDistancesMeters: number[] = [];
+    const closeVertexIndices: number[] = [];
+    for (let i = 0; i < coordinates.length; i++) {
+      const coordinate = coordinates[i];
+      let distanceMeters = Number.POSITIVE_INFINITY;
+      for (const lineFeature of slicedTrackLines) {
+        const currentDistanceMeters = pointToLineDistance(turfPoint(coordinate), lineFeature, {
+          units: "meters",
+        });
+        if (currentDistanceMeters < distanceMeters) {
+          distanceMeters = currentDistanceMeters;
+        }
+      }
+
+      closeVertexDistancesMeters.push(Number(distanceMeters.toFixed(2)));
+      if (distanceMeters <= CLOSE_VERTEX_DISTANCE_METERS) {
+        closeVertexIndices.push(i);
+      }
+    }
+
+    const closeSpanMeters =
+      closeVertexIndices.length >= 2
+        ? this.distanceAlongSegment(
+            coordinates,
+            closeVertexIndices[0],
+            closeVertexIndices[closeVertexIndices.length - 1],
+          )
+        : 0;
+
+    const extendsPastStart =
+      slicedTrackPolyline !== null &&
+      this.extendsPastBoundary(coordinates, slicedTrackPolyline, slicedTrackLengthKm, "start");
+    const extendsPastEnd =
+      slicedTrackPolyline !== null &&
+      !allowEndBoundaryContinuation &&
+      this.extendsPastBoundary(coordinates, slicedTrackPolyline, slicedTrackLengthKm, "end");
+
+    return {
+      closeVertexDistancesMeters,
+      closeVerticesCount: closeVertexIndices.length,
+      closeVertexIndices,
+      closeSpanMeters: Number(closeSpanMeters.toFixed(2)),
+      allVerticesClose: closeVertexIndices.length === coordinates.length,
+      hasEnoughSampledSliceCoverage: this.hasEnoughSampledSliceCoverage(
+        coordinates,
+        slicedTrackLines,
+      ),
+      extendsPastStart,
+      extendsPastEnd,
+      isStartBoundaryContinuation: this.isStartBoundaryContinuation(
+        coordinates,
+        this.getStartBoundaryDirection(slicedTrack),
+      ),
+      isEndBoundaryContinuation: this.isEndBoundaryContinuation(
+        coordinates,
+        allowEndBoundaryContinuation ? this.getEndBoundaryDirection(slicedTrack) : null,
+      ),
+    };
+  }
+
   private async filterEndpointTouchingMatches(
     allSegments: ReadonlyArray<{ id: number; geometry: LineString }>,
     matchedIdsForBatch: ReadonlySet<number>,
     slicedTrack: MultiLineString,
     allowEndBoundaryContinuation: boolean,
     projectedSpanBySegmentId: ReadonlyMap<number, number>,
-  ): Promise<Set<number>> {
+  ): Promise<{ ids: Set<number>; metrics: EndpointFilterMetrics }> {
     const segmentById = new Map(allSegments.map((segment) => [segment.id, segment]));
     const slicedTrackLines = slicedTrack.coordinates.map((lineCoordinates) => ({
       type: "Feature" as const,
@@ -731,6 +1075,19 @@ export class WalkController {
       properties: null,
     }));
     const filtered = new Set<number>();
+    const metrics: EndpointFilterMetrics = {
+      inputMatched: matchedIdsForBatch.size,
+      missingSegment: 0,
+      keptProjectedOverride: 0,
+      keptBoundaryCoverage: 0,
+      droppedBoundaryCoverage: 0,
+      keptAllVerticesClose: 0,
+      keptCloseVertexSpan: 0,
+      keptSampledCoverage: 0,
+      keptStartBoundaryContinuation: 0,
+      keptEndBoundaryContinuation: 0,
+      droppedEndpointTouch: 0,
+    };
     const startBoundary = this.getStartBoundaryDirection(slicedTrack);
     const endBoundary = allowEndBoundaryContinuation
       ? this.getEndBoundaryDirection(slicedTrack)
@@ -758,6 +1115,7 @@ export class WalkController {
 
       const segment = segmentById.get(id);
       if (!segment) {
+        metrics.missingSegment += 1;
         continue;
       }
 
@@ -767,6 +1125,7 @@ export class WalkController {
         projectedSpanMeters >= PROJECTED_OVERRIDE_MIN_SPAN_METERS
       ) {
         filtered.add(id);
+        metrics.keptProjectedOverride += 1;
         continue;
       }
 
@@ -792,6 +1151,9 @@ export class WalkController {
       if (extendsPastStart || extendsPastEnd) {
         if (this.hasEnoughSampledSliceCoverage(segment.geometry.coordinates, slicedTrackLines)) {
           filtered.add(id);
+          metrics.keptBoundaryCoverage += 1;
+        } else {
+          metrics.droppedBoundaryCoverage += 1;
         }
         continue;
       }
@@ -819,6 +1181,7 @@ export class WalkController {
       if (closeVerticesCount >= MIN_CLOSE_VERTICES_FOR_VIEW_MATCH) {
         if (closeVerticesCount === segment.geometry.coordinates.length) {
           filtered.add(id);
+          metrics.keptAllVerticesClose += 1;
           continue;
         }
 
@@ -829,36 +1192,53 @@ export class WalkController {
         );
         if (closeSpanMeters >= MIN_CLOSE_VERTEX_SPAN_METERS) {
           filtered.add(id);
+          metrics.keptCloseVertexSpan += 1;
           continue;
         }
       }
 
       if (this.hasEnoughSampledSliceCoverage(segment.geometry.coordinates, slicedTrackLines)) {
         filtered.add(id);
+        metrics.keptSampledCoverage += 1;
         continue;
       }
 
       if (this.isStartBoundaryContinuation(segment.geometry.coordinates, startBoundary)) {
         filtered.add(id);
+        metrics.keptStartBoundaryContinuation += 1;
         continue;
       }
 
       if (this.isEndBoundaryContinuation(segment.geometry.coordinates, endBoundary)) {
         filtered.add(id);
+        metrics.keptEndBoundaryContinuation += 1;
+        continue;
       }
+
+      metrics.droppedEndpointTouch += 1;
     }
 
-    return filtered;
+    return { ids: filtered, metrics };
   }
 
   private async findSampledSliceMatches(
     allSegments: ReadonlyArray<{ id: number; geometry: LineString }>,
     alreadyMatchedIds: ReadonlySet<number>,
     slicedTrack: MultiLineString,
-  ): Promise<Set<number>> {
+  ): Promise<{ ids: Set<number>; metrics: SampledSliceMatchMetrics }> {
+    const metrics: SampledSliceMatchMetrics = {
+      inputSegments: allSegments.length,
+      alreadyMatchedSkipped: 0,
+      bboxRejected: 0,
+      bboxCandidates: 0,
+      boundaryRejected: 0,
+      boundaryCandidates: 0,
+      coverageRejected: 0,
+      coverageAccepted: 0,
+    };
     const slicedTrackLines = this.toLineFeatures(slicedTrack);
     if (slicedTrackLines.length === 0) {
-      return new Set();
+      return { ids: new Set(), metrics };
     }
 
     const flattenedSliceCoords = slicedTrack.coordinates.flat();
@@ -884,13 +1264,16 @@ export class WalkController {
       }
 
       if (alreadyMatchedIds.has(segment.id)) {
+        metrics.alreadyMatchedSkipped += 1;
         continue;
       }
 
       const segmentBbox = this.getLineBBox(segment.geometry.coordinates);
       if (!this.bboxIntersects(sliceBbox, segmentBbox, SAMPLED_CANDIDATE_BBOX_PADDING_DEGREES)) {
+        metrics.bboxRejected += 1;
         continue;
       }
+      metrics.bboxCandidates += 1;
 
       if (
         slicedTrackPolyline === null ||
@@ -907,15 +1290,20 @@ export class WalkController {
             "end",
           ))
       ) {
+        metrics.boundaryRejected += 1;
         continue;
       }
+      metrics.boundaryCandidates += 1;
 
       if (this.hasEnoughSampledSliceCoverage(segment.geometry.coordinates, slicedTrackLines)) {
         matchedIds.add(segment.id);
+        metrics.coverageAccepted += 1;
+      } else {
+        metrics.coverageRejected += 1;
       }
     }
 
-    return matchedIds;
+    return { ids: matchedIds, metrics };
   }
 
   private hasEnoughSampledSliceCoverage(
@@ -997,14 +1385,15 @@ export class WalkController {
     slicedTrack: MultiLineString,
     kmA: number,
     kmB: number,
-  ): Promise<Map<number, number>> {
+  ): Promise<{ spanBySegmentId: Map<number, number>; metrics: ProjectedSliceMatchMetrics }> {
+    const metrics = this.createProjectedSliceMatchMetrics(allSegments.length);
     if (!this.fullTrackLine) {
-      return new Map<number, number>();
+      return { spanBySegmentId: new Map(), metrics };
     }
 
     const flattenedSlice = slicedTrack.coordinates.flat();
     if (flattenedSlice.length < 2) {
-      return new Map<number, number>();
+      return { spanBySegmentId: new Map(), metrics };
     }
 
     const slicedTrackLine = {
@@ -1024,6 +1413,7 @@ export class WalkController {
       }
 
       if (segment.geometry.coordinates.length < 2) {
+        metrics.noGeometrySkipped += 1;
         continue;
       }
 
@@ -1031,8 +1421,10 @@ export class WalkController {
         this.sampleSegmentCoordinates(segment.geometry.coordinates, PROJECTED_SAMPLE_STEP_METERS),
       );
       if (sampledCoordinates.length === 0) {
+        metrics.noSamplesSkipped += 1;
         continue;
       }
+      metrics.sampledSegments += 1;
 
       let closeSamples = 0;
       const projectedLocationsKm: number[] = [];
@@ -1057,11 +1449,13 @@ export class WalkController {
       }
 
       if (projectedLocationsKm.length === 0) {
+        metrics.noProjectedLocations += 1;
         continue;
       }
 
       const coverageRatio = closeSamples / sampledCoordinates.length;
       if (coverageRatio < PROJECTED_COVERAGE_MIN_RATIO) {
+        metrics.coverageRejected += 1;
         continue;
       }
 
@@ -1069,10 +1463,26 @@ export class WalkController {
       const projectedMaxKm = Math.max(...projectedLocationsKm);
       if (this.isProjectedSpanInSlice(projectedMinKm, projectedMaxKm, kmA, kmB, isLastSlice)) {
         matchedSpanById.set(segment.id, (projectedMaxKm - projectedMinKm) * 1000);
+        metrics.chainageAccepted += 1;
+      } else {
+        metrics.chainageRejected += 1;
       }
     }
 
-    return matchedSpanById;
+    return { spanBySegmentId: matchedSpanById, metrics };
+  }
+
+  private createProjectedSliceMatchMetrics(inputSegments: number): ProjectedSliceMatchMetrics {
+    return {
+      inputSegments,
+      noGeometrySkipped: 0,
+      noSamplesSkipped: 0,
+      sampledSegments: 0,
+      noProjectedLocations: 0,
+      coverageRejected: 0,
+      chainageRejected: 0,
+      chainageAccepted: 0,
+    };
   }
 
   private isProjectedSpanInSlice(
@@ -1175,6 +1585,20 @@ export class WalkController {
     }
 
     return [minLon, minLat, maxLon, maxLat];
+  }
+
+  private getCachedSegmentBBox(
+    id: number,
+    geometry: LineString,
+  ): [number, number, number, number] {
+    const cached = this.segmentBBoxCache.get(id);
+    if (cached?.geometry === geometry) {
+      return cached.bbox;
+    }
+
+    const bbox = this.getLineBBox(geometry.coordinates);
+    this.segmentBBoxCache.set(id, { geometry, bbox });
+    return bbox;
   }
 
   private bboxIntersects(

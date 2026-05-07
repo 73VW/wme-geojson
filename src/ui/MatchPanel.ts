@@ -37,6 +37,7 @@ export class MatchPanel {
   // Unsubscribe handles — cleaned up in unmount()
   private unsubscribeStore: (() => void) | null = null;
   private unsubscribeState: (() => void) | null = null;
+  private unsubscribeMapDataLoaded: (() => void) | null = null;
 
   // Controllers wired lazily by loadAndAttachTrack after mount
   private controller: WalkController | null;
@@ -103,13 +104,17 @@ export class MatchPanel {
   private guidedValidateBtn: HTMLElement | null = null;
   private guidedSkipBtn: HTMLElement | null = null;
   private guidedBackBtn: HTMLElement | null = null;
+  private guidedReselectBtn: HTMLElement | null = null;
+  private guidedRerunBtn: HTMLElement | null = null;
   private guidedPauseBtn: HTMLElement | null = null;
   private guidedResumeBtn: HTMLElement | null = null;
+  private guidedDoneCloseBtn: HTMLElement | null = null;
   private guidedRestartBtn: HTMLElement | null = null;
   private guidedCopyDebugBtn: HTMLElement | null = null;
   private guidedDownloadEnrichedBtn: HTMLElement | null = null;
   private matchingMode: "interactive" | "burst" = "interactive";
   private matchingPanelOpen = false;
+  private pausePending = false;
   private guidedCollapsed = false;
   private guidedActiveTab: "match" | "debug" = "match";
   private guidedBusy = false;
@@ -162,6 +167,27 @@ export class MatchPanel {
     this.buildDOM(tabPane);
     if (this.guidedMatchingRow && this.guidedMatchingRow.parentElement !== document.body) {
       document.body.appendChild(this.guidedMatchingRow);
+    }
+
+    const eventsApi = (this.wmeSDK as unknown as {
+      Events?: {
+        on?: (args: { eventName: string; eventHandler: () => void }) => () => void;
+      };
+    }).Events;
+    try {
+      this.unsubscribeMapDataLoaded =
+        eventsApi?.on?.({
+          eventName: "wme-map-data-loaded",
+          eventHandler: () => {
+            logger.info("[match-load-debug] wme-map-data-loaded", {
+              phase: this.store.getState().phase,
+              currentIndex: this.store.getState().currentIndex,
+              isMapLoading: this.wmeSDK.State.isMapLoading(),
+            });
+          },
+        }) ?? null;
+    } catch (err) {
+      logger.warn("MatchPanel.mount: failed to subscribe to wme-map-data-loaded", err);
     }
 
     // Re-render visibility whenever store phase changes
@@ -244,8 +270,10 @@ export class MatchPanel {
   unmount(): void {
     this.unsubscribeStore?.();
     this.unsubscribeState?.();
+    this.unsubscribeMapDataLoaded?.();
     this.unsubscribeStore = null;
     this.unsubscribeState = null;
+    this.unsubscribeMapDataLoaded = null;
 
     if (this.tabPane) {
       while (this.tabPane.firstChild) {
@@ -291,6 +319,8 @@ export class MatchPanel {
     this.guidedValidateBtn = null;
     this.guidedSkipBtn = null;
     this.guidedBackBtn = null;
+    this.guidedReselectBtn = null;
+    this.guidedRerunBtn = null;
     this.guidedPauseBtn = null;
     this.guidedResumeBtn = null;
     this.guidedRestartBtn = null;
@@ -667,7 +697,14 @@ export class MatchPanel {
       text: i18next.t("panel.matching.pause"),
       variant: "secondary",
       onClick: () => {
+        this.pausePending = true;
+        this.setGuidedLoading(
+          true,
+          i18next.t("panel.matching.steps.pauseFinalizingStep"),
+        );
+        this.appendGuidedStep(i18next.t("panel.matching.steps.pauseFinalizingStep"));
         this.pipeline?.pause();
+        this.updateGuidedControls();
       },
     });
     this.guidedPauseBtn.classList.add("wmegj-guided-button--pause");
@@ -681,6 +718,37 @@ export class MatchPanel {
       },
     });
     this.guidedResumeBtn.classList.add("wmegj-guided-button--resume");
+    this.guidedDoneCloseBtn = this.appendGuidedButton(matchActions, {
+      text: i18next.t("panel.matching.closePanel"),
+      variant: "primary",
+      onClick: () => {
+        this.matchingPanelOpen = false;
+        this.renderPhase(this.store.getState().phase);
+      },
+    });
+    this.guidedDoneCloseBtn.classList.add("wmegj-guided-button--done-close");
+
+    const manualToolsActions = document.createElement("div");
+    manualToolsActions.className = "wmegj-guided-secondary-actions";
+    matchPane.appendChild(manualToolsActions);
+
+    this.guidedReselectBtn = this.appendGuidedButton(manualToolsActions, {
+      text: i18next.t("panel.matching.reselectMatched"),
+      variant: "secondary",
+      onClick: () => {
+        this.onReselectMatchedClick();
+      },
+    });
+    this.guidedReselectBtn.classList.add("wmegj-guided-button--reselect");
+
+    this.guidedRerunBtn = this.appendGuidedButton(manualToolsActions, {
+      text: i18next.t("panel.matching.rerunCurrentRow"),
+      variant: "secondary",
+      onClick: () => {
+        this.onRerunCurrentRowClick();
+      },
+    });
+    this.guidedRerunBtn.classList.add("wmegj-guided-button--rerun");
 
     const restartActions = document.createElement("div");
     restartActions.className = "wmegj-guided-reset-actions";
@@ -1062,7 +1130,56 @@ export class MatchPanel {
       this.pipeline.pause();
       return;
     }
+    // Back during burst pause: the pipeline is suspended on its burst gate;
+    // restore the matching phase so the panel renders running state again
+    // once the gate resumes the loop.
+    if (this.matchingMode === "burst" && this.pipeline?.isPaused()) {
+      this.store.setPhase("matching");
+    }
     this.pipeline?.goBackOneRow();
+    this.updateGuidedControls();
+  }
+
+  private onReselectMatchedClick(): void {
+    if (this.currentMatchedIds.length === 0) {
+      logger.warn("MatchPanel.onReselectMatchedClick: no matched segment ids for current row");
+      return;
+    }
+
+    const loadedSegmentIds = new Set(
+      this.wmeSDK.DataModel.Segments.getAll().map((segment) => segment.id),
+    );
+    const selectableIds = this.currentMatchedIds.filter((id) => loadedSegmentIds.has(id));
+    const skippedIds = this.currentMatchedIds.filter((id) => !loadedSegmentIds.has(id));
+
+    if (selectableIds.length === 0) {
+      logger.warn("MatchPanel.onReselectMatchedClick: no matched ids are currently loaded", {
+        currentMatchedCount: this.currentMatchedIds.length,
+      });
+      return;
+    }
+
+    try {
+      this.wmeSDK.Editing.setSelection({
+        selection: { ids: selectableIds, objectType: "segment" },
+      });
+      logger.info("MatchPanel.onReselectMatchedClick: reselected matched ids", {
+        selectedCount: selectableIds.length,
+        skippedCount: skippedIds.length,
+        skippedSample: skippedIds.slice(0, 10),
+      });
+    } catch (err) {
+      logger.warn("MatchPanel.onReselectMatchedClick: setSelection failed", err);
+    }
+  }
+
+  private onRerunCurrentRowClick(): void {
+    if (!this.pipeline?.isRunning() || this.matchingMode !== "interactive") {
+      logger.warn("MatchPanel.onRerunCurrentRowClick: no interactive row waiting to rerun");
+      return;
+    }
+    this.setGuidedLoading(true, i18next.t("panel.matching.steps.unknown"));
+    this.pipeline.rerunCurrentRow();
   }
 
   private updateGuidedControls(): void {
@@ -1072,18 +1189,18 @@ export class MatchPanel {
     const isPaused = this.pipeline?.isPaused() ?? false;
     const isInteractive = this.matchingMode === "interactive";
     const isWaitingForUser = isRunning && isInteractive && !this.guidedBusy;
-    const canStart = hasCsv && !isRunning && !isPaused;
+    const isDone = phase === "done";
+    const canStart = hasCsv && !isRunning && !isPaused && !isDone;
     const disableForBusy = this.guidedBusy && isRunning;
 
     this.setButtonDisabled(this.guidedStartManualBtn, !canStart);
     this.setButtonDisabled(this.guidedStartBurstBtn, !canStart);
     this.setButtonDisabled(this.guidedValidateBtn, !isWaitingForUser || disableForBusy);
     this.setButtonDisabled(this.guidedSkipBtn, !isWaitingForUser || disableForBusy);
-    this.setButtonDisabled(
-      this.guidedBackBtn,
-      !(isWaitingForUser || (isRunning && !isInteractive)),
-    );
-    this.setButtonDisabled(this.guidedPauseBtn, !isRunning);
+    this.setButtonDisabled(this.guidedBackBtn, !(isWaitingForUser || isPaused));
+    this.setButtonDisabled(this.guidedReselectBtn, !isWaitingForUser || disableForBusy);
+    this.setButtonDisabled(this.guidedRerunBtn, !isWaitingForUser || disableForBusy);
+    this.setButtonDisabled(this.guidedPauseBtn, !isRunning || this.pausePending);
     this.setButtonDisabled(this.guidedResumeBtn, !isPaused);
     this.setButtonDisabled(this.guidedRestartBtn, !hasCsv);
     this.setButtonDisabled(this.guidedCopyDebugBtn, disableForBusy);
@@ -1091,12 +1208,15 @@ export class MatchPanel {
 
     this.setButtonVisible(this.guidedStartManualBtn, canStart);
     this.setButtonVisible(this.guidedStartBurstBtn, canStart);
-    this.setButtonVisible(this.guidedValidateBtn, isRunning && isInteractive);
-    this.setButtonVisible(this.guidedSkipBtn, isRunning && isInteractive);
-    this.setButtonVisible(this.guidedBackBtn, isWaitingForUser || (isRunning && !isInteractive));
-    this.setButtonVisible(this.guidedPauseBtn, isRunning && !isInteractive);
-    this.setButtonVisible(this.guidedResumeBtn, isPaused);
-    this.setButtonVisible(this.guidedRestartBtn, hasCsv);
+    this.setButtonVisible(this.guidedValidateBtn, isRunning && isInteractive && !isDone);
+    this.setButtonVisible(this.guidedSkipBtn, isRunning && isInteractive && !isDone);
+    this.setButtonVisible(this.guidedBackBtn, (isWaitingForUser || isPaused) && !isDone);
+    this.setButtonVisible(this.guidedReselectBtn, isWaitingForUser && !isDone);
+    this.setButtonVisible(this.guidedRerunBtn, isWaitingForUser && !isDone);
+    this.setButtonVisible(this.guidedPauseBtn, isRunning && !isInteractive && !isDone);
+    this.setButtonVisible(this.guidedResumeBtn, isPaused && !isDone);
+    this.setButtonVisible(this.guidedDoneCloseBtn, isDone);
+    this.setButtonVisible(this.guidedRestartBtn, hasCsv && !isDone);
 
     if (this.guidedStatusEl) {
       const key = isRunning
@@ -1525,7 +1645,9 @@ export class MatchPanel {
     };
     reader.onerror = () => {
       const message =
-        reader.error instanceof DOMException ? reader.error.message : i18next.t("panel.csvInput.error");
+        reader.error instanceof DOMException
+          ? reader.error.message
+          : i18next.t("panel.csvInput.error");
       this.setCsvLoading(false);
       this.showCsvError(message);
     };
@@ -1739,7 +1861,10 @@ export class MatchPanel {
       );
     }
     if (this.guidedManualActionsEl) {
-      this.guidedManualActionsEl.style.display = mode === "burst" ? "none" : "flex";
+      // Keep the actions row visible in both modes — per-button visibility
+      // (handled by updateGuidedControls) hides the manual-only buttons in
+      // burst mode while Pause/Resume need to remain reachable.
+      this.guidedManualActionsEl.style.display = "flex";
     }
 
     logger.info("MatchPanel.onStartMatchingClick: creating MatchingPipeline", {
@@ -1795,7 +1920,7 @@ export class MatchPanel {
         },
         onStep: (event) => {
           const message = this.formatPipelineStep(event);
-          this.setGuidedLoading(event.key !== "waitingValidation", message);
+          this.setGuidedLoading(event.key !== "waitingLeafValidation", message);
           this.appendGuidedStep(message);
           this.updateGuidedControls();
         },
@@ -1805,12 +1930,30 @@ export class MatchPanel {
         },
         onDone: () => {
           logger.info("MatchPanel.onStartMatchingClick: pipeline reported done");
+          this.pausePending = false;
           this.setGuidedLoading(false);
+          this.currentMatchedIds = [];
+          const rowsValidated = this.store
+            .getState()
+            .csvRows.filter((row) => row.segments !== null).length;
+          const totalSegments =
+            this.pipeline
+              ?.getMatchedGroups()
+              .reduce((sum, group) => sum + group.segmentIds.length, 0) ?? 0;
+          const summaryText = i18next.t("panel.matching.steps.completedSummary", {
+            rowsValidated,
+            totalSegments,
+          });
+          if (this.guidedSegmentCountEl) {
+            this.guidedSegmentCountEl.textContent = summaryText;
+          }
+          this.appendGuidedStep(summaryText);
           this.store.setPhase("done");
           this.updateGuidedControls();
         },
         onAborted: () => {
           logger.info("MatchPanel.onStartMatchingClick: pipeline reported aborted");
+          this.pausePending = false;
           this.setGuidedLoading(false);
           // Return to csv-loaded phase so the user can restart
           this.store.setPhase("csv-loaded");
@@ -1818,6 +1961,7 @@ export class MatchPanel {
         },
         onPaused: () => {
           logger.info("MatchPanel.onStartMatchingClick: pipeline reported paused");
+          this.pausePending = false;
           this.setGuidedLoading(false);
           this.store.setPhase("csv-loaded");
           this.updateGuidedControls();
@@ -1893,8 +2037,8 @@ export class MatchPanel {
         return i18next.t("panel.matching.steps.processingLeaf", values);
       case "leafMatched":
         return i18next.t("panel.matching.steps.leafMatched", values);
-      case "waitingValidation":
-        return i18next.t("panel.matching.steps.waitingValidation", values);
+      case "waitingLeafValidation":
+        return i18next.t("panel.matching.steps.waitingLeafValidation", values);
       default:
         return i18next.t("panel.matching.steps.unknown");
     }
@@ -2189,6 +2333,13 @@ export class MatchPanel {
         align-items: stretch;
       }
 
+      .wmegj-guided-secondary-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+        margin-top: 8px;
+      }
+
       .wmegj-guided-reset-actions {
         display: flex;
         justify-content: flex-end;
@@ -2247,7 +2398,9 @@ export class MatchPanel {
       }
 
       .wmegj-guided-button--pause,
-      .wmegj-guided-button--resume {
+      .wmegj-guided-button--resume,
+      .wmegj-guided-button--reselect,
+      .wmegj-guided-button--rerun {
         background: #ffffff;
         border-color: #c7d0d9;
         color: #344054;

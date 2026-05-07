@@ -25,7 +25,6 @@ import {
   sliceMultiLineByDistance,
   bboxOfMultiLineString,
   multiLineLengthKm,
-  trimTrailingCoordinate,
 } from "../matching/trackPortions";
 import { waitForMapIdle } from "../utils/waitForMapIdle";
 import { logger } from "../utils/logger";
@@ -34,10 +33,13 @@ import { logger } from "../utils/logger";
 // Constants (canonical values from the previous MatchPanel bbox logic)
 // ---------------------------------------------------------------------------
 
-const MIN_BBOX_ZOOM = 15 as const;
+const MIN_BBOX_ZOOM = 16 as const;
 const VIEW_SLICE_EPSILON_KM = 0.005;
 const VIEW_SLICE_MIN_SPAN_KM = 0.01;
 const MAX_VIEW_SLICES_PER_ROW = 200;
+const VIEW_SLICE_HEAD_RATIO = 0.75;
+const MATCH_VIEW_SETTLE_DELAY_MS = 650;
+const MATCH_POST_IDLE_DELAY_MS = 0;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -62,7 +64,7 @@ export interface PipelineStepEvent {
     | "planningDone"
     | "processingLeaf"
     | "leafMatched"
-    | "waitingValidation";
+    | "waitingLeafValidation";
   rowIndex: number;
   values?: Record<string, number | string>;
 }
@@ -71,7 +73,7 @@ export interface MatchingPipelineOptions {
   burstMode?: boolean;
 }
 
-type PendingRowAction = "validate" | "skip" | "back" | "abort" | "pause";
+type PendingRowAction = "validate" | "skip" | "back" | "rerun" | "abort" | "pause";
 
 // ---------------------------------------------------------------------------
 // MatchingPipeline
@@ -94,6 +96,12 @@ export class MatchingPipeline {
 
   // Resolve handle for abort while waiting for validate
   private pendingAbortReject: (() => void) | null = null;
+
+  // Resolve handle for the in-loop burst pause gate. When set, the loop is
+  // suspended after a leaf in burst mode until resume()/abort()/back resolves it.
+  private burstPauseGate:
+    | ((action: "validate" | "abort" | "back") => void)
+    | null = null;
 
   constructor(
     private readonly wmeSDK: WmeSDK,
@@ -147,6 +155,7 @@ export class MatchingPipeline {
     // If we are paused waiting for the user's validate click, unblock the
     // pause point so the loop can see the abort flag and exit cleanly.
     this.pendingAbortReject?.();
+    this.burstPauseGate?.("abort");
   }
 
   /**
@@ -163,7 +172,18 @@ export class MatchingPipeline {
     logger.info("MatchingPipeline.resume: requested", {
       paused: this.paused,
       running: this.running,
+      hasBurstPauseGate: this.burstPauseGate !== null,
     });
+    // Mid-loop burst pause: the runLoop is still active and awaiting our
+    // signal. Resolving the gate counts as the user's implicit validation
+    // of the current selection.
+    if (this.burstPauseGate) {
+      const gate = this.burstPauseGate;
+      this.burstPauseGate = null;
+      this.pauseRequested = false;
+      gate("validate");
+      return;
+    }
     if (!this.paused || this.running) {
       return;
     }
@@ -194,12 +214,30 @@ export class MatchingPipeline {
   }
 
   goBackOneRow(): void {
+    // Burst pause: rewind via the burst gate.
+    if (this.burstPauseGate) {
+      const gate = this.burstPauseGate;
+      this.burstPauseGate = null;
+      this.pauseRequested = false;
+      logger.info("MatchingPipeline.goBackOneRow: resolving burst pause gate as back");
+      gate("back");
+      return;
+    }
     if (!this.pendingResolver) {
       logger.warn("MatchingPipeline.goBackOneRow: no pending row, ignoring");
       return;
     }
     logger.info("MatchingPipeline.goBackOneRow: resolving pending back gate");
     this.pendingResolver("back");
+  }
+
+  rerunCurrentRow(): void {
+    if (!this.pendingResolver) {
+      logger.warn("MatchingPipeline.rerunCurrentRow: no pending row, ignoring");
+      return;
+    }
+    logger.info("MatchingPipeline.rerunCurrentRow: resolving pending rerun gate");
+    this.pendingResolver("rerun");
   }
 
   isRunning(): boolean {
@@ -281,18 +319,8 @@ export class MatchingPipeline {
 
       // --- Compute zoom-fitting leaf slices and run matching per slice -------
 
-      logger.info("MatchingPipeline.runLoop: planning leaf slices", {
-        rowIndex: i,
-        kmA: workItem.kmA,
-        kmB: workItem.kmB,
-      });
       const leafSlices = await this.planLeafSlices(i, workItem.kmA, workItem.kmB);
 
-      logger.info("MatchingPipeline.runLoop: leaf slice planning complete", {
-        rowIndex: i,
-        leafSliceCount: leafSlices.length,
-        leafSlices,
-      });
       this.events.onStep?.({
         key: "planningDone",
         rowIndex: i,
@@ -303,9 +331,14 @@ export class MatchingPipeline {
         return;
       }
 
-      const rowGroups: ClosureRowGroup[] = [];
+      // Per-leaf validated contributions. Index aligns with leafSlices.
+      // null = pending (not yet validated). [] = explicitly skipped or empty.
+      const leafValidatedIds: (number[] | null)[] = leafSlices.map(() => null);
+      const leafGroups: (ClosureRowGroup | null)[] = leafSlices.map(() => null);
+      let backToPreviousRow = false;
 
-      for (let leafIndex = 0; leafIndex < leafSlices.length; leafIndex++) {
+      let leafIndex = 0;
+      while (leafIndex < leafSlices.length) {
         const leafSlice = leafSlices[leafIndex];
         if (this.abortRequested || this.pauseRequested) break;
 
@@ -321,11 +354,6 @@ export class MatchingPipeline {
           },
         });
 
-        logger.info("MatchingPipeline.runLoop: navigating to recorded view", {
-          rowIndex: i,
-          leafSlice,
-        });
-
         // Mirror the historical manual per-view flow exactly: once bbox
         // discovery has produced a center+zoom leaf, matching is launched from
         // that recorded view via setMapCenter, not by recomputing zoomToExtent.
@@ -333,15 +361,8 @@ export class MatchingPipeline {
           lonLat: { lon: leafSlice.lon, lat: leafSlice.lat },
           zoomLevel: leafSlice.zoom,
         });
-        logger.info("MatchingPipeline.runLoop: waiting for map idle after setMapCenter", {
-          rowIndex: i,
-          leafSlice,
-        });
-        await waitForMapIdle(this.wmeSDK);
-        logger.info("MatchingPipeline.runLoop: map idle after setMapCenter", {
-          rowIndex: i,
-          leafSlice,
-        });
+        await waitForMapIdle(this.wmeSDK, { settleDelayMs: MATCH_VIEW_SETTLE_DELAY_MS });
+        await new Promise<void>((resolve) => setTimeout(resolve, MATCH_POST_IDLE_DELAY_MS));
 
         if (this.abortRequested || this.pauseRequested) break;
 
@@ -352,16 +373,7 @@ export class MatchingPipeline {
         });
 
         try {
-          logger.info("MatchingPipeline.runLoop: calling matchInCurrentViewport", {
-            rowIndex: i,
-            kmA: leafSlice.kmA,
-            kmB: leafSlice.kmB,
-          });
           await this.controller.matchInCurrentViewport(leafSlice.kmA, leafSlice.kmB);
-          logger.info("MatchingPipeline.runLoop: matchInCurrentViewport resolved", {
-            rowIndex: i,
-            leafMatchCount: leafIds.size,
-          });
           this.events.onStep?.({
             key: "leafMatched",
             rowIndex: i,
@@ -375,129 +387,177 @@ export class MatchingPipeline {
           unsub();
         }
 
-        const leafGroupIds = Array.from(leafIds);
-        leafGroupIds.forEach((id) => {
-          collectedIds.add(id);
+        const leafMatchedIds = Array.from(leafIds);
+
+        if (this.options.burstMode) {
+          let validatedIds = leafMatchedIds;
+
+          if (this.pauseRequested && !this.abortRequested) {
+            // Burst pause: select the leaf's matched ids so the operator can
+            // inspect/correct, then halt until resume(). Resume implicitly
+            // validates the current WME selection.
+            try {
+              this.wmeSDK.Editing.setSelection({
+                selection: { ids: leafMatchedIds, objectType: "segment" },
+              });
+              this.events.onRowMatched?.(i, leafMatchedIds);
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              logger.warn(
+                `MatchingPipeline: setSelection failed during burst pause for leaf ${leafIndex + 1}/${leafSlices.length} of row ${i}: ${message}`,
+              );
+              this.events.onError?.(message);
+            }
+
+            this.paused = true;
+            this.pauseRequested = false;
+            this.running = false;
+            this.events.onPaused?.();
+
+            const action = await new Promise<"validate" | "abort" | "back">(
+              (resolve) => {
+                this.burstPauseGate = resolve;
+              },
+            );
+
+            this.paused = false;
+            this.running = true;
+
+            if (action === "abort") {
+              this.trackLayer.setHighlightedSlice(null);
+              this.running = false;
+              this.events.onAborted?.();
+              return;
+            }
+
+            if (action === "back") {
+              // Drop the current row's progress entirely and rewind to the
+              // previous row — the user paused too late and wants to redo it.
+              backToPreviousRow = true;
+              break;
+            }
+
+            // Treat resume as implicit validation: capture any manual
+            // correction the operator made to the WME selection.
+            const selection = this.wmeSDK.Editing.getSelection();
+            if (selection !== null && selection.objectType === "segment") {
+              validatedIds = (selection.ids as number[]).slice();
+            }
+          }
+
+          leafValidatedIds[leafIndex] = validatedIds;
+          validatedIds.forEach((id) => collectedIds.add(id));
+          if (validatedIds.length > 0) {
+            leafGroups[leafIndex] = {
+              rowIndex: i,
+              segmentIds: validatedIds,
+              geo: { lon: leafSlice.lon, lat: leafSlice.lat, zoom: leafSlice.zoom },
+            };
+          }
+          leafIndex += 1;
+          continue;
+        }
+
+        // --- Set selection on this leaf's matched ids ------------------------
+        // All ids were just collected via onMatchFound in the current viewport,
+        // so they are guaranteed loaded — no need to filter via Segments.getAll.
+        try {
+          this.wmeSDK.Editing.setSelection({
+            selection: { ids: leafMatchedIds, objectType: "segment" },
+          });
+          // Surface the leaf's matched ids to the UI so the segment count
+          // updates and Reselect works on the currently visible selection.
+          this.events.onRowMatched?.(i, leafMatchedIds);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          logger.warn(
+            `MatchingPipeline: setSelection failed for leaf ${leafIndex + 1}/${leafSlices.length} of row ${i}: ${message}`,
+          );
+          this.events.onError?.(message);
+        }
+
+        this.events.onStep?.({
+          key: "waitingLeafValidation",
+          rowIndex: i,
+          values: {
+            index: leafIndex + 1,
+            total: leafSlices.length,
+          },
         });
 
-        if (leafGroupIds.length > 0) {
-          rowGroups.push({
-            rowIndex: i,
-            segmentIds: leafGroupIds,
-            geo: { lon: leafSlice.lon, lat: leafSlice.lat, zoom: leafSlice.zoom },
-          });
+        const action = await this.waitForValidate();
+
+        if (action === "abort") {
+          this.trackLayer.setHighlightedSlice(null);
+          this.running = false;
+          this.events.onAborted?.();
+          return;
         }
+
+        if (action === "pause") {
+          this.trackLayer.setHighlightedSlice(null);
+          this.paused = true;
+          this.running = false;
+          this.events.onPaused?.();
+          return;
+        }
+
+        if (action === "rerun") {
+          // Forget this leaf's pending contribution and re-execute the same leaf.
+          leafValidatedIds[leafIndex] = null;
+          leafGroups[leafIndex] = null;
+          continue;
+        }
+
+        if (action === "back") {
+          if (leafIndex > 0) {
+            // Drop the previous leaf's contribution and re-execute it.
+            leafIndex -= 1;
+            leafValidatedIds[leafIndex] = null;
+            leafGroups[leafIndex] = null;
+            continue;
+          }
+          // First leaf: behave as row-level back.
+          backToPreviousRow = true;
+          break;
+        }
+
+        if (action === "skip") {
+          // Skip this leaf's contribution. If there is more than one leaf,
+          // continue with the next; otherwise the row will be persisted with
+          // an empty selection (matching the previous row-level skip).
+          leafValidatedIds[leafIndex] = [];
+          leafGroups[leafIndex] = null;
+          leafIndex += 1;
+          continue;
+        }
+
+        // action === "validate": read the current selection so manual
+        // corrections are captured.
+        const validatedIds = (() => {
+          const selection = this.wmeSDK.Editing.getSelection();
+          if (selection === null || selection.objectType !== "segment") {
+            return leafMatchedIds;
+          }
+          return (selection.ids as number[]).slice();
+        })();
+        leafValidatedIds[leafIndex] = validatedIds;
+        validatedIds.forEach((id) => collectedIds.add(id));
+        if (validatedIds.length > 0) {
+          leafGroups[leafIndex] = {
+            rowIndex: i,
+            segmentIds: validatedIds,
+            geo: { lon: leafSlice.lon, lat: leafSlice.lat, zoom: leafSlice.zoom },
+          };
+        }
+        leafIndex += 1;
       }
 
       if (this.stopIfRequested("after leaf matching", i)) {
         return;
       }
 
-      // --- Select matched segments in WME ------------------------------------
-
-      const ids = Array.from(collectedIds);
-      this.events.onRowMatched?.(i, ids);
-
-      if (this.options.burstMode) {
-        const startISO = `${row.date}T${row.startTime}`;
-        const endISO = `${row.date}T${row.endTime}`;
-        logger.info("MatchingPipeline.runLoop: burst mode auto-validating row", {
-          rowIndex: i,
-          idsCount: ids.length,
-          startISO,
-          endISO,
-        });
-        this.setValidatedGroups(i, rowGroups, ids);
-        this.store.validateRow(i, ids, startISO, endISO);
-        if (this.stopIfRequested("after burst row validation", i)) {
-          return;
-        }
-        continue;
-      }
-
-      try {
-        const loadedSegmentIds = new Set(
-          this.wmeSDK.DataModel.Segments.getAll().map((segment) => segment.id),
-        );
-        const selectableIds = ids.filter((id) => loadedSegmentIds.has(id));
-        const skippedIds = ids.filter((id) => !loadedSegmentIds.has(id));
-
-        if (skippedIds.length > 0) {
-          logger.warn(
-            "MatchingPipeline.runLoop: some matched IDs are not currently loaded; selecting loaded subset",
-            {
-              rowIndex: i,
-              matchedCount: ids.length,
-              selectableCount: selectableIds.length,
-              skippedCount: skippedIds.length,
-              skippedSample: skippedIds.slice(0, 10),
-            },
-          );
-        }
-
-        if (selectableIds.length === 0) {
-          logger.warn(
-            "MatchingPipeline.runLoop: no matched IDs currently loaded; skipping WME selection",
-            {
-              rowIndex: i,
-              matchedCount: ids.length,
-            },
-          );
-          this.events.onError?.(
-            "Aucun segment de cette ligne n'est chargé dans la vue courante. Déplacez la carte puis validez/corrigez manuellement.",
-          );
-        } else {
-          logger.info("MatchingPipeline.runLoop: setting WME selection", {
-            rowIndex: i,
-            idsCount: ids.length,
-            selectableCount: selectableIds.length,
-            idsSample: selectableIds.slice(0, 10),
-          });
-          this.wmeSDK.Editing.setSelection({
-            selection: { ids: selectableIds, objectType: "segment" },
-          });
-          logger.info("MatchingPipeline.runLoop: WME selection set", {
-            rowIndex: i,
-            selectableCount: selectableIds.length,
-          });
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        logger.warn(`MatchingPipeline: setSelection failed for row ${i}: ${message}`);
-        this.events.onError?.(message);
-        // Continue — the user may still manually correct the selection before validating.
-      }
-
-      logger.info("MatchingPipeline.runLoop: waiting for user validation", {
-        rowIndex: i,
-        idsCount: ids.length,
-      });
-      this.events.onStep?.({ key: "waitingValidation", rowIndex: i });
-
-      // --- Wait for user to click Validate -----------------------------------
-
-      const action = await this.waitForValidate();
-      logger.info("MatchingPipeline.runLoop: row action resolved", {
-        rowIndex: i,
-        action,
-      });
-      if (action === "abort") {
-        // Abort was requested while waiting for the user
-        this.trackLayer.setHighlightedSlice(null);
-        this.events.onAborted?.();
-        this.running = false;
-        return;
-      }
-
-      if (action === "pause") {
-        this.trackLayer.setHighlightedSlice(null);
-        this.events.onPaused?.();
-        this.paused = true;
-        this.running = false;
-        return;
-      }
-
-      if (action === "back") {
+      if (backToPreviousRow) {
         const restartIndex = Math.max(0, i - 1);
         logger.info("MatchingPipeline.runLoop: rewinding to previous row", {
           rowIndex: i,
@@ -510,59 +570,66 @@ export class MatchingPipeline {
         continue;
       }
 
-      const finalSegmentIds =
-        action === "skip"
-          ? []
-          : (() => {
-              // Read the CURRENT WME selection at validate time (not the auto-selected
-              // ids from matching): the user may have corrected the selection manually.
-              const selection = this.wmeSDK.Editing.getSelection();
-              if (selection === null || selection.objectType !== "segment") {
-                return ids;
-              }
+      const ids = Array.from(collectedIds);
+      this.events.onRowMatched?.(i, ids);
 
-              const loadedSegmentIds = new Set(
-                this.wmeSDK.DataModel.Segments.getAll().map((segment) => segment.id),
-              );
-              const selectedIds = selection.ids as number[];
-              const detectedButUnloadedIds = ids.filter((id) => !loadedSegmentIds.has(id));
-
-              return Array.from(new Set([...selectedIds, ...detectedButUnloadedIds]));
-            })();
+      const finalSegmentIds = leafValidatedIds.flatMap((entry) => entry ?? []);
+      const dedupedFinalIds = Array.from(new Set(finalSegmentIds));
+      const validatedRowGroups = leafGroups.filter(
+        (group): group is ClosureRowGroup => group !== null,
+      );
 
       const startISO = `${row.date}T${row.startTime}`;
       const endISO = `${row.date}T${row.endTime}`;
       logger.info("MatchingPipeline.runLoop: persisting validated row", {
         rowIndex: i,
-        finalSegmentCount: finalSegmentIds.length,
+        finalSegmentCount: dedupedFinalIds.length,
+        leafCount: leafSlices.length,
         startISO,
         endISO,
       });
-      this.setValidatedGroups(i, rowGroups, finalSegmentIds);
-      this.store.validateRow(i, finalSegmentIds, startISO, endISO);
+      this.setValidatedGroups(i, validatedRowGroups);
+      this.store.validateRow(i, dedupedFinalIds, startISO, endISO);
+
+      if (this.options.burstMode && this.stopIfRequested("after burst row validation", i)) {
+        return;
+      }
     }
 
     logger.info("MatchingPipeline.runLoop: completed all rows");
     this.trackLayer.setHighlightedSlice(null);
-    this.events.onDone?.();
+    // Clear the WME selection so the operator returns to a clean map view and
+    // the script panel can present its post-matching controls (download, etc.)
+    // without lingering segment highlights from the last leaf.
+    try {
+      this.wmeSDK.Editing.setSelection({
+        selection: { ids: [], objectType: "segment" },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn(`MatchingPipeline: clearing selection on done failed: ${message}`);
+    }
     this.running = false;
+    this.events.onDone?.();
   }
 
   private stopIfRequested(location: string, rowIndex: number): boolean {
     if (this.abortRequested) {
       logger.info(`MatchingPipeline: aborted ${location}`, { rowIndex });
       this.trackLayer.setHighlightedSlice(null);
-      this.events.onAborted?.();
+      // Update internal state BEFORE emitting the event so handlers reading
+      // isRunning()/isPaused() observe the post-stop state.
       this.running = false;
+      this.events.onAborted?.();
       return true;
     }
 
     if (this.pauseRequested) {
       logger.info(`MatchingPipeline: paused ${location}`, { rowIndex });
       this.trackLayer.setHighlightedSlice(null);
-      this.events.onPaused?.();
       this.paused = true;
       this.running = false;
+      this.events.onPaused?.();
       return true;
     }
 
@@ -594,7 +661,7 @@ export class MatchingPipeline {
     });
 
     while (tailBuffer.length > 0) {
-      if (this.abortRequested) {
+      if (this.abortRequested || this.pauseRequested) {
         break;
       }
 
@@ -612,16 +679,8 @@ export class MatchingPipeline {
         break;
       }
 
-      logger.info("MatchingPipeline.planLeafSlices: inspecting pending slice", {
-        pendingSlice,
-        remainingTailCount: tailBuffer.length,
-      });
-
       const fittedSlice = await this.fitPendingSlice(rowIndex, pendingSlice, tailBuffer);
       if (fittedSlice === null) {
-        logger.warn("MatchingPipeline.planLeafSlices: dropping empty or invalid pending slice", {
-          pendingSlice,
-        });
         this.events.onStep?.({
           key: "sliceDropped",
           rowIndex,
@@ -645,8 +704,11 @@ export class MatchingPipeline {
     tailBuffer: PendingSlice[],
   ): Promise<ViewSlice | null> {
     let currentKmA = pendingSlice.kmA;
-    let currentKmB = pendingSlice.kmB;
-    let currentGeometry = sliceMultiLineByDistance(this.track.geometry, currentKmA, currentKmB);
+    let currentGeometry = sliceMultiLineByDistance(
+      this.track.geometry,
+      currentKmA,
+      pendingSlice.kmB,
+    );
 
     const enqueueRemainingTail = (acceptedKmB: number): void => {
       if (pendingSlice.kmB - acceptedKmB <= VIEW_SLICE_EPSILON_KM) {
@@ -660,25 +722,17 @@ export class MatchingPipeline {
     };
 
     while (currentGeometry.coordinates.length > 0) {
+      if (this.abortRequested || this.pauseRequested) {
+        return null;
+      }
       const candidateSlice = await this.evaluateLeafSlice(currentKmA, currentGeometry);
       if (candidateSlice === null) {
         return null;
       }
 
-      logger.info("MatchingPipeline.fitPendingSlice: evaluated candidate", {
-        kmA: currentKmA,
-        kmB: currentKmB,
-        zoom: candidateSlice.zoom,
-        remainingTailCount: tailBuffer.length,
-      });
-
       const fitsAtTargetZoom = candidateSlice.zoom >= MIN_BBOX_ZOOM;
       const spanKm = candidateSlice.kmB - currentKmA;
       if (fitsAtTargetZoom) {
-        logger.info("MatchingPipeline.fitPendingSlice: accepted fitting leaf slice", {
-          candidateSlice,
-          remainingTailCount: tailBuffer.length,
-        });
         enqueueRemainingTail(candidateSlice.kmB);
         this.events.onStep?.({
           key: "sliceAccepted",
@@ -713,21 +767,7 @@ export class MatchingPipeline {
         return candidateSlice;
       }
 
-      const trimmedGeometry = trimTrailingCoordinate(currentGeometry);
-      if (trimmedGeometry === null) {
-        logger.warn(
-          "MatchingPipeline.fitPendingSlice: cannot trim trailing coordinate further; accepting current slice",
-          {
-            candidateSlice,
-            remainingTailCount: tailBuffer.length,
-          },
-        );
-        enqueueRemainingTail(candidateSlice.kmB);
-        return candidateSlice;
-      }
-
-      const trimmedLengthKm = multiLineLengthKm(trimmedGeometry);
-      const headKmB = currentKmA + trimmedLengthKm;
+      const headKmB = currentKmA + spanKm * VIEW_SLICE_HEAD_RATIO;
       const tailKmA = headKmB;
       const tailKmB = pendingSlice.kmB;
 
@@ -743,13 +783,19 @@ export class MatchingPipeline {
         return candidateSlice;
       }
 
-      logger.info("MatchingPipeline.fitPendingSlice: moved tail to buffer", {
-        keptKmA: currentKmA,
-        keptKmB: headKmB,
-        bufferedTail: { kmA: tailKmA, kmB: tailKmB },
-        removedCoordinateCount: 1,
-        remainingTailCount: tailBuffer.length,
-      });
+      const headGeometry = sliceMultiLineByDistance(this.track.geometry, currentKmA, headKmB);
+      if (headGeometry.coordinates.length === 0) {
+        logger.warn(
+          "MatchingPipeline.fitPendingSlice: split produced empty head; accepting current slice",
+          {
+            candidateSlice,
+            remainingTailCount: tailBuffer.length,
+          },
+        );
+        enqueueRemainingTail(candidateSlice.kmB);
+        return candidateSlice;
+      }
+
       this.events.onStep?.({
         key: "splitTail",
         rowIndex,
@@ -762,8 +808,7 @@ export class MatchingPipeline {
         },
       });
 
-      currentKmB = headKmB;
-      currentGeometry = trimmedGeometry;
+      currentGeometry = headGeometry;
     }
 
     return null;
@@ -773,7 +818,7 @@ export class MatchingPipeline {
     kmA: number,
     geometry: import("geojson").MultiLineString,
   ): Promise<ViewSlice | null> {
-    if (this.abortRequested) {
+    if (this.abortRequested || this.pauseRequested) {
       return null;
     }
 
@@ -831,36 +876,17 @@ export class MatchingPipeline {
 
   private setValidatedGroups(
     rowIndex: number,
-    detectedGroups: readonly ClosureRowGroup[],
-    finalSegmentIds: readonly number[],
+    validatedGroups: readonly ClosureRowGroup[],
   ): void {
-    const selectedIds = new Set(finalSegmentIds);
-    const validatedGroups = detectedGroups
-      .map((group) => ({
+    this.removeGroupsFromRow(rowIndex);
+    for (const group of validatedGroups) {
+      if (group.segmentIds.length === 0) continue;
+      this.matchedGroups.push({
         rowIndex,
-        segmentIds: group.segmentIds.filter((id) => selectedIds.has(id)),
+        segmentIds: group.segmentIds.slice(),
         geo: group.geo,
-      }))
-      .filter((group) => group.segmentIds.length > 0);
-
-    const assignedIds = new Set(validatedGroups.flatMap((group) => group.segmentIds));
-    const extraIds = finalSegmentIds.filter((id) => !assignedIds.has(id));
-
-    if (extraIds.length > 0) {
-      const fallbackGeo = detectedGroups[detectedGroups.length - 1]?.geo ?? {
-        lon: 0,
-        lat: 0,
-        zoom: MIN_BBOX_ZOOM,
-      };
-      validatedGroups.push({
-        rowIndex,
-        segmentIds: extraIds,
-        geo: fallbackGeo,
       });
     }
-
-    this.removeGroupsFromRow(rowIndex);
-    this.matchedGroups.push(...validatedGroups);
     this.matchedGroups.sort((left, right) => left.rowIndex - right.rowIndex);
   }
 }

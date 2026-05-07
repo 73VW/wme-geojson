@@ -118,9 +118,12 @@
       "validate": "Validate",
       "skip": "Skip row",
       "back": "Back",
+      "reselectMatched": "Reselect matched",
+      "rerunCurrentRow": "Rerun row",
       "burstRunning": "Burst mode: matched segments are auto-validated.",
       "pause": "Pause",
       "resume": "Resume",
+      "closePanel": "Close",
       "restartFromScratch": "Restart from scratch",
       "restartConfirm": "All matched segments will be lost. Restart from scratch?",
       "copyDebugJson": "Copy debug JSON",
@@ -139,7 +142,9 @@
         "planningDone": "{{count}} sub-line(s) ready",
         "processingLeaf": "Matching sub-line {{index}}/{{total}} ({{kmA}} → {{kmB}} km)",
         "leafMatched": "Sub-line {{index}}/{{total}} matched: {{count}} segment(s)",
-        "waitingValidation": "Waiting for your validation/corrections",
+        "waitingLeafValidation": "Sub-line {{index}}/{{total}} — validate or correct selection",
+        "completedSummary": "Matching complete: {{rowsValidated}} row(s) validated, {{totalSegments}} segment(s) selected. You can now download the closures file.",
+        "pauseFinalizingStep": "Finalizing the current step before pausing…",
         "unknown": "Pipeline step"
       }
     },

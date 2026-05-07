@@ -1,28 +1,26 @@
 /**
  * waitForMapIdle — resolves when WME has finished loading map data.
  *
- * Strategy (mirrors WME-Switzerland-Helper's pattern):
+ * Strategy:
  *  1. Poll State.isMapLoading() every POLL_INTERVAL_MS until it returns false.
- *  2. After loading completes, wait one extra SHORT_SETTLE_MS tick to allow the
- *     wme-map-data-loaded event to propagate and segment data to stabilise.
+ *  2. Listen for wme-map-data-loaded and require a quiet settle window after
+ *     the last observed map-data event while isMapLoading() remains false.
  *  3. A hard timeout (default 10 s) causes the promise to resolve anyway so
  *     the walk loop never hangs — the current cell's segment data may be
  *     incomplete but the walk continues.
- *
- * Note: State.isMapLoading() exists in wme-sdk-typings (index.d.ts line 4570)
- * so we use it exclusively.  The wme-map-data-loaded event is used as a
- * secondary settle hint rather than the primary mechanism.
  */
 import type { WmeSDK } from "wme-sdk-typings";
 import { logger } from "./logger";
 
 const POLL_INTERVAL_MS = 100;
-const SETTLE_DELAY_MS = 150;
+const DEFAULT_SETTLE_DELAY_MS = 150;
 const DEFAULT_TIMEOUT_MS = 10_000;
 
 export interface WaitForMapIdleOptions {
   /** Maximum time to wait in ms before resolving anyway. Default 10 000. */
   timeoutMs?: number;
+  /** Quiet delay after WME reports idle and the last map-data-loaded event. Default 150. */
+  settleDelayMs?: number;
 }
 
 /**
@@ -31,14 +29,23 @@ export interface WaitForMapIdleOptions {
  */
 export function waitForMapIdle(wmeSDK: WmeSDK, opts: WaitForMapIdleOptions = {}): Promise<void> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const settleDelayMs = opts.settleDelayMs ?? DEFAULT_SETTLE_DELAY_MS;
 
   return new Promise<void>((resolve) => {
     const startedAt = Date.now();
     let settled = false;
+    let settleTimer: ReturnType<typeof setTimeout> | null = null;
+    let unsubscribeMapDataLoaded: (() => void) | null = null;
 
     function done(reason: "loaded" | "timeout"): void {
       if (settled) return;
       settled = true;
+      if (settleTimer !== null) {
+        clearTimeout(settleTimer);
+        settleTimer = null;
+      }
+      unsubscribeMapDataLoaded?.();
+      unsubscribeMapDataLoaded = null;
       if (reason === "timeout") {
         logger.warn("waitForMapIdle: timed out after", timeoutMs, "ms — continuing anyway");
       }
@@ -47,6 +54,43 @@ export function waitForMapIdle(wmeSDK: WmeSDK, opts: WaitForMapIdleOptions = {})
 
     // Hard timeout — always resolves so the walk loop keeps going.
     const timeoutId = setTimeout(() => done("timeout"), timeoutMs);
+
+    const scheduleSettleCheck = (): void => {
+      if (settled) return;
+      if (settleTimer !== null) {
+        clearTimeout(settleTimer);
+      }
+
+      settleTimer = setTimeout(() => {
+        settleTimer = null;
+        if (settled) return;
+        if (wmeSDK.State.isMapLoading()) {
+          poll();
+          return;
+        }
+        clearTimeout(timeoutId);
+        done("loaded");
+      }, settleDelayMs);
+    };
+
+    const eventsApi = (wmeSDK as unknown as {
+      Events?: {
+        on?: (args: { eventName: string; eventHandler: () => void }) => () => void;
+      };
+    }).Events;
+    try {
+      unsubscribeMapDataLoaded =
+        eventsApi?.on?.({
+          eventName: "wme-map-data-loaded",
+          eventHandler: () => {
+            if (!wmeSDK.State.isMapLoading()) {
+              scheduleSettleCheck();
+            }
+          },
+        }) ?? null;
+    } catch (err) {
+      logger.warn("waitForMapIdle: failed to subscribe to wme-map-data-loaded", err);
+    }
 
     function poll(): void {
       if (settled) return;
@@ -60,11 +104,9 @@ export function waitForMapIdle(wmeSDK: WmeSDK, opts: WaitForMapIdleOptions = {})
 
       const loading = wmeSDK.State.isMapLoading();
       if (!loading) {
-        // Map finished loading — give it a brief settle before resolving.
-        setTimeout(() => {
-          clearTimeout(timeoutId);
-          done("loaded");
-        }, SETTLE_DELAY_MS);
+        // Map reports idle. Resolve only after a quiet window; later
+        // wme-map-data-loaded events restart this same settle timer.
+        scheduleSettleCheck();
         return;
       }
 
