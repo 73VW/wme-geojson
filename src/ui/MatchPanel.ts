@@ -169,22 +169,18 @@ export class MatchPanel {
       document.body.appendChild(this.guidedMatchingRow);
     }
 
-    const eventsApi = (this.wmeSDK as unknown as {
-      Events?: {
-        on?: (args: { eventName: string; eventHandler: () => void }) => () => void;
-      };
-    }).Events;
+    const eventsApi = (
+      this.wmeSDK as unknown as {
+        Events?: {
+          on?: (args: { eventName: string; eventHandler: () => void }) => () => void;
+        };
+      }
+    ).Events;
     try {
       this.unsubscribeMapDataLoaded =
         eventsApi?.on?.({
           eventName: "wme-map-data-loaded",
-          eventHandler: () => {
-            logger.info("[match-load-debug] wme-map-data-loaded", {
-              phase: this.store.getState().phase,
-              currentIndex: this.store.getState().currentIndex,
-              isMapLoading: this.wmeSDK.State.isMapLoading(),
-            });
-          },
+          eventHandler: () => {},
         }) ?? null;
     } catch (err) {
       logger.warn("MatchPanel.mount: failed to subscribe to wme-map-data-loaded", err);
@@ -211,6 +207,8 @@ export class MatchPanel {
    * no track was loaded at mount time.
    */
   setController(c: WalkController): void {
+    // Dispose previous controller before replacing (e.g. a second loadAndAttachTrack call)
+    this.controller?.dispose();
     this.controller = c;
 
     // Detach any previous subscription (e.g. a second loadAndAttachTrack call)
@@ -268,6 +266,8 @@ export class MatchPanel {
    * Remove all DOM content and unsubscribe everything.
    */
   unmount(): void {
+    this.controller?.dispose();
+    this.controller = null;
     this.unsubscribeStore?.();
     this.unsubscribeState?.();
     this.unsubscribeMapDataLoaded?.();
@@ -698,10 +698,7 @@ export class MatchPanel {
       variant: "secondary",
       onClick: () => {
         this.pausePending = true;
-        this.setGuidedLoading(
-          true,
-          i18next.t("panel.matching.steps.pauseFinalizingStep"),
-        );
+        this.setGuidedLoading(true, i18next.t("panel.matching.steps.pauseFinalizingStep"));
         this.appendGuidedStep(i18next.t("panel.matching.steps.pauseFinalizingStep"));
         this.pipeline?.pause();
         this.updateGuidedControls();

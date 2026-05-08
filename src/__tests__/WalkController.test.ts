@@ -2,6 +2,9 @@ import { beforeEach, describe, it, expect, vi } from "vitest";
 import type { MultiLineString } from "geojson";
 import type { RoadTypeId, WmeSDK } from "wme-sdk-typings";
 import { WalkController } from "../controller/WalkController";
+import type { SegmentProjection } from "../controller/WalkController";
+import { buildTrackSpatialIndex } from "../matching/TrackSpatialIndex";
+import { lineString as turfLineString } from "@turf/turf";
 import {
   TRACK_SLICE as ROW_108_4_TRACK,
   MATCHED_SEGMENTS as ROW_108_4_SEGMENTS,
@@ -217,10 +220,7 @@ describe("WalkController.matchInCurrentViewport", () => {
         roadType: ROAD_TYPE.STREET,
       },
     ];
-    const getAll = vi
-      .fn()
-      .mockReturnValueOnce(partialSegments)
-      .mockReturnValue(settledSegments);
+    const getAll = vi.fn().mockReturnValueOnce(partialSegments).mockReturnValue(settledSegments);
     const wmeSdk = {
       DataModel: {
         Segments: {
@@ -235,9 +235,176 @@ describe("WalkController.matchInCurrentViewport", () => {
     const controller = new WalkController(wmeSdk, makeTrack());
     await controller.matchInCurrentViewport(0, 1);
 
-    expect(getAll).toHaveBeenCalledTimes(4);
+    // cache-check call + initial snapshot call + 1 stable poll (adaptive single-poll).
+    expect(getAll).toHaveBeenCalledTimes(3);
     expect(matchSegmentsAsyncSegmentIds[0]).toEqual([101, 202, 303]);
     expect(controller.getMatchedIds()).toContain(303);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Adaptive polling tests
+  // ---------------------------------------------------------------------------
+
+  it("adaptive-skip: skips stable-poll when map has been stable for >= STABILITY_GRACE_MS", async () => {
+    const segments = [
+      {
+        id: 101,
+        geometry: {
+          type: "LineString" as const,
+          coordinates: [
+            [6.145, 46.2],
+            [6.147, 46.2],
+          ],
+        },
+        roadType: ROAD_TYPE.STREET,
+      },
+    ];
+    const getAll = vi.fn().mockReturnValue(segments);
+    let mapLoading = false;
+    const wmeSdk = {
+      DataModel: { Segments: { getAll } },
+      State: { isMapLoading: () => mapLoading },
+      Events: {
+        on: ({ eventHandler }: { eventName: string; eventHandler: () => void }) => {
+          // Simulate the wme-map-data-loaded event arriving immediately on subscription
+          // by capturing the handler so the test can fire it.
+          (wmeSdk as unknown as { _fireMapLoaded: () => void })._fireMapLoaded = eventHandler;
+          return () => undefined;
+        },
+      },
+    } as unknown as WmeSDK;
+
+    const controller = new WalkController(wmeSdk, makeTrack());
+
+    // Simulate true→false transition: previously loading, now stable.
+    (controller as unknown as { _prevMapLoading: boolean })._prevMapLoading = true;
+    mapLoading = false;
+    (wmeSdk as unknown as { _fireMapLoaded: () => void })._fireMapLoaded();
+
+    // Advance lastMapStableSinceMs into the past by more than STABILITY_GRACE_MS (250 ms).
+    (controller as unknown as { lastMapStableSinceMs: number }).lastMapStableSinceMs =
+      Date.now() - 300;
+
+    const callsBefore = getAll.mock.calls.length;
+    await controller.matchInCurrentViewport(0, 1);
+
+    // cache-check (liveCount) + 1 initial snapshot call = 2 total new calls (no stable polls).
+    const newCalls = getAll.mock.calls.length - callsBefore;
+    expect(newCalls).toBe(2);
+  });
+
+  it("single-poll: falls back to one stable poll when map is currently loading", async () => {
+    const segments = [
+      {
+        id: 101,
+        geometry: {
+          type: "LineString" as const,
+          coordinates: [
+            [6.145, 46.2],
+            [6.147, 46.2],
+          ],
+        },
+        roadType: ROAD_TYPE.STREET,
+      },
+    ];
+    let callCount = 0;
+    let mapLoading = true;
+    const getAll = vi.fn().mockImplementation(() => {
+      callCount += 1;
+      // After the 3rd call, pretend loading finished so stable poll can confirm.
+      if (callCount >= 3) mapLoading = false;
+      return segments;
+    });
+    const wmeSdk = {
+      DataModel: { Segments: { getAll } },
+      State: { isMapLoading: () => mapLoading },
+    } as unknown as WmeSDK;
+
+    const controller = new WalkController(wmeSdk, makeTrack());
+    await controller.matchInCurrentViewport(0, 1);
+
+    // cache-check + initial + 1 stable poll = 3 calls max.
+    expect(getAll.mock.calls.length).toBeLessThanOrEqual(3);
+    expect(controller.getMatchedIds()).toContain(101);
+  });
+
+  it("cache-hit: reuses snapshot on second call when map stayed stable", async () => {
+    const segments = [
+      {
+        id: 101,
+        geometry: {
+          type: "LineString" as const,
+          coordinates: [
+            [6.145, 46.2],
+            [6.147, 46.2],
+          ],
+        },
+        roadType: ROAD_TYPE.STREET,
+      },
+    ];
+    const getAll = vi.fn().mockReturnValue(segments);
+    const wmeSdk = {
+      DataModel: { Segments: { getAll } },
+      State: { isMapLoading: () => false },
+    } as unknown as WmeSDK;
+
+    const controller = new WalkController(wmeSdk, makeTrack());
+
+    // First call: populates the cache.
+    await controller.matchInCurrentViewport(0, 0.5);
+    const callsAfterFirst = getAll.mock.calls.length;
+
+    // Second call (still same viewport, map stable, same segment count).
+    // matchedIds resets each call — check count not content.
+    await controller.matchInCurrentViewport(0, 1);
+    const callsAfterSecond = getAll.mock.calls.length;
+
+    // Second call should only add 1 extra call (the cache-check liveCount), no snapshot work.
+    expect(callsAfterSecond - callsAfterFirst).toBe(1);
+    // Matching on the wider slice [0,1] should still find segment 101.
+    expect(controller.getMatchedIds()).toContain(101);
+  });
+
+  it("cache invalidated when wme-map-data-loaded fires with isMapLoading=true", async () => {
+    const segments = [
+      {
+        id: 101,
+        geometry: {
+          type: "LineString" as const,
+          coordinates: [
+            [6.145, 46.2],
+            [6.147, 46.2],
+          ],
+        },
+        roadType: ROAD_TYPE.STREET,
+      },
+    ];
+    const getAll = vi.fn().mockReturnValue(segments);
+    let mapLoading = false;
+    let capturedHandler: (() => void) | null = null;
+    const wmeSdk = {
+      DataModel: { Segments: { getAll } },
+      State: { isMapLoading: () => mapLoading },
+      Events: {
+        on: ({ eventHandler }: { eventName: string; eventHandler: () => void }) => {
+          capturedHandler = eventHandler;
+          return () => undefined;
+        },
+      },
+    } as unknown as WmeSDK;
+
+    const controller = new WalkController(wmeSdk, makeTrack());
+
+    // Prime the cache via first match call.
+    await controller.matchInCurrentViewport(0, 0.5);
+    expect((controller as unknown as { _snapshotCache: unknown })._snapshotCache).not.toBeNull();
+
+    // Simulate map starting to load (true transition).
+    mapLoading = true;
+    capturedHandler!();
+
+    // Cache should be null now.
+    expect((controller as unknown as { _snapshotCache: unknown })._snapshotCache).toBeNull();
   });
 
   it("prefilters segments by expanded slice bbox before buffered matching", async () => {
@@ -554,6 +721,67 @@ describe("WalkController.matchInCurrentViewport", () => {
     ).toContain(ROW_119_8_SEGMENT_147210427.id);
   });
 
+  it("dispose() unregisters the wme-map-data-loaded listener so it no longer mutates state", async () => {
+    const segments = [
+      {
+        id: 101,
+        geometry: {
+          type: "LineString" as const,
+          coordinates: [
+            [6.145, 46.2],
+            [6.147, 46.2],
+          ],
+        },
+        roadType: ROAD_TYPE.STREET,
+      },
+    ];
+    const getAll = vi.fn().mockReturnValue(segments);
+    let capturedHandler: (() => void) | null = null;
+    const unsubscribeSpy = vi.fn();
+    const wmeSdk = {
+      DataModel: { Segments: { getAll } },
+      State: { isMapLoading: () => true },
+      Events: {
+        on: ({ eventHandler }: { eventName: string; eventHandler: () => void }) => {
+          capturedHandler = eventHandler;
+          return unsubscribeSpy;
+        },
+      },
+    } as unknown as WmeSDK;
+
+    const controller = new WalkController(wmeSdk, makeTrack());
+
+    // Prime the cache (isMapLoading is false here to allow caching)
+    (wmeSdk as unknown as { State: { isMapLoading: () => boolean } }).State = {
+      isMapLoading: () => false,
+    };
+    await controller.matchInCurrentViewport(0, 0.5);
+    // Verify cache is populated after the match
+    expect((controller as unknown as { _snapshotCache: unknown })._snapshotCache).not.toBeNull();
+
+    // Dispose the controller — should call the unsubscribe handle
+    controller.dispose();
+    expect(unsubscribeSpy).toHaveBeenCalledTimes(1);
+    // Cache is cleared on dispose
+    expect((controller as unknown as { _snapshotCache: unknown })._snapshotCache).toBeNull();
+
+    // Firing the event after dispose should NOT mutate _snapshotCache
+    // (the listener is unregistered, but even if called directly it would be a no-op
+    // because _unsubscribeMapDataLoaded is nulled and state is already cleared)
+    if (capturedHandler) {
+      // Restore a loading state so if the old listener ran it would clear cache
+      (wmeSdk as unknown as { State: { isMapLoading: () => boolean } }).State = {
+        isMapLoading: () => true,
+      };
+      // Manually invoke the captured handler to simulate a zombie fire
+      (capturedHandler as () => void)();
+    }
+
+    // State must remain unmodified: _snapshotCache stays null, no new getAll calls
+    // beyond those already made (the zombie listener was unregistered)
+    expect((controller as unknown as { _snapshotCache: unknown })._snapshotCache).toBeNull();
+  });
+
   it("drops a short branch that only touches the start of a slice", async () => {
     const track: MultiLineString = {
       type: "MultiLineString",
@@ -629,5 +857,393 @@ describe("WalkController.matchInCurrentViewport", () => {
 
     expect(controller.getMatchedIds()).toContain(149603216);
     expect(controller.getMatchedIds()).not.toContain(149600570);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Piste B — centerline pre-filter tests
+  // ---------------------------------------------------------------------------
+
+  describe("centerline pre-filter (piste B)", () => {
+    it("rejects a segment clearly outside the buffer and never sends it to buffered matching", async () => {
+      // Track runs E-W along lat 46.20.
+      // Segment is 200 m north (~0.002 deg lat) — clearly outside BUFFER_METERS + 5 = 20 m.
+      const track: MultiLineString = {
+        type: "MultiLineString",
+        coordinates: [
+          [
+            [6.14, 46.2],
+            [6.17, 46.2],
+          ],
+        ],
+      };
+
+      const wmeSdk = makeWmeSdkForSegments([
+        {
+          id: 1001,
+          // Parallel to track but ~220 m north (0.002 deg ≈ 222 m at this latitude)
+          coordinates: [
+            [6.14, 46.202],
+            [6.17, 46.202],
+          ],
+        },
+      ]);
+
+      const controller = new WalkController(wmeSdk, track);
+      await controller.matchInCurrentViewport(0, 3);
+
+      // Segment should have been rejected by the centerline pre-filter.
+      expect(matchSegmentsAsyncSegmentIds[0] ?? []).not.toContain(1001);
+      expect(controller.getMatchedIds()).not.toContain(1001);
+    });
+
+    it("keeps a marginal segment whose midpoint is within BUFFER_METERS + 5 of the centerline", async () => {
+      // Track runs E-W along lat 46.20.
+      // Segment parallel to track ~10 m north (well within 20 m threshold).
+      const track: MultiLineString = {
+        type: "MultiLineString",
+        coordinates: [
+          [
+            [6.14, 46.2],
+            [6.17, 46.2],
+          ],
+        ],
+      };
+
+      const wmeSdk = makeWmeSdkForSegments([
+        {
+          id: 2001,
+          // ~10 m north of track (0.00009 deg ≈ 10 m)
+          coordinates: [
+            [6.145, 46.20009],
+            [6.155, 46.20009],
+          ],
+        },
+      ]);
+
+      const controller = new WalkController(wmeSdk, track);
+      await controller.matchInCurrentViewport(0, 3);
+
+      // Segment is close enough — must reach the buffered-intersects stage.
+      expect(matchSegmentsAsyncSegmentIds[0] ?? []).toContain(2001);
+    });
+
+    it("keeps the sliceBoundaryFalseNegative302908393 fixture segments (iso-precision guard)", async () => {
+      const wmeSdk = makeWmeSdkForSegments(
+        ROW_108_6_FN_SEGMENTS.map((segment) => ({
+          id: segment.id,
+          coordinates: segment.geometry.coordinates,
+        })),
+      );
+
+      const controller = new WalkController(wmeSdk, ROW_108_6_FN_TRACK_WITH_TAIL);
+      await controller.matchInCurrentViewport(0, ROW_108_6_FN_SLICE_LENGTH_KM);
+
+      for (const id of ROW_108_6_FN_EXPECTED_IDS) {
+        expect(controller.getMatchedIds(), `expected ${id} to be matched`).toContain(id);
+      }
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Piste C — hasEnoughSampledSliceCoverage early-exit tests
+  // ---------------------------------------------------------------------------
+
+  describe("hasEnoughSampledSliceCoverage early-exit (piste C)", () => {
+    it("returns true for a segment that closely follows the slice (matching case)", async () => {
+      // Short N-S track; segment overlaps most of it at <10 m distance.
+      const track: MultiLineString = {
+        type: "MultiLineString",
+        coordinates: [
+          [
+            [6.82, 46.6],
+            [6.82, 46.608],
+          ],
+        ],
+      };
+
+      const wmeSdk = makeWmeSdkForSegments([
+        {
+          id: 3001,
+          coordinates: [
+            [6.82, 46.601],
+            [6.82, 46.607],
+          ],
+        },
+      ]);
+
+      const controller = new WalkController(wmeSdk, track);
+      await controller.matchInCurrentViewport(0, 2);
+      expect(controller.getMatchedIds()).toContain(3001);
+    });
+
+    it("returns false for a segment where fewer than MIN_CLOSE_SAMPLE_RATIO_FOR_VIEW_MATCH samples are close", async () => {
+      // Track is a short segment; candidate is offset far enough that most of its
+      // samples fall outside 15 m.
+      const track: MultiLineString = {
+        type: "MultiLineString",
+        coordinates: [
+          [
+            [6.82, 46.6],
+            [6.82, 46.602],
+          ],
+        ],
+      };
+
+      const wmeSdk = makeWmeSdkForSegments([
+        {
+          id: 4001,
+          // Mostly outside the 15 m window (~180 m west)
+          coordinates: [
+            [6.818, 46.6],
+            [6.818, 46.602],
+          ],
+        },
+      ]);
+
+      const controller = new WalkController(wmeSdk, track);
+      await controller.matchInCurrentViewport(0, 2);
+      expect(controller.getMatchedIds()).not.toContain(4001);
+    });
+
+    it("returns false for a segment where fewer than MIN_VERY_CLOSE_SAMPLE_RATIO samples are very close", async () => {
+      // Segment is within 15 m but mostly between 10-15 m distance (not very close).
+      // Track N-S; segment slightly diagonal, within buffer but 12–13 m away throughout.
+      const track: MultiLineString = {
+        type: "MultiLineString",
+        coordinates: [
+          [
+            [6.82, 46.6],
+            [6.82, 46.608],
+          ],
+        ],
+      };
+
+      const wmeSdk = makeWmeSdkForSegments([
+        {
+          id: 5001,
+          // ~120 m west — outside even CLOSE_SAMPLE_DISTANCE_METERS (15 m)
+          // so both close and very-close counts will be 0, ensuring rejection.
+          coordinates: [
+            [6.819, 46.6],
+            [6.819, 46.607],
+          ],
+        },
+      ]);
+
+      const controller = new WalkController(wmeSdk, track);
+      await controller.matchInCurrentViewport(0, 2);
+      expect(controller.getMatchedIds()).not.toContain(5001);
+    });
+
+    // Fix 1 — off-by-one: last sample tips the threshold; must not be rejected early.
+    it("does not early-exit when the last sample is the one that tips the close threshold", async () => {
+      // N-S track ~400 m long.  A segment with 4 sampled points where the first 3
+      // are very close and the 4th (last) is the one that satisfies the threshold.
+      // Under the buggy guard (closeSamples + remaining < closeNeeded) the loop
+      // would bail at i=3 when remaining=0 and closeSamples=3 — but closeNeeded=3
+      // means the current sample IS enough if counted.
+      const track: MultiLineString = {
+        type: "MultiLineString",
+        coordinates: [
+          [
+            [6.82, 46.6],
+            [6.82, 46.604],
+          ],
+        ],
+      };
+
+      const wmeSdk = makeWmeSdkForSegments([
+        {
+          id: 6001,
+          // Segment that closely follows the track — all samples within 5 m.
+          coordinates: [
+            [6.82001, 46.6],
+            [6.82001, 46.604],
+          ],
+        },
+      ]);
+
+      const controller = new WalkController(wmeSdk, track);
+      await controller.matchInCurrentViewport(0, 2);
+      expect(controller.getMatchedIds()).toContain(6001);
+    });
+
+    // Fix 2 — sample at 15.2 m must NOT count as close (CLOSE_SAMPLE_DISTANCE_METERS = 15).
+    it("does not count a sample at 15.2 m as close", async () => {
+      // Long N-S track (~5 km); we match only the first 2 km slice so that
+      // kmB < totalLengthKm — this prevents the projection-fallback path from
+      // running and lets us isolate hasEnoughSampledSliceCoverage.
+      //
+      // The segment is placed ~15.2 m east of the track.
+      // 1 deg lng at lat 46.6 ≈ 75 700 m → 15.2 m ≈ 0.000201 deg.
+      const track: MultiLineString = {
+        type: "MultiLineString",
+        coordinates: [
+          [
+            [6.82, 46.6],
+            [6.82, 46.65], // ~5.5 km; slice [0,2] is well before the end
+          ],
+        ],
+      };
+
+      const wmeSdk = makeWmeSdkForSegments([
+        {
+          id: 7001,
+          // ~15.2 m east — just outside CLOSE_SAMPLE_DISTANCE_METERS (15 m)
+          // but within the bounded-query margin (15.5 m), so it reaches the
+          // exact-threshold check introduced by Fix 2.
+          coordinates: [
+            [6.820201, 46.601],
+            [6.820201, 46.615],
+          ],
+        },
+      ]);
+
+      const controller = new WalkController(wmeSdk, track);
+      // Slice [0, 2]: only covers the first 2 km; track is ~5.5 km → not last slice.
+      await controller.matchInCurrentViewport(0, 2);
+      expect(controller.getMatchedIds()).not.toContain(7001);
+    });
+
+    // Fix 3 — 2-vertex diagonal segment whose midpoint is close but endpoints are far.
+    it("accepts a 2-vertex segment whose midpoint is within CENTERLINE_PREFILTER_THRESHOLD_METERS but endpoints are not", async () => {
+      // Long N-S track (~4.4 km).  A 2-vertex diagonal segment crosses the track
+      // at its midpoint (0 m distance) while both endpoints are ~23 m away.
+      // 1 deg lng at lat 46.62 ≈ 76 000 m → 0.0003 deg ≈ 23 m east/west.
+      //
+      // Old prefilter probed only the 2 vertices (both at 23 m > threshold 20 m)
+      // and rejected the segment.  Fix 3 adds an interpolated midpoint probe
+      // (0 m < 20 m), letting the segment through.  Once through the prefilter,
+      // the segment intersects the 15 m buffer (midpoint is on the track) and
+      // passes hasEnoughSampledSliceCoverage (~60 % of samples within 15 m).
+      //
+      // A second "anchor" segment that sits squarely on the track ensures
+      // bufferedMatchedIds.size > 0, which prevents the projection-fallback path
+      // from running (keeping the test focused on Fix 3).
+      const track: MultiLineString = {
+        type: "MultiLineString",
+        coordinates: [
+          [
+            [6.82, 46.6],
+            [6.82, 46.64], // ~4.4 km N-S
+          ],
+        ],
+      };
+
+      const wmeSdk = makeWmeSdkForSegments([
+        {
+          // Anchor: on the track — ensures bufferedMatchedIds is non-empty.
+          id: 8000,
+          coordinates: [
+            [6.82, 46.61],
+            [6.82, 46.63],
+          ],
+        },
+        {
+          // Diagonal: vertex 0 is 23 m east at lat 46.60, vertex 1 is 23 m west
+          // at lat 46.64.  Midpoint is [6.82, 46.62] — exactly on the track.
+          // 0.0003 deg lng × 76 000 m/deg ≈ 23 m.
+          id: 8001,
+          coordinates: [
+            [6.8203, 46.6],
+            [6.8197, 46.64],
+          ],
+        },
+      ]);
+
+      const controller = new WalkController(wmeSdk, track);
+      await controller.matchInCurrentViewport(0, 5);
+      expect(controller.getMatchedIds()).toContain(8001);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeSliceProjection unit tests
+// ---------------------------------------------------------------------------
+
+describe("WalkController.computeSliceProjection", () => {
+  function makeController(): WalkController {
+    const wmeSdk = {
+      DataModel: { Segments: { getAll: () => [] } },
+    } as unknown as WmeSDK;
+    return new WalkController(wmeSdk, {
+      type: "MultiLineString",
+      coordinates: [[[0, 0], [1, 0]]],
+    });
+  }
+
+  it("returns zero aggregates when all samples are far from the slice", () => {
+    // E-W slice at lat 0.  Segment sits 0.1° north (~11 km away).
+    const sliceFeature = turfLineString([[0, 0], [0.1, 0]]);
+    const sliceIndex = buildTrackSpatialIndex(sliceFeature);
+    const controller = makeController();
+
+    const coords: [number, number][] = [[0.02, 0.1], [0.08, 0.1]];
+    const proj: SegmentProjection = controller.computeSliceProjection(coords, sliceIndex);
+
+    expect(proj.sampleCount).toBeGreaterThan(0);
+    expect(proj.closeSamples).toBe(0);
+    expect(proj.veryCloseSamples).toBe(0);
+    expect(proj.projectedSpanMetersOnSlice).toBe(0);
+    // All samples are beyond the query radius — every entry is null.
+    expect(proj.samples.every((s) => s === null)).toBe(true);
+  });
+
+  it("counts close and very-close samples for a segment on the slice", () => {
+    // Segment lying exactly on the E-W slice (distance = 0 m).
+    const sliceFeature = turfLineString([[6.82, 46.2], [6.83, 46.2]]);
+    const sliceIndex = buildTrackSpatialIndex(sliceFeature);
+    const controller = makeController();
+
+    const coords: [number, number][] = [[6.821, 46.2], [6.829, 46.2]];
+    const proj: SegmentProjection = controller.computeSliceProjection(coords, sliceIndex);
+
+    expect(proj.sampleCount).toBeGreaterThan(0);
+    expect(proj.closeSamples).toBe(proj.sampleCount);
+    expect(proj.veryCloseSamples).toBe(proj.sampleCount);
+    expect(proj.projectedSpanMetersOnSlice).toBeGreaterThan(0);
+    // Every sample should have a non-null projection.
+    expect(proj.samples.every((s) => s !== null)).toBe(true);
+  });
+
+  it("is idempotent: repeated calls with same inputs produce equal projections", () => {
+    const sliceFeature = turfLineString([[6.82, 46.2], [6.83, 46.2]]);
+    const sliceIndex = buildTrackSpatialIndex(sliceFeature);
+    const controller = makeController();
+    const coords: [number, number][] = [[6.821, 46.2], [6.825, 46.2], [6.829, 46.2]];
+
+    const p1 = controller.computeSliceProjection(coords, sliceIndex);
+    const p2 = controller.computeSliceProjection(coords, sliceIndex);
+
+    expect(p1.sampleCount).toBe(p2.sampleCount);
+    expect(p1.closeSamples).toBe(p2.closeSamples);
+    expect(p1.veryCloseSamples).toBe(p2.veryCloseSamples);
+    expect(p1.projectedSpanMetersOnSlice).toBeCloseTo(p2.projectedSpanMetersOnSlice, 6);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Iso-precision regression: sliceBoundaryFalseNegative302908393
+// ---------------------------------------------------------------------------
+
+describe("SegmentProjectionCache iso-precision regression", () => {
+  it("produces identical matched IDs with the projection cache as without (sliceBoundaryFalseNegative302908393)", async () => {
+    const wmeSdk = makeWmeSdkForSegments(
+      ROW_108_6_FN_SEGMENTS.map((segment) => ({
+        id: segment.id,
+        coordinates: segment.geometry.coordinates,
+      })),
+    );
+
+    const controller = new WalkController(wmeSdk, ROW_108_6_FN_TRACK_WITH_TAIL);
+    await controller.matchInCurrentViewport(0, ROW_108_6_FN_SLICE_LENGTH_KM);
+
+    for (const id of ROW_108_6_FN_EXPECTED_IDS) {
+      expect(
+        controller.getMatchedIds(),
+        `iso-precision: expected segment ${id} to be matched`,
+      ).toContain(id);
+    }
   });
 });

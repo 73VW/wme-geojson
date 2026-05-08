@@ -15,9 +15,7 @@ import {
   booleanPointInPolygon,
   length as turfLength,
   lineString,
-  nearestPointOnLine,
   point,
-  pointToLineDistance,
 } from "@turf/turf";
 import type {
   Feature,
@@ -29,6 +27,7 @@ import type {
   Position,
 } from "geojson";
 import type { MatchArgs } from "./types";
+import { buildTrackSpatialIndex, type TrackSpatialIndex } from "./TrackSpatialIndex";
 
 export interface MatchSegmentsAsyncOptions {
   chunkSize?: number;
@@ -59,14 +58,8 @@ const SHORT_SPUR_CLUSTER_MAX_LENGTH_METERS = 20;
 const SHORT_SPUR_CLUSTER_MAX_PROJECTED_SPAN_METERS = 4;
 const SHORT_SPUR_CLUSTER_MIN_BEARING_DELTA_DEG = 70;
 
-interface TrackEdge {
-  line: Feature<LineString>;
-  bearing: number;
-}
-
 interface TrackIndex {
-  feature: Feature<MultiLineString>;
-  edges: TrackEdge[];
+  spatialIndex: TrackSpatialIndex;
 }
 
 interface SegmentAnalysis {
@@ -200,31 +193,23 @@ function buildTrackIndex(track: MultiLineString | null): TrackIndex | null {
     return null;
   }
 
-  const edges: TrackEdge[] = [];
-  for (const coordinates of track.coordinates) {
-    for (let index = 1; index < coordinates.length; index++) {
-      const a = coordinates[index - 1];
-      const b = coordinates[index];
-      if (a[0] === b[0] && a[1] === b[1]) continue;
-      edges.push({
-        line: lineString([a, b]),
-        bearing: normalizeHalfCircleBearing(turfBearing(point(a), point(b))),
-      });
-    }
-  }
-
-  if (edges.length === 0) {
+  const flattened = track.coordinates.flat();
+  if (flattened.length < 2) {
     return null;
   }
 
-  return {
-    feature: {
-      type: "Feature",
-      geometry: track,
-      properties: null,
-    },
-    edges,
+  const flatFeature: Feature<LineString> = {
+    type: "Feature",
+    geometry: lineString(flattened).geometry,
+    properties: null,
   };
+
+  const spatialIndex = buildTrackSpatialIndex(flatFeature);
+  if (spatialIndex.totalLengthMeters === 0) {
+    return null;
+  }
+
+  return { spatialIndex };
 }
 
 function analyzeSegment(
@@ -239,10 +224,10 @@ function analyzeSegment(
     booleanPointInPolygon(sample, bufferedTrack, { ignoreBoundary: false }),
   );
   const projections = samples.map((sample) =>
-    nearestPointOnLine(trackIndex.feature, sample, { units: "meters" }),
+    trackIndex.spatialIndex.nearestEdgeProjectionUnbounded(sample.geometry.coordinates),
   );
-  const distances = projections.map((projection) => projection.properties.dist ?? 0);
-  const locations = projections.map((projection) => projection.properties.location ?? 0);
+  const distances = projections.map((p) => p.distanceMeters);
+  const locations = projections.map((p) => p.locationKm * 1000);
   const projectedStartMeters = Math.min(...locations);
   const projectedEndMeters = Math.max(...locations);
   const projectedSpanMeters = projectedEndMeters - projectedStartMeters;
@@ -259,7 +244,9 @@ function analyzeSegment(
     projectedEndMeters,
     projectedSpanMeters,
     projectedSpanRatio: lengthMeters > 0 ? projectedSpanMeters / lengthMeters : 0,
-    meanBearingDeltaDeg: mean(segmentBearingDeltas(feature.geometry.coordinates, trackIndex)),
+    meanBearingDeltaDeg: mean(
+      segmentBearingDeltas(feature.geometry.coordinates, trackIndex.spatialIndex),
+    ),
   };
 }
 
@@ -387,7 +374,7 @@ function containsInteriorGap(inside: boolean[]): boolean {
   return inside.slice(firstInside, lastInside + 1).some((value) => !value);
 }
 
-function segmentBearingDeltas(coordinates: Position[], trackIndex: TrackIndex): number[] {
+function segmentBearingDeltas(coordinates: Position[], spatialIndex: TrackSpatialIndex): number[] {
   const deltas: number[] = [];
 
   for (let index = 1; index < coordinates.length; index++) {
@@ -397,27 +384,12 @@ function segmentBearingDeltas(coordinates: Position[], trackIndex: TrackIndex): 
 
     const midpoint: Position = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
     const segmentBearing = normalizeHalfCircleBearing(turfBearing(point(a), point(b)));
-    const trackBearing = nearestTrackBearing(midpoint, trackIndex);
+    const projection = spatialIndex.nearestEdgeProjectionUnbounded(midpoint);
+    const trackBearing = normalizeHalfCircleBearing(projection.bearingDeg);
     deltas.push(angleDelta(segmentBearing, trackBearing));
   }
 
   return deltas;
-}
-
-function nearestTrackBearing(coordinate: Position, trackIndex: TrackIndex): number {
-  const pt = point(coordinate);
-  let bestBearing = trackIndex.edges[0].bearing;
-  let bestDistance = Number.POSITIVE_INFINITY;
-
-  for (const edge of trackIndex.edges) {
-    const distanceMeters = pointToLineDistance(pt, edge.line, { units: "meters" });
-    if (distanceMeters < bestDistance) {
-      bestDistance = distanceMeters;
-      bestBearing = edge.bearing;
-    }
-  }
-
-  return bestBearing;
 }
 
 function normalizeHalfCircleBearing(value: number): number {

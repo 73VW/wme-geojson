@@ -18,7 +18,7 @@
  *  onMatchFound   — fires once per newly-matched ID with (id, geometry).
  */
 import type { RoadTypeId, Segment, WmeSDK } from "wme-sdk-typings";
-import type { LineString, MultiLineString, Position } from "geojson";
+import type { Feature, LineString, MultiLineString, Position } from "geojson";
 import {
   buffer as turfBuffer,
   center as turfCenter,
@@ -34,6 +34,7 @@ import { measureViewportAtZ17 } from "../utils/measureViewport";
 import { waitForMapIdle } from "../utils/waitForMapIdle";
 import { planWalk } from "../matching/GridWalker";
 import { matchSegments, matchSegmentsAsync } from "../matching/SegmentMatcher";
+import { buildTrackSpatialIndex, type TrackSpatialIndex } from "../matching/TrackSpatialIndex";
 import { sliceMultiLineByDistance } from "../matching/trackPortions";
 import type { ViewportSizeDeg } from "../matching/viewportSize";
 import type { Cell } from "../matching/types";
@@ -80,6 +81,13 @@ const PAST_BOUNDARY_MIN_VERTICES = 2;
 const PAST_BOUNDARY_MIN_SPAN_METERS = 20;
 const PAST_BOUNDARY_CHAINAGE_EPSILON_KM = 0.001;
 
+/**
+ * Piste B — distance-to-centerline pre-filter.
+ * Reject a segment only when ALL probe points are farther than this from the
+ * slice centerline.  Using BUFFER_METERS + margin keeps this conservative.
+ */
+const CENTERLINE_PREFILTER_THRESHOLD_METERS = BUFFER_METERS + 5;
+
 // Per-view matching can run just after map navigation; when data loading lags,
 // getAll() may transiently return an empty or partial array even though the
 // viewport is valid. Keep a short retry window and log attempts for field
@@ -88,6 +96,8 @@ const MATCH_SEGMENTS_RETRY_TIMEOUT_MS = 2_500;
 const MATCH_SEGMENTS_RETRY_INTERVAL_MS = 150;
 const MATCH_SEGMENTS_STABLE_POLLS = 2;
 const MATCH_COMPUTE_YIELD_EVERY_SEGMENTS = 20;
+/** How long (ms) the map must have been continuously stable before we skip the stable-poll loop. */
+const STABILITY_GRACE_MS = 250;
 
 const EXCLUDED_ROAD_TYPE = {
   WALKING_TRAIL: 5 as RoadTypeId,
@@ -109,13 +119,20 @@ const EXCLUDED_MATCH_ROAD_TYPES = new Set<RoadTypeId>([
   EXCLUDED_ROAD_TYPE.RUNWAY_TAXIWAY,
 ]);
 
-const DIAGNOSTIC_MATCH_SEGMENT_IDS = new Set<number>([207843869, 207845213, 207845214]);
+const DIAGNOSTIC_MATCH_SEGMENT_IDS = new Set<number>();
 
 // ---------------------------------------------------------------------------
 // Subscriber management helper (reused for all three event types)
 // ---------------------------------------------------------------------------
 
 type Callback<T extends unknown[]> = (...args: T) => void;
+
+interface CenterlineFilterMetrics {
+  input: number;
+  rejected: number;
+  kept: number;
+  durationMs: number;
+}
 
 interface SampledSliceMatchMetrics {
   inputSegments: number;
@@ -157,6 +174,22 @@ interface CachedSegmentBBox {
   geometry: LineString;
   bbox: [number, number, number, number];
 }
+
+/**
+ * Per-segment projection data computed once per (slice, segment) pair against the
+ * slice spatial index.  Built lazily by `computeSliceProjection` and stored in a
+ * `SegmentProjectionCache` that lives for the duration of a single slice.
+ */
+export interface SegmentProjection {
+  sampleCount: number;
+  samples: Array<{ distanceMeters: number; locationKm: number; bearingDeg: number } | null>;
+  closeSamples: number;
+  veryCloseSamples: number;
+  projectedSpanMetersOnSlice: number;
+}
+
+/** Keyed by segment id; built once per slice, dropped when the slice completes. */
+export type SegmentProjectionCache = Map<number, SegmentProjection>;
 
 class EventEmitter<T extends unknown[]> {
   private readonly subscribers = new Map<number, Callback<T>>();
@@ -219,6 +252,19 @@ export class WalkController {
   private readonly progressEmitter = new EventEmitter<[number, number, number[]]>();
   private readonly matchFoundEmitter = new EventEmitter<[number, LineString]>();
 
+  /**
+   * Adaptive polling state.
+   * lastMapStableSinceMs — timestamp of the last isMapLoading true→false transition.
+   * Starts at 0 so first call always uses the stable-poll path (conservative).
+   */
+  private lastMapStableSinceMs = 0;
+  /** Whether isMapLoading was true on the previous wme-map-data-loaded event. */
+  private _prevMapLoading = false;
+  /** One-slot snapshot cache for inter-slice reuse. Invalidated when map starts loading. */
+  private _snapshotCache: { segments: Segment[]; count: number } | null = null;
+  /** Cleanup handle for the wme-map-data-loaded subscription. */
+  private _unsubscribeMapDataLoaded: (() => void) | null = null;
+
   constructor(
     private readonly wmeSDK: WmeSDK,
     private readonly track: MultiLineString,
@@ -241,6 +287,45 @@ export class WalkController {
       },
       { units: "kilometers" },
     );
+
+    // Track map stability for adaptive polling.
+    this._subscribeMapDataLoaded();
+  }
+
+  /**
+   * Release all resources held by this controller. Callers must invoke this
+   * when the controller is no longer needed (e.g. new track loaded, panel closed).
+   */
+  dispose(): void {
+    this._unsubscribeMapDataLoaded?.();
+    this._unsubscribeMapDataLoaded = null;
+    this._snapshotCache = null;
+  }
+
+  private _subscribeMapDataLoaded(): void {
+    const eventsApi = (
+      this.wmeSDK as unknown as {
+        Events?: { on?: (args: { eventName: string; eventHandler: () => void }) => () => void };
+      }
+    ).Events;
+    try {
+      this._unsubscribeMapDataLoaded =
+        eventsApi?.on?.({
+          eventName: "wme-map-data-loaded",
+          eventHandler: () => {
+            const loading = this.isMapLoading();
+            if (this._prevMapLoading && !loading) {
+              this.lastMapStableSinceMs = Date.now();
+            }
+            if (loading) {
+              this._snapshotCache = null;
+            }
+            this._prevMapLoading = loading;
+          },
+        }) ?? null;
+    } catch (err) {
+      logger.warn("WalkController: failed to subscribe to wme-map-data-loaded", err);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -440,9 +525,42 @@ export class WalkController {
     }
 
     const matchStartedAt = Date.now();
-    const segmentSnapshot = await this.getSettledSegmentsSnapshot(matchStartedAt);
-    const allSegments = segmentSnapshot.segments;
-    const attempts = segmentSnapshot.attempts;
+
+    // Inter-slice cache: if map has stayed stable and segment count unchanged, reuse snapshot.
+    const liveCount = this.wmeSDK.DataModel.Segments.getAll().length;
+    const cached = this._snapshotCache;
+    const canUseCache =
+      cached !== null && !this.isMapLoading() && liveCount === cached.count && liveCount > 0;
+
+    let allSegments: Segment[];
+    let attempts: number;
+    let snapshotElapsedMs: number;
+    let snapshotMode: string;
+
+    if (canUseCache) {
+      allSegments = cached!.segments;
+      attempts = 0;
+      snapshotElapsedMs = 0;
+      snapshotMode = "cache-hit";
+      logger.info(
+        "[match-load-debug] WalkController.matchInCurrentViewport: cache-hit (reusing snapshot)",
+        {
+          kmA,
+          kmB,
+          count: allSegments.length,
+        },
+      );
+    } else {
+      const segmentSnapshot = await this.getSettledSegmentsSnapshot(matchStartedAt);
+      allSegments = segmentSnapshot.segments;
+      attempts = segmentSnapshot.attempts;
+      snapshotElapsedMs = segmentSnapshot.elapsedMs;
+      snapshotMode = segmentSnapshot.mode;
+      // Update the one-slot cache.
+      if (allSegments.length > 0 && !this.isMapLoading()) {
+        this._snapshotCache = { segments: allSegments, count: allSegments.length };
+      }
+    }
 
     const mapApi = (this.wmeSDK as unknown as { Map?: unknown }).Map as
       | {
@@ -458,7 +576,8 @@ export class WalkController {
       kmB,
       count: allSegments.length,
       attempts,
-      elapsedMs: segmentSnapshot.elapsedMs,
+      elapsedMs: snapshotElapsedMs,
+      mode: snapshotMode,
       zoom,
       extent,
     });
@@ -510,17 +629,60 @@ export class WalkController {
       bboxPrefilterDurationMs,
     });
 
+    // Build the slice spatial index once here — shared by the centerline pre-filter (piste B),
+    // the sampled-coverage stage, and the endpoint filter.
+    const flattenedSliceCoords = slicedTrack.coordinates.flat();
+    const sharedSliceIndex = this.buildSliceIndex(flattenedSliceCoords);
+
+    // Per-slice projection cache: built lazily during the centerline pre-filter and reused by
+    // the sampled-coverage and endpoint-filter stages — eliminates redundant re-projection.
+    const sliceProjectionCache: SegmentProjectionCache = new Map();
+
+    // Piste B — distance-to-centerline pre-filter.
+    // Uses the dense sample projection (cached for downstream reuse).  If ALL dense
+    // samples are beyond CENTERLINE_PREFILTER_THRESHOLD_METERS the segment is too far
+    // from the track centerline to ever match.
+    const centerlineFilterStartedAt = Date.now();
+    let centerlineFilteredSegments: typeof bboxCandidateSegments;
+    let centerlineFilterMetrics: CenterlineFilterMetrics;
+    if (sharedSliceIndex !== null) {
+      centerlineFilteredSegments = bboxCandidateSegments.filter((segment) =>
+        this.passesCenterlinePrefilter(segment.id, segment.geometry, sharedSliceIndex, sliceProjectionCache),
+      );
+      centerlineFilterMetrics = {
+        input: bboxCandidateSegments.length,
+        rejected: bboxCandidateSegments.length - centerlineFilteredSegments.length,
+        kept: centerlineFilteredSegments.length,
+        durationMs: Date.now() - centerlineFilterStartedAt,
+      };
+    } else {
+      // No index available (degenerate slice) — pass everything through.
+      centerlineFilteredSegments = bboxCandidateSegments;
+      centerlineFilterMetrics = {
+        input: bboxCandidateSegments.length,
+        rejected: 0,
+        kept: bboxCandidateSegments.length,
+        durationMs: 0,
+      };
+    }
+
+    logger.info("WalkController.matchInCurrentViewport: centerline prefilter complete", {
+      kmA,
+      kmB,
+      ...centerlineFilterMetrics,
+    });
+
     logger.info("WalkController.matchInCurrentViewport: starting buffered intersects", {
       kmA,
       kmB,
-      segmentCount: bboxCandidateSegments.length,
+      segmentCount: centerlineFilteredSegments.length,
     });
 
     const bufferedStartedAt = Date.now();
     let bufferedMatchedIds: Set<number>;
     try {
       bufferedMatchedIds = await matchSegmentsAsync(
-        { segments: bboxCandidateSegments, bufferedTrack, track: slicedTrack },
+        { segments: centerlineFilteredSegments, bufferedTrack, track: slicedTrack },
         {
           chunkSize: MATCH_COMPUTE_YIELD_EVERY_SEGMENTS,
           yieldBetweenChunks: yieldToUi,
@@ -530,7 +692,7 @@ export class WalkController {
       logger.error("WalkController.matchInCurrentViewport: matchSegments failed", {
         kmA,
         kmB,
-        segmentCount: bboxCandidateSegments.length,
+        segmentCount: centerlineFilteredSegments.length,
         err,
       });
       throw err;
@@ -548,9 +710,11 @@ export class WalkController {
 
     const sampledStartedAt = Date.now();
     const sampledResult = await this.findSampledSliceMatches(
-      bboxCandidateSegments,
+      centerlineFilteredSegments,
       bufferedMatchedIds,
       slicedTrack,
+      sharedSliceIndex,
+      sliceProjectionCache,
     );
     const sampledMatchedIds = sampledResult.ids;
     const sampledDurationMs = Date.now() - sampledStartedAt;
@@ -602,6 +766,8 @@ export class WalkController {
         slicedTrack,
         allowEndBoundaryContinuation,
         projectedSpanBySegmentId,
+        sharedSliceIndex,
+        sliceProjectionCache,
       );
     } catch (err) {
       logger.error("WalkController.matchInCurrentViewport: endpoint filtering failed", {
@@ -674,6 +840,7 @@ export class WalkController {
       bboxPrefilterKept: bboxCandidateSegments.length,
       bboxPrefilterRejected: segmentLikes.length - bboxCandidateSegments.length,
       bboxPrefilterDurationMs,
+      centerlineFilterMetrics,
       sampledMetrics: sampledResult.metrics,
       projectedMetrics: projectedResult.metrics,
       filterMetrics: filteredResult.metrics,
@@ -818,44 +985,66 @@ export class WalkController {
 
   private async getSettledSegmentsSnapshot(
     startedAt: number,
-  ): Promise<{ segments: Segment[]; attempts: number; elapsedMs: number }> {
-    logger.info("[match-load-debug] WalkController.getSettledSegmentsSnapshot: calling Segments.getAll", {
-      attempt: 1,
-      elapsedMs: Date.now() - startedAt,
-      isMapLoading: this.isMapLoading(),
-    });
+  ): Promise<{ segments: Segment[]; attempts: number; elapsedMs: number; mode: string }> {
     let segments = this.wmeSDK.DataModel.Segments.getAll();
     let attempts = 1;
 
+    // Initial-retry loop: if the snapshot is empty, wait for segments to appear.
+    // This is the cold-start path (first call after map load).
     while (segments.length === 0 && Date.now() - startedAt < MATCH_SEGMENTS_RETRY_TIMEOUT_MS) {
       await new Promise<void>((resolve) => setTimeout(resolve, MATCH_SEGMENTS_RETRY_INTERVAL_MS));
-      logger.info("[match-load-debug] WalkController.getSettledSegmentsSnapshot: retrying Segments.getAll after empty snapshot", {
-        attempt: attempts + 1,
-        previousCount: segments.length,
-        elapsedMs: Date.now() - startedAt,
-        isMapLoading: this.isMapLoading(),
-      });
+      logger.info(
+        "[match-load-debug] WalkController.getSettledSegmentsSnapshot: retrying Segments.getAll after empty snapshot",
+        {
+          attempt: attempts + 1,
+          previousCount: segments.length,
+          elapsedMs: Date.now() - startedAt,
+          isMapLoading: this.isMapLoading(),
+        },
+      );
       segments = this.wmeSDK.DataModel.Segments.getAll();
       attempts += 1;
     }
 
     if (!this.hasMapLoadingState()) {
-      return { segments, attempts, elapsedMs: Date.now() - startedAt };
+      return { segments, attempts, elapsedMs: Date.now() - startedAt, mode: "no-loading-state" };
     }
 
+    // Adaptive: if map has been stable for >= STABILITY_GRACE_MS, skip the poll loop entirely.
+    const stableDurationMs =
+      this.lastMapStableSinceMs > 0 ? Date.now() - this.lastMapStableSinceMs : -1;
+
+    if (stableDurationMs >= STABILITY_GRACE_MS && !this.isMapLoading()) {
+      logger.info(
+        "[match-load-debug] WalkController.getSettledSegmentsSnapshot: adaptive-skip (map stable)",
+        {
+          stableDurationMs,
+          segmentCount: segments.length,
+          elapsedMs: Date.now() - startedAt,
+        },
+      );
+      return { segments, attempts, elapsedMs: Date.now() - startedAt, mode: "adaptive-skip" };
+    }
+
+    // Adaptive: grace period not yet elapsed (or map still loading) — use one stable poll
+    // instead of the original MATCH_SEGMENTS_STABLE_POLLS (2), saving ~150 ms.
+    const maxPolls = 1;
+    const mode = "single-poll";
+
     let stablePolls = 0;
-    while (
-      stablePolls < MATCH_SEGMENTS_STABLE_POLLS &&
-      Date.now() - startedAt < MATCH_SEGMENTS_RETRY_TIMEOUT_MS
-    ) {
+    while (stablePolls < maxPolls && Date.now() - startedAt < MATCH_SEGMENTS_RETRY_TIMEOUT_MS) {
       await new Promise<void>((resolve) => setTimeout(resolve, MATCH_SEGMENTS_RETRY_INTERVAL_MS));
-      logger.info("[match-load-debug] WalkController.getSettledSegmentsSnapshot: polling Segments.getAll for stable snapshot", {
-        attempt: attempts + 1,
-        currentCount: segments.length,
-        stablePolls,
-        elapsedMs: Date.now() - startedAt,
-        isMapLoading: this.isMapLoading(),
-      });
+      logger.info(
+        "[match-load-debug] WalkController.getSettledSegmentsSnapshot: polling Segments.getAll for stable snapshot",
+        {
+          attempt: attempts + 1,
+          currentCount: segments.length,
+          stablePolls,
+          mode,
+          elapsedMs: Date.now() - startedAt,
+          isMapLoading: this.isMapLoading(),
+        },
+      );
       const nextSegments = this.wmeSDK.DataModel.Segments.getAll();
       attempts += 1;
 
@@ -872,7 +1061,7 @@ export class WalkController {
       }
     }
 
-    return { segments, attempts, elapsedMs: Date.now() - startedAt };
+    return { segments, attempts, elapsedMs: Date.now() - startedAt, mode };
   }
 
   private hasMapLoadingState(): boolean {
@@ -902,6 +1091,7 @@ export class WalkController {
     slicedTrack: MultiLineString;
     allowEndBoundaryContinuation: boolean;
   }): void {
+    if (DIAGNOSTIC_MATCH_SEGMENT_IDS.size === 0) return;
     const allById = new Map(args.allSegments.map((segment) => [segment.id, segment]));
     const matchableIds = new Set(args.matchableSegments.map((segment) => segment.id));
     const bboxCandidateIds = new Set(args.bboxCandidateSegments.map((segment) => segment.id));
@@ -986,6 +1176,7 @@ export class WalkController {
   ): Record<string, unknown> {
     const slicedTrackLines = this.toLineFeatures(slicedTrack);
     const flattenedSliceCoords = slicedTrack.coordinates.flat();
+    const sliceIndex = this.buildSliceIndex(flattenedSliceCoords);
     const slicedTrackPolyline =
       flattenedSliceCoords.length >= 2
         ? {
@@ -1041,10 +1232,11 @@ export class WalkController {
       closeVertexIndices,
       closeSpanMeters: Number(closeSpanMeters.toFixed(2)),
       allVerticesClose: closeVertexIndices.length === coordinates.length,
-      hasEnoughSampledSliceCoverage: this.hasEnoughSampledSliceCoverage(
-        coordinates,
-        slicedTrackLines,
-      ),
+      hasEnoughSampledSliceCoverage:
+        sliceIndex !== null &&
+        this.hasEnoughSampledSliceCoverage(
+          this.computeSliceProjection(coordinates, sliceIndex),
+        ),
       extendsPastStart,
       extendsPastEnd,
       isStartBoundaryContinuation: this.isStartBoundaryContinuation(
@@ -1064,6 +1256,8 @@ export class WalkController {
     slicedTrack: MultiLineString,
     allowEndBoundaryContinuation: boolean,
     projectedSpanBySegmentId: ReadonlyMap<number, number>,
+    prebuiltSliceIndex: TrackSpatialIndex | null,
+    projectionCache: SegmentProjectionCache,
   ): Promise<{ ids: Set<number>; metrics: EndpointFilterMetrics }> {
     const segmentById = new Map(allSegments.map((segment) => [segment.id, segment]));
     const slicedTrackLines = slicedTrack.coordinates.map((lineCoordinates) => ({
@@ -1105,6 +1299,9 @@ export class WalkController {
     const slicedTrackLengthKm = slicedTrackPolyline
       ? turfLength(slicedTrackPolyline, { units: "kilometers" })
       : 0;
+    // Reuse the shared index and projection cache when provided by the caller.
+    const sliceIndex = prebuiltSliceIndex ?? this.buildSliceIndex(flattenedSliceCoords);
+    const cache = projectionCache;
 
     let processedSegments = 0;
     for (const id of matchedIdsForBatch) {
@@ -1149,9 +1346,19 @@ export class WalkController {
         );
 
       if (extendsPastStart || extendsPastEnd) {
-        if (this.hasEnoughSampledSliceCoverage(segment.geometry.coordinates, slicedTrackLines)) {
-          filtered.add(id);
-          metrics.keptBoundaryCoverage += 1;
+        if (sliceIndex !== null) {
+          const proj = this.getOrComputeProjection(
+            segment.id,
+            segment.geometry.coordinates,
+            sliceIndex,
+            cache,
+          );
+          if (this.hasEnoughSampledSliceCoverage(proj)) {
+            filtered.add(id);
+            metrics.keptBoundaryCoverage += 1;
+          } else {
+            metrics.droppedBoundaryCoverage += 1;
+          }
         } else {
           metrics.droppedBoundaryCoverage += 1;
         }
@@ -1197,10 +1404,18 @@ export class WalkController {
         }
       }
 
-      if (this.hasEnoughSampledSliceCoverage(segment.geometry.coordinates, slicedTrackLines)) {
-        filtered.add(id);
-        metrics.keptSampledCoverage += 1;
-        continue;
+      if (sliceIndex !== null) {
+        const proj = this.getOrComputeProjection(
+          segment.id,
+          segment.geometry.coordinates,
+          sliceIndex,
+          cache,
+        );
+        if (this.hasEnoughSampledSliceCoverage(proj)) {
+          filtered.add(id);
+          metrics.keptSampledCoverage += 1;
+          continue;
+        }
       }
 
       if (this.isStartBoundaryContinuation(segment.geometry.coordinates, startBoundary)) {
@@ -1225,6 +1440,8 @@ export class WalkController {
     allSegments: ReadonlyArray<{ id: number; geometry: LineString }>,
     alreadyMatchedIds: ReadonlySet<number>,
     slicedTrack: MultiLineString,
+    prebuiltSliceIndex: TrackSpatialIndex | null,
+    projectionCache: SegmentProjectionCache,
   ): Promise<{ ids: Set<number>; metrics: SampledSliceMatchMetrics }> {
     const metrics: SampledSliceMatchMetrics = {
       inputSegments: allSegments.length,
@@ -1236,23 +1453,19 @@ export class WalkController {
       coverageRejected: 0,
       coverageAccepted: 0,
     };
-    const slicedTrackLines = this.toLineFeatures(slicedTrack);
-    if (slicedTrackLines.length === 0) {
+    const flattenedSliceCoords = slicedTrack.coordinates.flat();
+    if (flattenedSliceCoords.length < 2) {
       return { ids: new Set(), metrics };
     }
 
-    const flattenedSliceCoords = slicedTrack.coordinates.flat();
-    const slicedTrackPolyline =
-      flattenedSliceCoords.length >= 2
-        ? {
-            type: "Feature" as const,
-            geometry: turfLineString(flattenedSliceCoords).geometry,
-            properties: null,
-          }
-        : null;
-    const slicedTrackLengthKm = slicedTrackPolyline
-      ? turfLength(slicedTrackPolyline, { units: "kilometers" })
-      : 0;
+    const slicedTrackPolyline = {
+      type: "Feature" as const,
+      geometry: turfLineString(flattenedSliceCoords).geometry,
+      properties: null,
+    };
+    const slicedTrackLengthKm = turfLength(slicedTrackPolyline, { units: "kilometers" });
+    // Reuse a pre-built index if provided (avoids rebuilding for every findSampledSliceMatches call).
+    const sliceIndex = prebuiltSliceIndex ?? this.buildSliceIndex(flattenedSliceCoords);
     const sliceBbox = this.getMultiLineBBox(slicedTrack);
     const matchedIds = new Set<number>();
     let processedSegments = 0;
@@ -1276,28 +1489,37 @@ export class WalkController {
       metrics.bboxCandidates += 1;
 
       if (
-        slicedTrackPolyline === null ||
-        (!this.extendsPastBoundary(
+        !this.extendsPastBoundary(
           segment.geometry.coordinates,
           slicedTrackPolyline,
           slicedTrackLengthKm,
           "start",
         ) &&
-          !this.extendsPastBoundary(
-            segment.geometry.coordinates,
-            slicedTrackPolyline,
-            slicedTrackLengthKm,
-            "end",
-          ))
+        !this.extendsPastBoundary(
+          segment.geometry.coordinates,
+          slicedTrackPolyline,
+          slicedTrackLengthKm,
+          "end",
+        )
       ) {
         metrics.boundaryRejected += 1;
         continue;
       }
       metrics.boundaryCandidates += 1;
 
-      if (this.hasEnoughSampledSliceCoverage(segment.geometry.coordinates, slicedTrackLines)) {
-        matchedIds.add(segment.id);
-        metrics.coverageAccepted += 1;
+      if (sliceIndex !== null) {
+        const proj = this.getOrComputeProjection(
+          segment.id,
+          segment.geometry.coordinates,
+          sliceIndex,
+          projectionCache,
+        );
+        if (this.hasEnoughSampledSliceCoverage(proj)) {
+          matchedIds.add(segment.id);
+          metrics.coverageAccepted += 1;
+        } else {
+          metrics.coverageRejected += 1;
+        }
       } else {
         metrics.coverageRejected += 1;
       }
@@ -1306,69 +1528,18 @@ export class WalkController {
     return { ids: matchedIds, metrics };
   }
 
-  private hasEnoughSampledSliceCoverage(
-    coordinates: ReadonlyArray<Position>,
-    slicedTrackLines: ReadonlyArray<{
-      type: "Feature";
-      geometry: LineString;
-      properties: null;
-    }>,
-  ): boolean {
-    const sampledCoordinates = this.limitSampledCoordinates(
-      this.sampleSegmentCoordinates(coordinates, PROJECTED_SAMPLE_STEP_METERS),
-    );
-    if (sampledCoordinates.length === 0) {
-      return false;
-    }
-
-    let closeSamples = 0;
-    let veryCloseSamples = 0;
-    const projectedLocationsKm: number[] = [];
-    for (const coordinate of sampledCoordinates) {
-      let distanceMeters = Number.POSITIVE_INFINITY;
-      let projectedLocationKm: number | null = null;
-      for (const lineFeature of slicedTrackLines) {
-        const projected = nearestPointOnLine(lineFeature, turfPoint(coordinate), {
-          units: "kilometers",
-        });
-        const currentDistanceMeters = turfDistance(turfPoint(coordinate), projected, {
-          units: "meters",
-        });
-        if (currentDistanceMeters < distanceMeters) {
-          distanceMeters = currentDistanceMeters;
-          projectedLocationKm =
-            typeof projected.properties.location === "number"
-              ? projected.properties.location
-              : null;
-        }
-      }
-
-      if (distanceMeters <= CLOSE_SAMPLE_DISTANCE_METERS) {
-        closeSamples += 1;
-        if (distanceMeters <= VERY_CLOSE_SAMPLE_DISTANCE_METERS) {
-          veryCloseSamples += 1;
-        }
-        if (projectedLocationKm !== null) {
-          projectedLocationsKm.push(projectedLocationKm);
-        }
-      }
-    }
-
-    if (closeSamples / sampledCoordinates.length < MIN_CLOSE_SAMPLE_RATIO_FOR_VIEW_MATCH) {
-      return false;
-    }
-
-    if (veryCloseSamples / sampledCoordinates.length < MIN_VERY_CLOSE_SAMPLE_RATIO_FOR_VIEW_MATCH) {
-      return false;
-    }
-
-    if (projectedLocationsKm.length < 2) {
-      return false;
-    }
-
-    const projectedSpanMeters =
-      (Math.max(...projectedLocationsKm) - Math.min(...projectedLocationsKm)) * 1000;
-    return projectedSpanMeters >= MIN_CLOSE_SAMPLE_PROJECTED_SPAN_METERS;
+  /**
+   * Checks sampled coverage from a pre-computed `SegmentProjection`.  All
+   * projection work has already been done; this is now a pure aggregate check.
+   */
+  private hasEnoughSampledSliceCoverage(proj: SegmentProjection): boolean {
+    const { sampleCount: total, closeSamples, veryCloseSamples, projectedSpanMetersOnSlice } = proj;
+    if (total === 0) return false;
+    if (closeSamples / total < MIN_CLOSE_SAMPLE_RATIO_FOR_VIEW_MATCH) return false;
+    if (veryCloseSamples / total < MIN_VERY_CLOSE_SAMPLE_RATIO_FOR_VIEW_MATCH) return false;
+    // projectedSpanMetersOnSlice is 0 when < 2 close samples exist.
+    if (projectedSpanMetersOnSlice < MIN_CLOSE_SAMPLE_PROJECTED_SPAN_METERS) return false;
+    return true;
   }
 
   /**
@@ -1549,6 +1720,105 @@ export class WalkController {
     });
   }
 
+  /**
+   * Piste B — centerline pre-filter.
+   * Uses the cached dense sample projection (Option 2): returns `false` only when
+   * ALL dense samples are beyond CENTERLINE_PREFILTER_THRESHOLD_METERS.  A single
+   * sample within the threshold keeps the segment.  The dense set (8 m step, ≤25
+   * samples) is strictly more sensitive than the old 3-probe approach, so no false
+   * negatives are introduced.
+   *
+   * The cache query radius equals CENTERLINE_PREFILTER_THRESHOLD_METERS, so a
+   * non-null sample entry already guarantees distanceMeters ≤ threshold.
+   */
+  private passesCenterlinePrefilter(
+    segmentId: number,
+    geometry: LineString,
+    sliceIndex: TrackSpatialIndex,
+    cache: SegmentProjectionCache,
+  ): boolean {
+    if (geometry.coordinates.length === 0) return false;
+    const proj = this.getOrComputeProjection(segmentId, geometry.coordinates, sliceIndex, cache);
+    return proj.samples.some((s) => s !== null);
+  }
+
+  private buildSliceIndex(flattenedCoords: Position[]): TrackSpatialIndex | null {
+    if (flattenedCoords.length < 2) return null;
+    const feature: Feature<LineString> = {
+      type: "Feature",
+      geometry: turfLineString(flattenedCoords).geometry,
+      properties: null,
+    };
+    return buildTrackSpatialIndex(feature);
+  }
+
+  /**
+   * Projects all dense samples of `coordinates` onto `sliceIndex` and returns
+   * the cached aggregates.  Called at most once per (slice, segment) pair —
+   * callers are expected to store the result in a `SegmentProjectionCache`.
+   *
+   * The query radius is CENTERLINE_PREFILTER_THRESHOLD_METERS (the wider of the
+   * two thresholds used by callers), so both the pre-filter and the coverage check
+   * can read from the same cache.
+   */
+  computeSliceProjection(
+    coordinates: ReadonlyArray<Position>,
+    sliceIndex: TrackSpatialIndex,
+  ): SegmentProjection {
+    const sampledCoords = this.limitSampledCoordinates(
+      this.sampleSegmentCoordinates(coordinates, PROJECTED_SAMPLE_STEP_METERS),
+    );
+    const sampleCount = sampledCoords.length;
+    const samples: SegmentProjection["samples"] = [];
+    let closeSamples = 0;
+    let veryCloseSamples = 0;
+    const closeLocationKms: number[] = [];
+
+    // Use the wider threshold so the pre-filter (20 m) and coverage check (15 m)
+    // both read from the same projection without a second query.
+    const queryRadiusMeters = CENTERLINE_PREFILTER_THRESHOLD_METERS;
+
+    for (const coord of sampledCoords) {
+      const proj = sliceIndex.nearestEdgeProjection(coord, queryRadiusMeters);
+      if (proj === null) {
+        samples.push(null);
+        continue;
+      }
+      samples.push(proj);
+      // Aggregate at the CLOSE_SAMPLE_DISTANCE_METERS threshold (used by coverage check).
+      if (proj.distanceMeters <= CLOSE_SAMPLE_DISTANCE_METERS) {
+        closeSamples += 1;
+        if (proj.distanceMeters <= VERY_CLOSE_SAMPLE_DISTANCE_METERS) {
+          veryCloseSamples += 1;
+        }
+        closeLocationKms.push(proj.locationKm);
+      }
+    }
+
+    const projectedSpanMetersOnSlice =
+      closeLocationKms.length >= 2
+        ? (Math.max(...closeLocationKms) - Math.min(...closeLocationKms)) * 1000
+        : 0;
+
+    return { sampleCount, samples, closeSamples, veryCloseSamples, projectedSpanMetersOnSlice };
+  }
+
+  /**
+   * Returns the cached projection for `segmentId`, computing it on first access.
+   */
+  private getOrComputeProjection(
+    segmentId: number,
+    coordinates: ReadonlyArray<Position>,
+    sliceIndex: TrackSpatialIndex,
+    cache: SegmentProjectionCache,
+  ): SegmentProjection {
+    const cached = cache.get(segmentId);
+    if (cached !== undefined) return cached;
+    const proj = this.computeSliceProjection(coordinates, sliceIndex);
+    cache.set(segmentId, proj);
+    return proj;
+  }
+
   private toLineFeatures(slicedTrack: MultiLineString): Array<{
     type: "Feature";
     geometry: LineString;
@@ -1587,10 +1857,7 @@ export class WalkController {
     return [minLon, minLat, maxLon, maxLat];
   }
 
-  private getCachedSegmentBBox(
-    id: number,
-    geometry: LineString,
-  ): [number, number, number, number] {
+  private getCachedSegmentBBox(id: number, geometry: LineString): [number, number, number, number] {
     const cached = this.segmentBBoxCache.get(id);
     if (cached?.geometry === geometry) {
       return cached.bbox;
