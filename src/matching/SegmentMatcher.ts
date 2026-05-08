@@ -28,15 +28,15 @@ import type {
 } from "geojson";
 import type { MatchArgs } from "./types";
 import { buildTrackSpatialIndex, type TrackSpatialIndex } from "./TrackSpatialIndex";
+import { effectiveSampleSpacing } from "./sampleSpacing";
 
 export interface MatchSegmentsAsyncOptions {
   chunkSize?: number;
   yieldBetweenChunks?: () => Promise<void>;
 }
 
-const SAMPLE_SPACING_METERS = 10;
 const MIN_SAMPLE_COUNT = 7;
-const MAX_SAMPLE_COUNT = 41;
+const MAX_SAMPLE_COUNT = 30;
 const BUFFER_MATCH_METERS = 15.5;
 
 const LONG_OFF_TRACK_MIN_LENGTH_METERS = 50;
@@ -356,9 +356,10 @@ function sampleSegment(feature: Feature<LineString>, lengthMeters: number): Feat
     return [point(feature.geometry.coordinates[0])];
   }
 
+  const spacing = effectiveSampleSpacing(lengthMeters);
   const count = Math.max(
     MIN_SAMPLE_COUNT,
-    Math.min(MAX_SAMPLE_COUNT, Math.ceil(lengthMeters / SAMPLE_SPACING_METERS) + 1),
+    Math.min(MAX_SAMPLE_COUNT, Math.ceil(lengthMeters / spacing) + 1),
   );
 
   return Array.from({ length: count }, (_, index) =>

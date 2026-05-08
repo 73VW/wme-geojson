@@ -36,6 +36,7 @@ import { planWalk } from "../matching/GridWalker";
 import { matchSegments, matchSegmentsAsync } from "../matching/SegmentMatcher";
 import { buildTrackSpatialIndex, type TrackSpatialIndex } from "../matching/TrackSpatialIndex";
 import { sliceMultiLineByDistance } from "../matching/trackPortions";
+import { effectiveSampleSpacingProjection } from "../matching/sampleSpacing";
 import type { ViewportSizeDeg } from "../matching/viewportSize";
 import type { Cell } from "../matching/types";
 import { type WalkState, isTransitionAllowed } from "./walkStates";
@@ -71,7 +72,6 @@ const END_BOUNDARY_MAX_ANGLE_DEG = 20;
 const TRACK_END_EPSILON_KM = 0.001;
 const PROJECTED_DISTANCE_MAX_METERS = 45;
 const PROJECTED_COVERAGE_MIN_RATIO = 0.6;
-const PROJECTED_SAMPLE_STEP_METERS = 8;
 const PROJECTED_MAX_SAMPLES_PER_SEGMENT = 25;
 const PROJECTED_CHAINAGE_EPSILON_KM = 0.01;
 const PROJECTED_OVERRIDE_MIN_SPAN_METERS = 40;
@@ -1589,7 +1589,12 @@ export class WalkController {
       }
 
       const sampledCoordinates = this.limitSampledCoordinates(
-        this.sampleSegmentCoordinates(segment.geometry.coordinates, PROJECTED_SAMPLE_STEP_METERS),
+        this.sampleSegmentCoordinates(
+          segment.geometry.coordinates,
+          effectiveSampleSpacingProjection(
+            turfLength(turfLineString(segment.geometry.coordinates), { units: "meters" }),
+          ),
+        ),
       );
       if (sampledCoordinates.length === 0) {
         metrics.noSamplesSkipped += 1;
@@ -1765,8 +1770,13 @@ export class WalkController {
     coordinates: ReadonlyArray<Position>,
     sliceIndex: TrackSpatialIndex,
   ): SegmentProjection {
+    const segLengthMeters =
+      coordinates.length >= 2
+        ? turfLength(turfLineString(coordinates as Position[]), { units: "meters" })
+        : 0;
+    const stepMeters = effectiveSampleSpacingProjection(segLengthMeters);
     const sampledCoords = this.limitSampledCoordinates(
-      this.sampleSegmentCoordinates(coordinates, PROJECTED_SAMPLE_STEP_METERS),
+      this.sampleSegmentCoordinates(coordinates, stepMeters),
     );
     const sampleCount = sampledCoords.length;
     const samples: SegmentProjection["samples"] = [];
