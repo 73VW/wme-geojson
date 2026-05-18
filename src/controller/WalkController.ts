@@ -20,6 +20,7 @@
 import type { RoadTypeId, Segment, WmeSDK } from "wme-sdk-typings";
 import type { Feature, LineString, MultiLineString, Position } from "geojson";
 import {
+  bearing as turfBearing,
   buffer as turfBuffer,
   center as turfCenter,
   distance as turfDistance,
@@ -80,6 +81,29 @@ const PAST_BOUNDARY_OFF_SLICE_DISTANCE_METERS = 15;
 const PAST_BOUNDARY_MIN_VERTICES = 2;
 const PAST_BOUNDARY_MIN_SPAN_METERS = 20;
 const PAST_BOUNDARY_CHAINAGE_EPSILON_KM = 0.001;
+// Degenerate micro-segment guard: reject when the segment is tiny AND its
+// vertices span essentially zero geographic extent.
+const DEGENERATE_MICRO_MAX_LENGTH_METERS = 5;
+const DEGENERATE_MICRO_MAX_CLOSE_SPAN_METERS = 3;
+// Parallel-spur guard: within keptCloseVertexSpan, reject when the ratio of
+// very-close samples to close samples falls below this threshold.  Spurs that
+// run alongside the route have close samples at 10-15 m whereas real on-route
+// segments have most close samples at < 10 m (very close).
+const PARALLEL_SPUR_MIN_VERY_CLOSE_OF_CLOSE_RATIO = 0.75;
+// Boundary-overhang guard: a segment that has even a single vertex at the
+// slice boundary and beyond this distance is treated as having an overhang
+// (softer alternative to extendsPastBoundary which requires ≥2 vertices
+// and ≥20 m span).
+const BOUNDARY_OVERHANG_MIN_DIST_METERS = 8;
+// Relaxed coverage thresholds used when a boundary-overhang segment cannot
+// satisfy the full hasEnoughSampledSliceCoverage check.
+const BOUNDARY_CONTINUATION_MIN_CLOSE_SAMPLES = 2;
+const BOUNDARY_CONTINUATION_MIN_VERY_CLOSE_SAMPLES = 1;
+// Junction-arc false-positive guard (keptAllVerticesClose branch):
+// tiny all-close segments whose samples project to edges with widely-varying
+// bearings are roundabout arcs crossing a corner — reject them.
+const JUNCTION_ARC_MAX_CLOSE_SPAN_METERS = 25;
+const JUNCTION_ARC_MAX_BEARING_RANGE_DEG = 40;
 
 /**
  * Piste B — distance-to-centerline pre-filter.
@@ -143,6 +167,7 @@ interface SampledSliceMatchMetrics {
   boundaryCandidates: number;
   coverageRejected: number;
   coverageAccepted: number;
+  keptBoundaryGapContinuation: number;
 }
 
 interface EndpointFilterMetrics {
@@ -152,8 +177,12 @@ interface EndpointFilterMetrics {
   keptBoundaryCoverage: number;
   droppedBoundaryCoverage: number;
   keptAllVerticesClose: number;
+  droppedDegenerateMicro: number;
+  droppedJunctionArcBearing: number;
   keptCloseVertexSpan: number;
+  droppedParallelSpur: number;
   keptSampledCoverage: number;
+  keptBoundaryOverhangCoverage: number;
   keptStartBoundaryContinuation: number;
   keptEndBoundaryContinuation: number;
   droppedEndpointTouch: number;
@@ -647,7 +676,12 @@ export class WalkController {
     let centerlineFilterMetrics: CenterlineFilterMetrics;
     if (sharedSliceIndex !== null) {
       centerlineFilteredSegments = bboxCandidateSegments.filter((segment) =>
-        this.passesCenterlinePrefilter(segment.id, segment.geometry, sharedSliceIndex, sliceProjectionCache),
+        this.passesCenterlinePrefilter(
+          segment.id,
+          segment.geometry,
+          sharedSliceIndex,
+          sliceProjectionCache,
+        ),
       );
       centerlineFilterMetrics = {
         input: bboxCandidateSegments.length,
@@ -1234,9 +1268,7 @@ export class WalkController {
       allVerticesClose: closeVertexIndices.length === coordinates.length,
       hasEnoughSampledSliceCoverage:
         sliceIndex !== null &&
-        this.hasEnoughSampledSliceCoverage(
-          this.computeSliceProjection(coordinates, sliceIndex),
-        ),
+        this.hasEnoughSampledSliceCoverage(this.computeSliceProjection(coordinates, sliceIndex)),
       extendsPastStart,
       extendsPastEnd,
       isStartBoundaryContinuation: this.isStartBoundaryContinuation(
@@ -1276,8 +1308,12 @@ export class WalkController {
       keptBoundaryCoverage: 0,
       droppedBoundaryCoverage: 0,
       keptAllVerticesClose: 0,
+      droppedDegenerateMicro: 0,
+      droppedJunctionArcBearing: 0,
       keptCloseVertexSpan: 0,
+      droppedParallelSpur: 0,
       keptSampledCoverage: 0,
+      keptBoundaryOverhangCoverage: 0,
       keptStartBoundaryContinuation: 0,
       keptEndBoundaryContinuation: 0,
       droppedEndpointTouch: 0,
@@ -1299,6 +1335,11 @@ export class WalkController {
     const slicedTrackLengthKm = slicedTrackPolyline
       ? turfLength(slicedTrackPolyline, { units: "kilometers" })
       : 0;
+    // Compute the bearing of the first edge of the slice (used by the junction-arc guard).
+    const sliceStartBearingDeg =
+      flattenedSliceCoords.length >= 2
+        ? turfBearing(turfPoint(flattenedSliceCoords[0]), turfPoint(flattenedSliceCoords[1]))
+        : null;
     // Reuse the shared index and projection cache when provided by the caller.
     const sliceIndex = prebuiltSliceIndex ?? this.buildSliceIndex(flattenedSliceCoords);
     const cache = projectionCache;
@@ -1353,7 +1394,15 @@ export class WalkController {
             sliceIndex,
             cache,
           );
-          if (this.hasEnoughSampledSliceCoverage(proj)) {
+          // Relaxed fallback for boundary-gap continuation: the segment extends
+          // well past the slice boundary (≥2 vertices, ≥20 m span), so a strict
+          // coverage check would exclude real on-route segments whose majority
+          // of vertices lie in the adjacent slice.  Allow them through when there
+          // are at least a few close samples with a meaningful projected span.
+          const passesRelaxed =
+            this.hasMinimalBoundaryCoverage(proj) &&
+            proj.projectedSpanMetersOnSlice >= MIN_CLOSE_SAMPLE_PROJECTED_SPAN_METERS * 2;
+          if (this.hasEnoughSampledSliceCoverage(proj) || passesRelaxed) {
             filtered.add(id);
             metrics.keptBoundaryCoverage += 1;
           } else {
@@ -1362,6 +1411,26 @@ export class WalkController {
         } else {
           metrics.droppedBoundaryCoverage += 1;
         }
+        continue;
+      }
+
+      // Universal degenerate micro guard: reject segments whose total path
+      // length is below the micro threshold regardless of which kept branch
+      // they would otherwise enter.  This catches mapping artefacts (collapsed
+      // intersection nodes) before they reach any "kept" decision.
+      const segLenMeters = turfLength(
+        { type: "Feature", geometry: segment.geometry, properties: null },
+        { units: "meters" },
+      );
+      if (
+        segLenMeters <= DEGENERATE_MICRO_MAX_LENGTH_METERS &&
+        this.distanceAlongSegment(
+          segment.geometry.coordinates,
+          0,
+          segment.geometry.coordinates.length - 1,
+        ) <= DEGENERATE_MICRO_MAX_CLOSE_SPAN_METERS
+      ) {
+        metrics.droppedDegenerateMicro += 1;
         continue;
       }
 
@@ -1387,6 +1456,45 @@ export class WalkController {
 
       if (closeVerticesCount >= MIN_CLOSE_VERTICES_FOR_VIEW_MATCH) {
         if (closeVerticesCount === segment.geometry.coordinates.length) {
+          const allCloseSpanMeters = this.distanceAlongSegment(
+            segment.geometry.coordinates,
+            0,
+            segment.geometry.coordinates.length - 1,
+          );
+          if (
+            segLenMeters <= DEGENERATE_MICRO_MAX_LENGTH_METERS &&
+            allCloseSpanMeters <= DEGENERATE_MICRO_MAX_CLOSE_SPAN_METERS
+          ) {
+            metrics.droppedDegenerateMicro += 1;
+            continue;
+          }
+          // Junction-arc false-positive guard: tiny all-close segments (like
+          // the unused "outside" arc of a 3-arc roundabout) sit at the corner
+          // of two slice edges.  The segments we actually travel have their
+          // samples projecting primarily to the FIRST slice edge (matching the
+          // slice start bearing).  The wrong arc has its samples projecting
+          // primarily to the SECOND edge (very different bearing).  Reject when
+          // the circular mean of close-sample bearings deviates too far from the
+          // slice start bearing.
+          if (
+            allCloseSpanMeters < JUNCTION_ARC_MAX_CLOSE_SPAN_METERS &&
+            sliceIndex !== null &&
+            sliceStartBearingDeg !== null
+          ) {
+            const proj = this.getOrComputeProjection(
+              segment.id,
+              segment.geometry.coordinates,
+              sliceIndex,
+              cache,
+            );
+            if (
+              this.computeMeanBearingDeviation(proj, sliceStartBearingDeg) >
+              JUNCTION_ARC_MAX_BEARING_RANGE_DEG
+            ) {
+              metrics.droppedJunctionArcBearing += 1;
+              continue;
+            }
+          }
           filtered.add(id);
           metrics.keptAllVerticesClose += 1;
           continue;
@@ -1398,6 +1506,26 @@ export class WalkController {
           closeVertexIndices[closeVertexIndices.length - 1],
         );
         if (closeSpanMeters >= MIN_CLOSE_VERTEX_SPAN_METERS) {
+          // Parallel-spur guard: even when the close-vertex span is wide, reject
+          // if too few of the close samples are also very close.  Spurs that run
+          // alongside the route have most samples at 10-15 m (close but not very
+          // close); real on-route segments have most samples at < 10 m.
+          if (sliceIndex !== null) {
+            const proj = this.getOrComputeProjection(
+              segment.id,
+              segment.geometry.coordinates,
+              sliceIndex,
+              cache,
+            );
+            if (
+              proj.closeSamples > 0 &&
+              proj.veryCloseSamples / proj.closeSamples <
+                PARALLEL_SPUR_MIN_VERY_CLOSE_OF_CLOSE_RATIO
+            ) {
+              metrics.droppedParallelSpur += 1;
+              continue;
+            }
+          }
           filtered.add(id);
           metrics.keptCloseVertexSpan += 1;
           continue;
@@ -1416,9 +1544,43 @@ export class WalkController {
           metrics.keptSampledCoverage += 1;
           continue;
         }
+        // Boundary-overhang continuation: a segment that was rejected by
+        // SegmentMatcher's stricter filters (e.g. ENDPOINT_DRIFT / competition)
+        // but has at least one vertex extending past the slice boundary and
+        // meaningful sampled coverage on the slice portion it DOES overlap.
+        // A minimum projectedSpanMetersOnSlice is required so that pure-spur
+        // segments that only touch the boundary endpoint (no span) are excluded.
+        if (
+          slicedTrackPolyline !== null &&
+          proj.projectedSpanMetersOnSlice >= MIN_CLOSE_SAMPLE_PROJECTED_SPAN_METERS / 2 &&
+          this.hasMinimalBoundaryCoverage(proj) &&
+          (this.hasBoundaryOverhang(
+            segment.geometry.coordinates,
+            slicedTrackPolyline,
+            slicedTrackLengthKm,
+            "start",
+          ) ||
+            this.hasBoundaryOverhang(
+              segment.geometry.coordinates,
+              slicedTrackPolyline,
+              slicedTrackLengthKm,
+              "end",
+            ))
+        ) {
+          filtered.add(id);
+          metrics.keptBoundaryOverhangCoverage += 1;
+          continue;
+        }
       }
 
-      if (this.isStartBoundaryContinuation(segment.geometry.coordinates, startBoundary)) {
+      // Require at least one vertex to be close to the slice before accepting
+      // a boundary continuation — pure proximity to the start/end point without
+      // any vertex on the route is a false positive (mapping artefact near a
+      // junction).
+      if (
+        closeVerticesCount >= 1 &&
+        this.isStartBoundaryContinuation(segment.geometry.coordinates, startBoundary)
+      ) {
         filtered.add(id);
         metrics.keptStartBoundaryContinuation += 1;
         continue;
@@ -1452,6 +1614,7 @@ export class WalkController {
       boundaryCandidates: 0,
       coverageRejected: 0,
       coverageAccepted: 0,
+      keptBoundaryGapContinuation: 0,
     };
     const flattenedSliceCoords = slicedTrack.coordinates.flat();
     if (flattenedSliceCoords.length < 2) {
@@ -1488,20 +1651,36 @@ export class WalkController {
       }
       metrics.bboxCandidates += 1;
 
-      if (
-        !this.extendsPastBoundary(
+      const pastStart = this.extendsPastBoundary(
+        segment.geometry.coordinates,
+        slicedTrackPolyline,
+        slicedTrackLengthKm,
+        "start",
+      );
+      const pastEnd = this.extendsPastBoundary(
+        segment.geometry.coordinates,
+        slicedTrackPolyline,
+        slicedTrackLengthKm,
+        "end",
+      );
+      const overhangStart =
+        !pastStart &&
+        this.hasBoundaryOverhang(
           segment.geometry.coordinates,
           slicedTrackPolyline,
           slicedTrackLengthKm,
           "start",
-        ) &&
-        !this.extendsPastBoundary(
+        );
+      const overhangEnd =
+        !pastEnd &&
+        this.hasBoundaryOverhang(
           segment.geometry.coordinates,
           slicedTrackPolyline,
           slicedTrackLengthKm,
           "end",
-        )
-      ) {
+        );
+
+      if (!pastStart && !pastEnd && !overhangStart && !overhangEnd) {
         metrics.boundaryRejected += 1;
         continue;
       }
@@ -1517,6 +1696,9 @@ export class WalkController {
         if (this.hasEnoughSampledSliceCoverage(proj)) {
           matchedIds.add(segment.id);
           metrics.coverageAccepted += 1;
+        } else if ((overhangStart || overhangEnd) && this.hasMinimalBoundaryCoverage(proj)) {
+          matchedIds.add(segment.id);
+          metrics.keptBoundaryGapContinuation += 1;
         } else {
           metrics.coverageRejected += 1;
         }
@@ -1932,6 +2114,95 @@ export class WalkController {
     return spanMeters >= PAST_BOUNDARY_MIN_SPAN_METERS;
   }
 
+  /**
+   * Softer alternative to `extendsPastBoundary`: returns true when at least
+   * one vertex projects to the slice boundary (chainage ≤ ε or ≥ totalLen−ε)
+   * and is farther than BOUNDARY_OVERHANG_MIN_DIST_METERS from the polyline.
+   *
+   * This catches segments like 432486991 (only one vertex past the boundary)
+   * and 210811026 (vertex only ~14 m from slice, below the 15 m threshold of
+   * extendsPastBoundary) that are otherwise falsely excluded.
+   */
+  private hasBoundaryOverhang(
+    coordinates: ReadonlyArray<Position>,
+    slicedTrackPolyline: { type: "Feature"; geometry: LineString; properties: null },
+    totalLengthKm: number,
+    side: "start" | "end",
+  ): boolean {
+    for (const coord of coordinates) {
+      const samplePoint = turfPoint(coord);
+      const projected = nearestPointOnLine(slicedTrackPolyline, samplePoint, {
+        units: "kilometers",
+      });
+      const locationKm =
+        typeof projected.properties.location === "number" ? projected.properties.location : -1;
+      const distanceMeters = turfDistance(samplePoint, projected, { units: "meters" });
+
+      const onBoundary =
+        side === "start"
+          ? locationKm <= PAST_BOUNDARY_CHAINAGE_EPSILON_KM
+          : locationKm >= totalLengthKm - PAST_BOUNDARY_CHAINAGE_EPSILON_KM;
+
+      if (onBoundary && distanceMeters > BOUNDARY_OVERHANG_MIN_DIST_METERS) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Relaxed coverage check used for boundary-continuation segments that cannot
+   * satisfy the full `hasEnoughSampledSliceCoverage` thresholds.  Requires only
+   * a few close samples and at least one very-close sample, with no span check.
+   *
+   * Intended for segments like 474406759 (row 9) whose majority of vertices sit
+   * in the previous slice but whose overlap with the current slice is real.
+   */
+  private hasMinimalBoundaryCoverage(proj: SegmentProjection): boolean {
+    return (
+      proj.closeSamples >= BOUNDARY_CONTINUATION_MIN_CLOSE_SAMPLES &&
+      proj.veryCloseSamples >= BOUNDARY_CONTINUATION_MIN_VERY_CLOSE_SAMPLES
+    );
+  }
+
+  /**
+   * Compute the range (max − min) of bearingDeg values from non-null close
+   * samples in a projection.  Uses circular arithmetic so that angles near
+   * 0°/360° are handled correctly.
+   *
+   * Returns 0 when fewer than 2 non-null samples exist.
+   */
+  /**
+   * Compute the angular deviation (degrees) between the circular mean of
+   * close-sample bearingDeg values and a reference bearing.
+   *
+   * Used by the junction-arc false-positive guard: a legitimate segment's
+   * close samples project primarily to the first slice edge (small deviation
+   * from slice start bearing), while a wrong-arc segment's samples project
+   * primarily to a later edge (large deviation).
+   *
+   * Returns 0 when fewer than 1 non-null close sample exists.
+   */
+  private computeMeanBearingDeviation(proj: SegmentProjection, refBearingDeg: number): number {
+    const bearings: number[] = [];
+    for (const s of proj.samples) {
+      if (s !== null && s.distanceMeters <= CLOSE_SAMPLE_DISTANCE_METERS) {
+        bearings.push(s.bearingDeg);
+      }
+    }
+    if (bearings.length === 0) return 0;
+
+    // Compute the circular mean of sample bearings.
+    const sinSum = bearings.reduce((acc, b) => acc + Math.sin((b * Math.PI) / 180), 0);
+    const cosSum = bearings.reduce((acc, b) => acc + Math.cos((b * Math.PI) / 180), 0);
+    const meanDeg = (Math.atan2(sinSum, cosSum) * 180) / Math.PI;
+
+    // Angular distance from the circular mean to the reference bearing.
+    let diff = Math.abs(meanDeg - refBearingDeg);
+    if (diff > 180) diff = 360 - diff;
+    return diff;
+  }
+
   private distanceAlongSegment(
     coordinates: ReadonlyArray<Position>,
     startIndex: number,
@@ -1994,23 +2265,36 @@ export class WalkController {
       return false;
     }
 
-    const first = coordinates[0];
-    const last = coordinates[coordinates.length - 1];
-    const firstDistance = turfDistance(turfPoint(first), turfPoint(startBoundary.startPoint), {
-      units: "meters",
-    });
-    const lastDistance = turfDistance(turfPoint(last), turfPoint(startBoundary.startPoint), {
-      units: "meters",
-    });
+    let nearestIndex = -1;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    for (let index = 0; index < coordinates.length; index++) {
+      const distanceMeters = turfDistance(
+        turfPoint(coordinates[index]),
+        turfPoint(startBoundary.startPoint),
+        { units: "meters" },
+      );
+      if (distanceMeters < nearestDistance) {
+        nearestDistance = distanceMeters;
+        nearestIndex = index;
+      }
+    }
 
-    if (firstDistance > START_BOUNDARY_MAX_DISTANCE_METERS || firstDistance > lastDistance) {
+    if (nearestIndex === -1 || nearestDistance > START_BOUNDARY_MAX_DISTANCE_METERS) {
       return false;
     }
 
-    const endpointDirection: [number, number] = [
-      coordinates[1][0] - coordinates[0][0],
-      coordinates[1][1] - coordinates[0][1],
-    ];
+    const endpointDirection: [number, number] =
+      nearestIndex === 0
+        ? [coordinates[1][0] - coordinates[0][0], coordinates[1][1] - coordinates[0][1]]
+        : nearestIndex === coordinates.length - 1
+          ? [
+              coordinates[coordinates.length - 2][0] - coordinates[coordinates.length - 1][0],
+              coordinates[coordinates.length - 2][1] - coordinates[coordinates.length - 1][1],
+            ]
+          : [
+              coordinates[nearestIndex + 1][0] - coordinates[nearestIndex - 1][0],
+              coordinates[nearestIndex + 1][1] - coordinates[nearestIndex - 1][1],
+            ];
 
     const alignmentDeg = this.minUndirectedAngleDeg(startBoundary.direction, endpointDirection);
     return alignmentDeg <= START_BOUNDARY_MAX_ANGLE_DEG;

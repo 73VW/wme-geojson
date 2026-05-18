@@ -31,6 +31,53 @@ import {
   SLICE_LENGTH_KM as ROW_119_8_SLICE_LENGTH_KM,
   SEGMENT_147210427 as ROW_119_8_SEGMENT_147210427,
 } from "./fixtures/sliceBoundaryFalseNegative147210427";
+import {
+  TRACK_WITH_TAIL as MICRO_344014910_TRACK_WITH_TAIL,
+  SLICE_LENGTH_KM as MICRO_344014910_SLICE_LENGTH_KM,
+  MATCHED_SEGMENTS as MICRO_344014910_SEGMENTS,
+  EXPECTED_NOT_MATCHED_IDS as MICRO_344014910_EXPECTED_NOT_MATCHED_IDS,
+} from "./fixtures/microSegmentFalsePositive344014910";
+import {
+  TRACK_WITH_TAIL as SPUR_150514530_TRACK_WITH_TAIL,
+  SLICE_LENGTH_KM as SPUR_150514530_SLICE_LENGTH_KM,
+  MATCHED_SEGMENTS as SPUR_150514530_SEGMENTS,
+  EXPECTED_NOT_MATCHED_IDS as SPUR_150514530_EXPECTED_NOT_MATCHED_IDS,
+} from "./fixtures/parallelSpurFalsePositive150514530";
+import {
+  TRACK_WITH_TAIL as ROW8_474406759_TRACK_WITH_TAIL,
+  SLICE_LENGTH_KM as ROW8_474406759_SLICE_LENGTH_KM,
+  MATCHED_SEGMENTS as ROW8_474406759_SEGMENTS,
+} from "./fixtures/sliceBoundaryFalseNegative474406759_row8";
+import {
+  TRACK_WITH_TAIL as ROW9_474406759_TRACK_WITH_TAIL,
+  SLICE_LENGTH_KM as ROW9_474406759_SLICE_LENGTH_KM,
+  MATCHED_SEGMENTS as ROW9_474406759_SEGMENTS,
+} from "./fixtures/sliceBoundaryFalseNegative474406759_row9";
+import {
+  TRACK_WITH_TAIL as FN210811026_TRACK_WITH_TAIL,
+  SLICE_LENGTH_KM as FN210811026_SLICE_LENGTH_KM,
+  MATCHED_SEGMENTS as FN210811026_SEGMENTS,
+  EXPECTED_MATCHED_IDS as FN210811026_EXPECTED_MATCHED_IDS,
+} from "./fixtures/sliceBoundaryFalseNegative210811026_row13";
+import {
+  TRACK_WITH_TAIL as FP450224755_TRACK_WITH_TAIL,
+  SLICE_LENGTH_KM as FP450224755_SLICE_LENGTH_KM,
+  MATCHED_SEGMENTS as FP450224755_SEGMENTS,
+  EXPECTED_NOT_MATCHED_IDS as FP450224755_EXPECTED_NOT_MATCHED_IDS,
+  EXPECTED_MATCHED_IDS as FP450224755_EXPECTED_MATCHED_IDS,
+} from "./fixtures/roundaboutWrongArcFalsePositive450224755_row13";
+import {
+  TRACK_WITH_TAIL as FN211268240_TRACK_WITH_TAIL,
+  SLICE_LENGTH_KM as FN211268240_SLICE_LENGTH_KM,
+  MATCHED_SEGMENTS as FN211268240_SEGMENTS,
+  EXPECTED_MATCHED_IDS as FN211268240_EXPECTED_MATCHED_IDS,
+} from "./fixtures/sliceBoundaryFalseNegative211268240_row19";
+import {
+  TRACK_WITH_TAIL as FN432486991_TRACK_WITH_TAIL,
+  SLICE_LENGTH_KM as FN432486991_SLICE_LENGTH_KM,
+  MATCHED_SEGMENTS as FN432486991_SEGMENTS,
+  EXPECTED_MATCHED_IDS as FN432486991_EXPECTED_MATCHED_IDS,
+} from "./fixtures/sliceBoundaryFalseNegative432486991_row52";
 
 const matchSegmentsAsyncSegmentIds = vi.hoisted((): number[][] => []);
 
@@ -945,6 +992,168 @@ describe("WalkController.matchInCurrentViewport", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Captured false-positive regressions
+  // ---------------------------------------------------------------------------
+
+  describe("captured false-positive regressions", () => {
+    it("drops micro-segment 344014910 (row 21, km 128.9 → 129.9)", async () => {
+      const wmeSdk = makeWmeSdkForSegments(
+        MICRO_344014910_SEGMENTS.map((segment) => ({
+          id: segment.id,
+          coordinates: segment.geometry.coordinates,
+        })),
+      );
+
+      const controller = new WalkController(wmeSdk, MICRO_344014910_TRACK_WITH_TAIL);
+      await controller.matchInCurrentViewport(0, MICRO_344014910_SLICE_LENGTH_KM);
+
+      for (const id of MICRO_344014910_EXPECTED_NOT_MATCHED_IDS) {
+        expect(
+          controller.getMatchedIds(),
+          `expected false-positive segment ${id} to be filtered out`,
+        ).not.toContain(id);
+      }
+    });
+
+    it("drops parallel-spur 150514530 (row 19, km 127.0 → 127.9)", async () => {
+      const wmeSdk = makeWmeSdkForSegments(
+        SPUR_150514530_SEGMENTS.map((segment) => ({
+          id: segment.id,
+          coordinates: segment.geometry.coordinates,
+        })),
+      );
+
+      const controller = new WalkController(wmeSdk, SPUR_150514530_TRACK_WITH_TAIL);
+      await controller.matchInCurrentViewport(0, SPUR_150514530_SLICE_LENGTH_KM);
+
+      for (const id of SPUR_150514530_EXPECTED_NOT_MATCHED_IDS) {
+        expect(
+          controller.getMatchedIds(),
+          `expected false-positive segment ${id} to be filtered out`,
+        ).not.toContain(id);
+      }
+    });
+
+    it("drops wrong-roundabout-arc segment 450224755 in slice row 13 (km 13.8 → 14.1) while keeping 450224752 + 450224754", async () => {
+      const wmeSdk = makeWmeSdkForSegments(
+        FP450224755_SEGMENTS.map((segment) => ({
+          id: segment.id,
+          coordinates: segment.geometry.coordinates,
+        })),
+      );
+
+      const controller = new WalkController(wmeSdk, FP450224755_TRACK_WITH_TAIL);
+      await controller.matchInCurrentViewport(0, FP450224755_SLICE_LENGTH_KM);
+
+      for (const id of FP450224755_EXPECTED_NOT_MATCHED_IDS) {
+        expect(
+          controller.getMatchedIds(),
+          `expected false-positive segment ${id} to be filtered out`,
+        ).not.toContain(id);
+      }
+
+      for (const id of FP450224755_EXPECTED_MATCHED_IDS) {
+        expect(
+          controller.getMatchedIds(),
+          `expected legitimate segment ${id} to remain matched`,
+        ).toContain(id);
+      }
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Captured false-negative regressions
+  // ---------------------------------------------------------------------------
+
+  describe("captured false-negative regressions", () => {
+    it("matches missing-link segment 474406759 in at least one of the two slices spanning the boundary", async () => {
+      // --- Slice row 8 (km 7.7 → 9.7) ---
+      const wmeRow8 = makeWmeSdkForSegments(
+        ROW8_474406759_SEGMENTS.map((segment) => ({
+          id: segment.id,
+          coordinates: segment.geometry.coordinates,
+        })),
+      );
+      const controllerRow8 = new WalkController(wmeRow8, ROW8_474406759_TRACK_WITH_TAIL);
+      await controllerRow8.matchInCurrentViewport(0, ROW8_474406759_SLICE_LENGTH_KM);
+      const idsRow8 = new Set(controllerRow8.getMatchedIds());
+
+      // --- Slice row 9 (km 9.7 → 10.1) ---
+      const wmeRow9 = makeWmeSdkForSegments(
+        ROW9_474406759_SEGMENTS.map((segment) => ({
+          id: segment.id,
+          coordinates: segment.geometry.coordinates,
+        })),
+      );
+      const controllerRow9 = new WalkController(wmeRow9, ROW9_474406759_TRACK_WITH_TAIL);
+      await controllerRow9.matchInCurrentViewport(0, ROW9_474406759_SLICE_LENGTH_KM);
+      const idsRow9 = new Set(controllerRow9.getMatchedIds());
+
+      expect(
+        idsRow8.has(474406759) || idsRow9.has(474406759),
+        `expected 474406759 in matched ids of slice 7.7-9.7 (got [${[...idsRow8].join(", ")}]) OR 9.7-10.1 (got [${[...idsRow9].join(", ")}])`,
+      ).toBe(true);
+    });
+
+    it("matches segment 210811026 in slice row 13 (km 13.8 → 14.1)", async () => {
+      const wmeSdk = makeWmeSdkForSegments(
+        FN210811026_SEGMENTS.map((segment) => ({
+          id: segment.id,
+          coordinates: segment.geometry.coordinates,
+        })),
+      );
+
+      const controller = new WalkController(wmeSdk, FN210811026_TRACK_WITH_TAIL);
+      await controller.matchInCurrentViewport(0, FN210811026_SLICE_LENGTH_KM);
+
+      for (const id of FN210811026_EXPECTED_MATCHED_IDS) {
+        expect(
+          controller.getMatchedIds(),
+          `expected false-negative segment ${id} to be matched`,
+        ).toContain(id);
+      }
+    });
+
+    it("matches segment 211268240 in slice row 19 (km 18 → 20.5)", async () => {
+      const wmeSdk = makeWmeSdkForSegments(
+        FN211268240_SEGMENTS.map((segment) => ({
+          id: segment.id,
+          coordinates: segment.geometry.coordinates,
+        })),
+      );
+
+      const controller = new WalkController(wmeSdk, FN211268240_TRACK_WITH_TAIL);
+      await controller.matchInCurrentViewport(0, FN211268240_SLICE_LENGTH_KM);
+
+      for (const id of FN211268240_EXPECTED_MATCHED_IDS) {
+        expect(
+          controller.getMatchedIds(),
+          `expected false-negative segment ${id} to be matched`,
+        ).toContain(id);
+      }
+    });
+
+    it("matches segment 432486991 in slice row 52 (km 54.1 → 55.3)", async () => {
+      const wmeSdk = makeWmeSdkForSegments(
+        FN432486991_SEGMENTS.map((segment) => ({
+          id: segment.id,
+          coordinates: segment.geometry.coordinates,
+        })),
+      );
+
+      const controller = new WalkController(wmeSdk, FN432486991_TRACK_WITH_TAIL);
+      await controller.matchInCurrentViewport(0, FN432486991_SLICE_LENGTH_KM);
+
+      for (const id of FN432486991_EXPECTED_MATCHED_IDS) {
+        expect(
+          controller.getMatchedIds(),
+          `expected false-negative segment ${id} to be matched`,
+        ).toContain(id);
+      }
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Piste C — hasEnoughSampledSliceCoverage early-exit tests
   // ---------------------------------------------------------------------------
 
@@ -1169,17 +1378,28 @@ describe("WalkController.computeSliceProjection", () => {
     } as unknown as WmeSDK;
     return new WalkController(wmeSdk, {
       type: "MultiLineString",
-      coordinates: [[[0, 0], [1, 0]]],
+      coordinates: [
+        [
+          [0, 0],
+          [1, 0],
+        ],
+      ],
     });
   }
 
   it("returns zero aggregates when all samples are far from the slice", () => {
     // E-W slice at lat 0.  Segment sits 0.1° north (~11 km away).
-    const sliceFeature = turfLineString([[0, 0], [0.1, 0]]);
+    const sliceFeature = turfLineString([
+      [0, 0],
+      [0.1, 0],
+    ]);
     const sliceIndex = buildTrackSpatialIndex(sliceFeature);
     const controller = makeController();
 
-    const coords: [number, number][] = [[0.02, 0.1], [0.08, 0.1]];
+    const coords: [number, number][] = [
+      [0.02, 0.1],
+      [0.08, 0.1],
+    ];
     const proj: SegmentProjection = controller.computeSliceProjection(coords, sliceIndex);
 
     expect(proj.sampleCount).toBeGreaterThan(0);
@@ -1192,11 +1412,17 @@ describe("WalkController.computeSliceProjection", () => {
 
   it("counts close and very-close samples for a segment on the slice", () => {
     // Segment lying exactly on the E-W slice (distance = 0 m).
-    const sliceFeature = turfLineString([[6.82, 46.2], [6.83, 46.2]]);
+    const sliceFeature = turfLineString([
+      [6.82, 46.2],
+      [6.83, 46.2],
+    ]);
     const sliceIndex = buildTrackSpatialIndex(sliceFeature);
     const controller = makeController();
 
-    const coords: [number, number][] = [[6.821, 46.2], [6.829, 46.2]];
+    const coords: [number, number][] = [
+      [6.821, 46.2],
+      [6.829, 46.2],
+    ];
     const proj: SegmentProjection = controller.computeSliceProjection(coords, sliceIndex);
 
     expect(proj.sampleCount).toBeGreaterThan(0);
@@ -1208,10 +1434,17 @@ describe("WalkController.computeSliceProjection", () => {
   });
 
   it("is idempotent: repeated calls with same inputs produce equal projections", () => {
-    const sliceFeature = turfLineString([[6.82, 46.2], [6.83, 46.2]]);
+    const sliceFeature = turfLineString([
+      [6.82, 46.2],
+      [6.83, 46.2],
+    ]);
     const sliceIndex = buildTrackSpatialIndex(sliceFeature);
     const controller = makeController();
-    const coords: [number, number][] = [[6.821, 46.2], [6.825, 46.2], [6.829, 46.2]];
+    const coords: [number, number][] = [
+      [6.821, 46.2],
+      [6.825, 46.2],
+      [6.829, 46.2],
+    ];
 
     const p1 = controller.computeSliceProjection(coords, sliceIndex);
     const p2 = controller.computeSliceProjection(coords, sliceIndex);
@@ -1220,6 +1453,59 @@ describe("WalkController.computeSliceProjection", () => {
     expect(p1.closeSamples).toBe(p2.closeSamples);
     expect(p1.veryCloseSamples).toBe(p2.veryCloseSamples);
     expect(p1.projectedSpanMetersOnSlice).toBeCloseTo(p2.projectedSpanMetersOnSlice, 6);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Degenerate micro-segment guard (keptAllVerticesClose branch)
+// ---------------------------------------------------------------------------
+
+describe("WalkController degenerate micro-segment guard", () => {
+  // Track runs east along lat 46.2 from lon 6.14 to 6.17 (~2.3 km).
+  const microTrack: MultiLineString = {
+    type: "MultiLineString",
+    coordinates: [
+      [
+        [6.14, 46.2],
+        [6.17, 46.2],
+      ],
+    ],
+  };
+
+  it("drops a tiny all-vertices-close segment (degenerate micro-segment)", async () => {
+    // 12 vertices strung out in a ~2 m line, ~5 m north of the track start.
+    // All are within CLOSE_VERTEX_DISTANCE_METERS (10 m) of the track.
+    // Total path length ~2 m → both degenerate-micro conditions fire.
+    const baseCoord: [number, number] = [6.14, 46.200045]; // ~5 m north of track
+    const stepLon = 0.0000022; // ~0.17 m/step → 11 steps = ~1.9 m total
+    const clusterCoords: [number, number][] = Array.from({ length: 12 }, (_, i) => [
+      baseCoord[0] + i * stepLon,
+      baseCoord[1],
+    ]);
+
+    const wmeSdk = makeWmeSdkForSegments([{ id: 344014910, coordinates: clusterCoords }]);
+    const controller = new WalkController(wmeSdk, microTrack);
+    await controller.matchInCurrentViewport(0, 3);
+
+    expect(controller.getMatchedIds()).not.toContain(344014910);
+  });
+
+  it("keeps a short but real segment near the track start (no over-rejection)", async () => {
+    // Two endpoints ~30 m apart along the track, within 5 m of the centerline.
+    // This must NOT be rejected by the degenerate guard.
+    const wmeSdk = makeWmeSdkForSegments([
+      {
+        id: 999001,
+        coordinates: [
+          [6.14, 46.200045], // ~5 m north of track start
+          [6.1403, 46.200045], // ~30 m east
+        ],
+      },
+    ]);
+    const controller = new WalkController(wmeSdk, microTrack);
+    await controller.matchInCurrentViewport(0, 3);
+
+    expect(controller.getMatchedIds()).toContain(999001);
   });
 });
 
