@@ -73,11 +73,13 @@ export function waitForMapIdle(wmeSDK: WmeSDK, opts: WaitForMapIdleOptions = {})
       }, settleDelayMs);
     };
 
-    const eventsApi = (wmeSDK as unknown as {
-      Events?: {
-        on?: (args: { eventName: string; eventHandler: () => void }) => () => void;
-      };
-    }).Events;
+    const eventsApi = (
+      wmeSDK as unknown as {
+        Events?: {
+          on?: (args: { eventName: string; eventHandler: () => void }) => () => void;
+        };
+      }
+    ).Events;
     try {
       unsubscribeMapDataLoaded =
         eventsApi?.on?.({

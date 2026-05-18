@@ -55,9 +55,7 @@ describe("MatchingPipeline burst controls", () => {
     // the panel can present post-matching controls cleanly.
     await waitUntil(() => done.mock.calls.length === 1);
     const lastCall =
-      wmeSDK.Editing.setSelection.mock.calls[
-        wmeSDK.Editing.setSelection.mock.calls.length - 1
-      ];
+      wmeSDK.Editing.setSelection.mock.calls[wmeSDK.Editing.setSelection.mock.calls.length - 1];
     expect(lastCall[0].selection.ids).toEqual([]);
   });
 
@@ -209,11 +207,7 @@ describe("MatchingPipeline burst controls", () => {
       events: {
         onStep: (event) => {
           // Pause once, on the first leaf's match completion.
-          if (
-            !pauseRequested &&
-            event.key === "leafMatched" &&
-            event.values?.index === 1
-          ) {
+          if (!pauseRequested && event.key === "leafMatched" && event.values?.index === 1) {
             pauseRequested = true;
             pipeline?.pause();
           }
@@ -270,9 +264,8 @@ describe("MatchingPipeline burst controls", () => {
     // Selection should be cleared on completion so the operator returns to a
     // clean WME state and the script panel can present the export controls.
     const lastSelection =
-      wmeSDK.Editing.setSelection.mock.calls[
-        wmeSDK.Editing.setSelection.mock.calls.length - 1
-      ][0].selection;
+      wmeSDK.Editing.setSelection.mock.calls[wmeSDK.Editing.setSelection.mock.calls.length - 1][0]
+        .selection;
     expect(lastSelection.ids).toEqual([]);
   });
 
@@ -305,7 +298,6 @@ describe("MatchingPipeline burst controls", () => {
     expect(store.getState().csvRows[0].segments).toEqual([311, 312]);
     expect(controller.matchInCurrentViewport.mock.calls.length).toBe(4);
   });
-
 });
 
 function makePipeline(options: {

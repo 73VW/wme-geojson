@@ -99,9 +99,7 @@ export class MatchingPipeline {
 
   // Resolve handle for the in-loop burst pause gate. When set, the loop is
   // suspended after a leaf in burst mode until resume()/abort()/back resolves it.
-  private burstPauseGate:
-    | ((action: "validate" | "abort" | "back") => void)
-    | null = null;
+  private burstPauseGate: ((action: "validate" | "abort" | "back") => void) | null = null;
 
   constructor(
     private readonly wmeSDK: WmeSDK,
@@ -414,11 +412,9 @@ export class MatchingPipeline {
             this.running = false;
             this.events.onPaused?.();
 
-            const action = await new Promise<"validate" | "abort" | "back">(
-              (resolve) => {
-                this.burstPauseGate = resolve;
-              },
-            );
+            const action = await new Promise<"validate" | "abort" | "back">((resolve) => {
+              this.burstPauseGate = resolve;
+            });
 
             this.paused = false;
             this.running = true;
@@ -874,10 +870,7 @@ export class MatchingPipeline {
     }
   }
 
-  private setValidatedGroups(
-    rowIndex: number,
-    validatedGroups: readonly ClosureRowGroup[],
-  ): void {
+  private setValidatedGroups(rowIndex: number, validatedGroups: readonly ClosureRowGroup[]): void {
     this.removeGroupsFromRow(rowIndex);
     for (const group of validatedGroups) {
       if (group.segmentIds.length === 0) continue;
