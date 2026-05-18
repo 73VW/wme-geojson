@@ -104,6 +104,15 @@ const BOUNDARY_CONTINUATION_MIN_VERY_CLOSE_SAMPLES = 1;
 // bearings are roundabout arcs crossing a corner — reject them.
 const JUNCTION_ARC_MAX_CLOSE_SPAN_METERS = 25;
 const JUNCTION_ARC_MAX_BEARING_RANGE_DEG = 40;
+// Chain-link bridge guard: a tiny segment whose BOTH endpoints are shared with
+// other matched segments is a real connector — spare it from the junction-arc
+// bearing rejection.  Coordinate match tolerance (degrees, ~1 m at mid-Europe).
+const CHAIN_LINK_ENDPOINT_TOLERANCE_DEG = 0.00001;
+// Boundary-overhang close-ratio floor: a segment kept via hasBoundaryOverhang
+// must have at least this fraction of its samples close to the slice.  Prevents
+// long "dangling approach" segments (body far from route, only tip at boundary)
+// from slipping through on a single shared junction vertex.
+const BOUNDARY_OVERHANG_MIN_CLOSE_RATIO = 0.25;
 
 /**
  * Piste B — distance-to-centerline pre-filter.
@@ -179,10 +188,12 @@ interface EndpointFilterMetrics {
   keptAllVerticesClose: number;
   droppedDegenerateMicro: number;
   droppedJunctionArcBearing: number;
+  keptChainLink: number;
   keptCloseVertexSpan: number;
   droppedParallelSpur: number;
   keptSampledCoverage: number;
   keptBoundaryOverhangCoverage: number;
+  droppedDanglingApproach: number;
   keptStartBoundaryContinuation: number;
   keptEndBoundaryContinuation: number;
   droppedEndpointTouch: number;
@@ -1310,10 +1321,12 @@ export class WalkController {
       keptAllVerticesClose: 0,
       droppedDegenerateMicro: 0,
       droppedJunctionArcBearing: 0,
+      keptChainLink: 0,
       keptCloseVertexSpan: 0,
       droppedParallelSpur: 0,
       keptSampledCoverage: 0,
       keptBoundaryOverhangCoverage: 0,
+      droppedDanglingApproach: 0,
       keptStartBoundaryContinuation: 0,
       keptEndBoundaryContinuation: 0,
       droppedEndpointTouch: 0,
@@ -1343,6 +1356,25 @@ export class WalkController {
     // Reuse the shared index and projection cache when provided by the caller.
     const sliceIndex = prebuiltSliceIndex ?? this.buildSliceIndex(flattenedSliceCoords);
     const cache = projectionCache;
+
+    // Build a map from endpoint coordinate key → segment IDs.  Used by the
+    // chain-link bridge guard: a short segment whose both endpoint coordinates
+    // are shared with OTHER matched segments is a real connector.
+    const endpointKeyToIds = new Map<string, Set<number>>();
+    for (const mid of matchedIdsForBatch) {
+      const mseg = segmentById.get(mid);
+      if (!mseg || mseg.geometry.coordinates.length < 2) continue;
+      const c = mseg.geometry.coordinates;
+      for (const coord of [c[0], c[c.length - 1]]) {
+        const key = this.coordKey(coord);
+        let ids = endpointKeyToIds.get(key);
+        if (ids === undefined) {
+          ids = new Set();
+          endpointKeyToIds.set(key, ids);
+        }
+        ids.add(mid);
+      }
+    }
 
     let processedSegments = 0;
     for (const id of matchedIdsForBatch) {
@@ -1491,6 +1523,28 @@ export class WalkController {
               this.computeMeanBearingDeviation(proj, sliceStartBearingDeg) >
               JUNCTION_ARC_MAX_BEARING_RANGE_DEG
             ) {
+              // Chain-link bridge exemption: a short 2-vertex segment whose
+              // BOTH endpoint coordinates are shared with OTHER matched segments
+              // is a real straight connector — keep it even if its bearing
+              // deviates from the slice start.  Limit to 2-vertex segments so
+              // that curved roundabout arcs (many vertices) are not exempted.
+              const coords = segment.geometry.coordinates;
+              if (coords.length === 2) {
+                const k0 = this.coordKey(coords[0]);
+                const k1 = this.coordKey(coords[coords.length - 1]);
+                const others0 = endpointKeyToIds.get(k0);
+                const others1 = endpointKeyToIds.get(k1);
+                const bridgesOthers =
+                  others0 !== undefined &&
+                  others1 !== undefined &&
+                  [...others0].some((oid) => oid !== id) &&
+                  [...others1].some((oid) => oid !== id);
+                if (bridgesOthers) {
+                  filtered.add(id);
+                  metrics.keptChainLink += 1;
+                  continue;
+                }
+              }
               metrics.droppedJunctionArcBearing += 1;
               continue;
             }
@@ -1567,6 +1621,17 @@ export class WalkController {
               "end",
             ))
         ) {
+          // Dangling-approach guard: a long segment whose body lies far from the
+          // route and only its tip touches the boundary (low close-sample ratio)
+          // is a false positive.  Reject when the close-sample fraction is below
+          // BOUNDARY_OVERHANG_MIN_CLOSE_RATIO.
+          if (
+            proj.sampleCount > 0 &&
+            proj.closeSamples / proj.sampleCount < BOUNDARY_OVERHANG_MIN_CLOSE_RATIO
+          ) {
+            metrics.droppedDanglingApproach += 1;
+            continue;
+          }
           filtered.add(id);
           metrics.keptBoundaryOverhangCoverage += 1;
           continue;
@@ -2220,6 +2285,15 @@ export class WalkController {
     }
 
     return distanceMeters;
+  }
+
+  /**
+   * Encode a coordinate as a string key rounded to CHAIN_LINK_ENDPOINT_TOLERANCE_DEG
+   * precision (~1 m at mid-Europe latitudes).  Used by the chain-link bridge guard.
+   */
+  private coordKey(coord: Position): string {
+    const precision = Math.round(1 / CHAIN_LINK_ENDPOINT_TOLERANCE_DEG);
+    return `${Math.round(coord[0] * precision)},${Math.round(coord[1] * precision)}`;
   }
 
   private getStartBoundaryDirection(slicedTrack: MultiLineString): {

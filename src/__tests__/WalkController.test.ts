@@ -78,6 +78,19 @@ import {
   MATCHED_SEGMENTS as FN432486991_SEGMENTS,
   EXPECTED_MATCHED_IDS as FN432486991_EXPECTED_MATCHED_IDS,
 } from "./fixtures/sliceBoundaryFalseNegative432486991_row52";
+import {
+  TRACK_WITH_TAIL as FN444061305_TRACK_WITH_TAIL,
+  SLICE_LENGTH_KM as FN444061305_SLICE_LENGTH_KM,
+  MATCHED_SEGMENTS as FN444061305_SEGMENTS,
+  EXPECTED_MATCHED_IDS as FN444061305_EXPECTED_MATCHED_IDS,
+} from "./fixtures/junctionLinkFalseNegative444061305_row2";
+import {
+  TRACK_WITH_TAIL as FP444061303_TRACK_WITH_TAIL,
+  SLICE_LENGTH_KM as FP444061303_SLICE_LENGTH_KM,
+  MATCHED_SEGMENTS as FP444061303_SEGMENTS,
+  EXPECTED_NOT_MATCHED_IDS as FP444061303_EXPECTED_NOT_MATCHED_IDS,
+  EXPECTED_MATCHED_IDS as FP444061303_EXPECTED_MATCHED_IDS,
+} from "./fixtures/junctionWrongPathFalsePositive444061303_row2";
 
 const matchSegmentsAsyncSegmentIds = vi.hoisted((): number[][] => []);
 
@@ -1034,6 +1047,32 @@ describe("WalkController.matchInCurrentViewport", () => {
       }
     });
 
+    it("drops wrong-junction-path segment 444061303 in slice row 2 (km 1.2 → 1.6) while keeping 444061304", async () => {
+      const wmeSdk = makeWmeSdkForSegments(
+        FP444061303_SEGMENTS.map((segment) => ({
+          id: segment.id,
+          coordinates: segment.geometry.coordinates,
+        })),
+      );
+
+      const controller = new WalkController(wmeSdk, FP444061303_TRACK_WITH_TAIL);
+      await controller.matchInCurrentViewport(0, FP444061303_SLICE_LENGTH_KM);
+
+      for (const id of FP444061303_EXPECTED_NOT_MATCHED_IDS) {
+        expect(
+          controller.getMatchedIds(),
+          `expected false-positive segment ${id} to be filtered out`,
+        ).not.toContain(id);
+      }
+
+      for (const id of FP444061303_EXPECTED_MATCHED_IDS) {
+        expect(
+          controller.getMatchedIds(),
+          `expected legitimate segment ${id} to remain matched`,
+        ).toContain(id);
+      }
+    });
+
     it("drops wrong-roundabout-arc segment 450224755 in slice row 13 (km 13.8 → 14.1) while keeping 450224752 + 450224754", async () => {
       const wmeSdk = makeWmeSdkForSegments(
         FP450224755_SEGMENTS.map((segment) => ({
@@ -1126,6 +1165,25 @@ describe("WalkController.matchInCurrentViewport", () => {
       await controller.matchInCurrentViewport(0, FN211268240_SLICE_LENGTH_KM);
 
       for (const id of FN211268240_EXPECTED_MATCHED_IDS) {
+        expect(
+          controller.getMatchedIds(),
+          `expected false-negative segment ${id} to be matched`,
+        ).toContain(id);
+      }
+    });
+
+    it("matches missing-link segment 444061305 in slice row 2 (km 1.2 → 1.6)", async () => {
+      const wmeSdk = makeWmeSdkForSegments(
+        FN444061305_SEGMENTS.map((segment) => ({
+          id: segment.id,
+          coordinates: segment.geometry.coordinates,
+        })),
+      );
+
+      const controller = new WalkController(wmeSdk, FN444061305_TRACK_WITH_TAIL);
+      await controller.matchInCurrentViewport(0, FN444061305_SLICE_LENGTH_KM);
+
+      for (const id of FN444061305_EXPECTED_MATCHED_IDS) {
         expect(
           controller.getMatchedIds(),
           `expected false-negative segment ${id} to be matched`,
