@@ -110,6 +110,8 @@
       "sourceCollection": "FeatureCollection ({{count}} lines)",
       "empty": "No line in this source.",
       "fallbackName": "Track {{km}} km long",
+      "detailsLoading": "Loading details…",
+      "detailsError": "Details unavailable",
       "select": "Select",
       "centerAll": "Center on all tracks",
       "center": "Center"

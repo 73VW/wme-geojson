@@ -119,3 +119,73 @@ describe("buildEntriesFromData", () => {
     expect(a.color).not.toBe(b.color);
   });
 });
+
+describe("buildEntriesFromData — slowUp grouping", () => {
+  const url = "https://example.com/slowups.geojson";
+
+  const slowupFeature = (slowupNumber: number, coords: number[][]) => ({
+    type: "Feature",
+    geometry: { type: "MultiLineString", coordinates: [coords] },
+    properties: { slowup_number: slowupNumber },
+  });
+
+  it("merges features sharing a slowup_number into one entry", () => {
+    const fc = {
+      type: "FeatureCollection",
+      features: [
+        slowupFeature(19, [[0, 0], [0.009, 0]]),
+        slowupFeature(19, [[1, 0], [1.009, 0]]),
+        slowupFeature(7, [[2, 0], [2.009, 0]]),
+      ],
+    };
+    const entries = buildEntriesFromData(fc, url);
+    expect(entries).toHaveLength(2);
+    expect(entries[0].slowupNumber).toBe(19);
+    expect(entries[1].slowupNumber).toBe(7);
+  });
+
+  it("a merged entry's geometry concatenates every member's sub-lines", () => {
+    const fc = {
+      type: "FeatureCollection",
+      features: [
+        slowupFeature(19, [[0, 0], [0.009, 0]]),
+        slowupFeature(19, [[1, 0], [1.009, 0]]),
+      ],
+    };
+    const [entry] = buildEntriesFromData(fc, url);
+    expect(entry.track.geometry.type).toBe("MultiLineString");
+    expect(entry.track.geometry.coordinates).toHaveLength(2);
+  });
+
+  it("gives merged entries a stable slowup-based id", () => {
+    const fc = {
+      type: "FeatureCollection",
+      features: [slowupFeature(19, [[0, 0], [0.009, 0]])],
+    };
+    expect(buildEntriesFromData(fc, url)[0].id).toBe(`${url}#slowup-19`);
+  });
+
+  it("keeps features without a slowup_number as one entry each", () => {
+    const fc = {
+      type: "FeatureCollection",
+      features: [
+        { type: "Feature", geometry: { type: "LineString", coordinates: [[0, 0], [0.009, 0]] }, properties: {} },
+        { type: "Feature", geometry: { type: "LineString", coordinates: [[1, 0], [1.009, 0]] }, properties: {} },
+      ],
+    };
+    expect(buildEntriesFromData(fc, url)).toHaveLength(2);
+  });
+
+  it("preserves first-seen order across interleaved slowup numbers", () => {
+    const fc = {
+      type: "FeatureCollection",
+      features: [
+        slowupFeature(19, [[0, 0], [0.009, 0]]),
+        slowupFeature(7, [[1, 0], [1.009, 0]]),
+        slowupFeature(19, [[2, 0], [2.009, 0]]),
+      ],
+    };
+    const entries = buildEntriesFromData(fc, url);
+    expect(entries.map((e) => e.slowupNumber)).toEqual([19, 7]);
+  });
+});

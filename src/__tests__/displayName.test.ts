@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import i18next from "i18next";
 import { computeDisplayName } from "../lines/displayName";
+import type { SlowupDetails } from "../lines/types";
 
 beforeAll(async () => {
   await i18next.init({
@@ -18,7 +19,25 @@ describe("computeDisplayName", () => {
       properties: { name: "ignored" },
       slowupDetails: { refid: 19, title: "Ticino", date: "2026-04-19" },
     });
-    expect(name).toBe("Ticino — 2026-04-19");
+    expect(name).toBe("Ticino — 19.04.2026");
+  });
+
+  it("keeps the raw date when the slowUp date is not parseable", () => {
+    const name = computeDisplayName({
+      lengthKm: 24.3,
+      properties: { name: "ignored" },
+      slowupDetails: { refid: 19, title: "Ticino", date: "not-a-date" },
+    });
+    expect(name).toBe("Ticino — not-a-date");
+  });
+
+  it("falls back to the slowUp title when the date is missing at runtime", () => {
+    const name = computeDisplayName({
+      lengthKm: 24.3,
+      properties: { name: "ignored" },
+      slowupDetails: { refid: 19, title: "Ticino" } as SlowupDetails,
+    });
+    expect(name).toBe("Ticino");
   });
 
   it("uses properties.name when present and no slowUp details", () => {

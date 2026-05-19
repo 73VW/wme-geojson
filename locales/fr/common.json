@@ -110,6 +110,8 @@
       "sourceCollection": "FeatureCollection ({{count}} lignes)",
       "empty": "Aucune ligne dans cette source.",
       "fallbackName": "Tracé de {{km}} km",
+      "detailsLoading": "Chargement des détails…",
+      "detailsError": "Détails indisponibles",
       "select": "Sélectionner",
       "centerAll": "Centrer sur tous les tracés",
       "center": "Centrer"

@@ -24,28 +24,28 @@ const track: NormalizedTrack = {
 
 describe("buildEntryFromTrack", () => {
   it("produces one entry with a stable id from url and index", () => {
-    const entry = buildEntryFromTrack(track, "https://example.com/x.json", 0);
+    const entry = buildEntryFromTrack(track, "https://example.com/x.json#0");
     expect(entry.id).toBe("https://example.com/x.json#0");
   });
 
   it("computes lengthKm from the geometry", () => {
-    const entry = buildEntryFromTrack(track, "https://example.com/x.json", 0);
+    const entry = buildEntryFromTrack(track, "https://example.com/x.json#0");
     expect(entry.lengthKm).toBeGreaterThan(0.9);
     expect(entry.lengthKm).toBeLessThan(1.1);
   });
 
   it("uses properties.name for the display name", () => {
-    const entry = buildEntryFromTrack(track, "https://example.com/x.json", 0);
+    const entry = buildEntryFromTrack(track, "https://example.com/x.json#0");
     expect(entry.displayName).toBe("Test line");
   });
 
   it("preserves rawProperties on the track", () => {
-    const entry = buildEntryFromTrack(track, "https://example.com/x.json", 0);
+    const entry = buildEntryFromTrack(track, "https://example.com/x.json#0");
     expect(entry.track.rawProperties).toEqual({ name: "Test line" });
   });
 
   it("defaults to synthetic mode and idle states", () => {
-    const entry = buildEntryFromTrack(track, "https://example.com/x.json", 0);
+    const entry = buildEntryFromTrack(track, "https://example.com/x.json#0");
     expect(entry.mode).toBe("synthetic");
     expect(entry.matchPhase).toBe("idle");
     expect(entry.slowupFetchStatus).toBe("idle");
@@ -53,7 +53,7 @@ describe("buildEntryFromTrack", () => {
 
   it("falls back to a length-based name when properties has no name", () => {
     const nameless: NormalizedTrack = { ...track, rawProperties: {} };
-    const entry = buildEntryFromTrack(nameless, "https://example.com/x.json", 0);
+    const entry = buildEntryFromTrack(nameless, "https://example.com/x.json#0");
     expect(entry.displayName).toMatch(/^Tracé de /);
   });
 });

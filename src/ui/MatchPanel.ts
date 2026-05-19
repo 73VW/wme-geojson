@@ -165,26 +165,24 @@ export class MatchPanel {
         flex: 1;
         padding: 8px 6px;
         cursor: pointer;
-        border: 0;
+        border: none;
         background: #f2f4f7;
-        font-size: 13px;
-        color: #5b6770;
+        border-right: 1px solid #d3d8de;
       }
-      .wmegj-subtab-toggle button + button { border-left: 1px solid #d3d8de; }
       .wmegj-subtab-toggle button.wmegj-subtab-active {
         background: #fff;
         font-weight: 700;
-        color: #1f2937;
       }
       .wmegj-line-row {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 10px;
         padding: 8px 10px;
         border: 1px solid #e5e8eb;
-        border-radius: 6px;
-        margin-bottom: 6px;
+        border-radius: 8px;
+        background: #fff;
         cursor: pointer;
+        transition: background 0.12s ease, border-color 0.12s ease;
       }
       .wmegj-line-row:hover {
         background: #f2f4f7;
@@ -213,6 +211,19 @@ export class MatchPanel {
       }
       .wmegj-icon-btn:hover { background: #e9edf2; color: #1d5a9e; }
       .wmegj-line-arrow { flex: 0 0 auto; color: #9aa6b1; }
+      .wmegj-line-row--loading { opacity: 0.6; cursor: default; }
+      .wmegj-line-row--loading:hover { background: transparent; }
+      .wmegj-line-warning { flex: 0 0 auto; color: #e0a800; }
+      .wmegj-spinner {
+        flex: 0 0 auto;
+        width: 14px;
+        height: 14px;
+        border: 2px solid #c7ced6;
+        border-top-color: #2c6fbb;
+        border-radius: 50%;
+        animation: wmegj-spin 0.7s linear infinite;
+      }
+      @keyframes wmegj-spin { to { transform: rotate(360deg); } }
       .wmegj-source-line { font-weight: 600; font-size: 13px; margin: 4px 0 8px; }
       .wmegj-url-error { color: #c0392b; font-size: 12px; margin-top: 6px; }
       .wmegj-load-btn { display: block; margin-top: 8px; }

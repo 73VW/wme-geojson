@@ -1959,8 +1959,9 @@ export class MatchingSubTab {
    */
   private async downloadClosuresSynthetic(closureGroups: ClosureRowGroup[]): Promise<void> {
     const today = new Date().toISOString().slice(0, 10);
+    const slowupDate = this.registry.getSelected()?.slowupDetails?.date;
     const window = await promptClosureWindow({
-      date: today,
+      date: slowupDate ?? today,
       startTime: "09:00",
       endTime: "17:30",
     });

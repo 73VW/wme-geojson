@@ -2,6 +2,7 @@
 // Phase 7b: handles both a single Feature and a FeatureCollection.
 
 import { length as turfLength } from "@turf/turf";
+import type { MultiLineString } from "geojson";
 import type { NormalizedTrack } from "../geojson/types";
 import { fetchGeoJson } from "../geojson/Loader";
 import { validateFeature, validateFeatureCollection } from "../geojson/validate";
@@ -11,19 +12,14 @@ import { colorForLineId } from "./color";
 import type { LineEntry } from "./types";
 
 /**
- * Build a LineEntry from a normalised track. Pure — no fetch, no SDK.
- * `featureIndex` keeps ids stable and unique within a source.
+ * Build a LineEntry from a normalised track and a precomputed stable id.
+ * Pure — no fetch, no SDK.
  */
-export function buildEntryFromTrack(
-  track: NormalizedTrack,
-  sourceUrl: string,
-  featureIndex: number,
-): LineEntry {
+export function buildEntryFromTrack(track: NormalizedTrack, id: string): LineEntry {
   const lengthKm = turfLength(
     { type: "Feature", geometry: track.geometry, properties: null },
     { units: "kilometers" },
   );
-  const id = `${sourceUrl}#${featureIndex}`;
   const slowupNumber = extractSlowupNumber(track.rawProperties);
 
   const entry: LineEntry = {
@@ -42,6 +38,11 @@ export function buildEntryFromTrack(
   return entry;
 }
 
+interface GroupedTrack {
+  id: string;
+  track: NormalizedTrack;
+}
+
 function extractSlowupNumber(props: Record<string, unknown> | undefined): number | undefined {
   const raw = props?.["slowup_number"];
   if (typeof raw === "number" && Number.isFinite(raw)) return raw;
@@ -49,6 +50,61 @@ function extractSlowupNumber(props: Record<string, unknown> | undefined): number
     return Number(raw);
   }
   return undefined;
+}
+
+function groupFeaturesIntoTracks(
+  features: ReturnType<typeof validateFeatureCollection>,
+  sourceUrl: string,
+): GroupedTrack[] {
+  interface Slot {
+    id: string;
+    coordinates: MultiLineString["coordinates"];
+    rawProperties?: Record<string, unknown>;
+  }
+
+  const slots: Slot[] = [];
+  const slotBySlowup = new Map<number, Slot>();
+
+  features.forEach((feature, index) => {
+    const track = normalizeTrack(feature);
+    const slowupNumber = extractSlowupNumber(track.rawProperties);
+
+    if (slowupNumber !== undefined) {
+      const existing = slotBySlowup.get(slowupNumber);
+      if (existing) {
+        existing.coordinates.push(...track.geometry.coordinates);
+        return;
+      }
+    }
+
+    const slot: Slot = {
+      id:
+        slowupNumber !== undefined
+          ? `${sourceUrl}#slowup-${slowupNumber}`
+          : `${sourceUrl}#${index}`,
+      coordinates: [...track.geometry.coordinates],
+      rawProperties: track.rawProperties,
+    };
+
+    slots.push(slot);
+
+    if (slowupNumber !== undefined) {
+      slotBySlowup.set(slowupNumber, slot);
+    }
+  });
+
+  return slots.map((slot) => {
+    const track: NormalizedTrack = {
+      trackId: null,
+      geometry: { type: "MultiLineString", coordinates: slot.coordinates },
+    };
+
+    if (slot.rawProperties !== undefined) {
+      track.rawProperties = slot.rawProperties;
+    }
+
+    return { id: slot.id, track };
+  });
 }
 
 /**
@@ -62,13 +118,13 @@ export function buildEntriesFromData(raw: unknown, sourceUrl: string): LineEntry
 
   if (isFeatureCollection) {
     const features = validateFeatureCollection(raw);
-    return features.map((feature, index) =>
-      buildEntryFromTrack(normalizeTrack(feature), sourceUrl, index),
+    return groupFeaturesIntoTracks(features, sourceUrl).map(({ id, track }) =>
+      buildEntryFromTrack(track, id),
     );
   }
 
   const feature = validateFeature(raw);
-  return [buildEntryFromTrack(normalizeTrack(feature), sourceUrl, 0)];
+  return [buildEntryFromTrack(normalizeTrack(feature), `${sourceUrl}#0`)];
 }
 
 /**
