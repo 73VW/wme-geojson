@@ -266,7 +266,7 @@ export class MatchingSubTab {
       this.store.setPhase("csv-loaded");
       this.setSyntheticBannerVisible(false);
     } else {
-      this.store.setCsvRows([buildSyntheticRow(entry.lengthKm)], "");
+      this.store.setCsvRows([buildSyntheticRow()], "");
       this.store.setPhase("csv-loaded");
       this.setSyntheticBannerVisible(true);
     }
