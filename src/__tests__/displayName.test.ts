@@ -1,12 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import i18next from "i18next";
 import { computeDisplayName } from "../lines/displayName";
 
-await i18next.init({
-  lng: "fr",
-  resources: {
-    fr: { translation: { panel: { lines: { fallbackName: "Tracé de {{km}} km" } } } },
-  },
+beforeAll(async () => {
+  await i18next.init({
+    lng: "fr",
+    resources: {
+      fr: { translation: { panel: { lines: { fallbackName: "Tracé de {{km}} km" } } } },
+    },
+  });
 });
 
 describe("computeDisplayName", () => {
