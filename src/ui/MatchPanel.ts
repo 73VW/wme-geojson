@@ -20,6 +20,9 @@ export class MatchPanel {
   private matchingSubTab: MatchingSubTab | null = null;
   private loadFn: ((url: string) => Promise<void>) | null = null;
   private previewLayer: LinesPreviewLayer | null = null;
+  // Whether the Lignes sub-tab content is currently on screen. Drives the
+  // multi-colour preview — see the IntersectionObserver wired in mount().
+  private linesTabVisible = false;
 
   constructor(
     private readonly wmeSDK: WmeSDK,
@@ -69,31 +72,36 @@ export class MatchPanel {
     this.previewLayer = new LinesPreviewLayer(this.wmeSDK);
     this.registry.onLinesChanged(() => this.refreshPreview());
     this.registry.onSelectedLineChanged((entry) => {
-      if (entry) {
-        this.previewLayer?.destroy();
-        // Always center the map on the newly selected line so it is
-        // immediately identifiable without going back to the list.
-        this.zoomToEntries([entry]);
-      } else {
-        this.refreshPreview();
-      }
+      // Always center the map on the newly selected line so it is
+      // immediately identifiable. Preview visibility is driven by which
+      // sub-tab is showing (the IntersectionObserver below), not by
+      // selection — so returning to the Lignes list restores every trace.
+      if (entry) this.zoomToEntries([entry]);
     });
+
+    // <wz-tab> hides the inactive tab's content with display:none, so an
+    // IntersectionObserver on the Lignes content flips as the user switches
+    // sub-tabs: the multi-colour preview is drawn while the Lignes list is
+    // visible and removed while the Matching tab is showing.
+    if (typeof IntersectionObserver !== "undefined") {
+      const observer = new IntersectionObserver((records) => {
+        this.linesTabVisible = records.some((record) => record.isIntersecting);
+        this.refreshPreview();
+      });
+      observer.observe(this.linesSubTab.root);
+    }
 
     logger.info("MatchPanel shell mounted");
   }
 
-  /** Show the multi-colour preview only while no line is selected. */
+  /** Show the multi-colour preview only while the Lignes sub-tab is visible. */
   private refreshPreview(): void {
     if (!this.previewLayer) return;
-    if (this.registry.getSelected() !== null) {
-      this.previewLayer.destroy();
-      return;
-    }
     const entries = this.registry.getAll();
-    if (entries.length === 0) {
-      this.previewLayer.destroy();
-    } else {
+    if (this.linesTabVisible && entries.length > 0) {
       this.previewLayer.draw(entries);
+    } else {
+      this.previewLayer.destroy();
     }
   }
 
