@@ -72,6 +72,8 @@ export class MatchingSubTab {
   private csvLoadingTextEl: HTMLElement | null = null;
   private startMatchingRow: HTMLElement | null = null;
   private syntheticBannerRow: HTMLElement | null = null;
+  // "Remove CSV" button — shown only when a CSV is loaded, reverts to synthetic.
+  private csvRemoveBtn: HTMLElement | null = null;
   private guidedMatchingRow: HTMLElement | null = null;
   private downloadRow: HTMLElement | null = null;
   private resumeBannerRow: HTMLElement | null = null;
@@ -265,10 +267,12 @@ export class MatchingSubTab {
       this.store.setCsvRows(entry.csvRows, entry.csvText ?? "");
       this.store.setPhase("csv-loaded");
       this.setSyntheticBannerVisible(false);
+      this.setRemoveCsvVisible(true);
     } else {
       this.store.setCsvRows([buildSyntheticRow()], "");
       this.store.setPhase("csv-loaded");
       this.setSyntheticBannerVisible(true);
+      this.setRemoveCsvVisible(false);
     }
   }
 
@@ -363,6 +367,7 @@ export class MatchingSubTab {
     this.csvLoadingTextEl = null;
     this.startMatchingRow = null;
     this.syntheticBannerRow = null;
+    this.csvRemoveBtn = null;
     this.attachedLineId = null;
     this.downloadRow = null;
     this.resumeBannerRow = null;
@@ -567,7 +572,54 @@ export class MatchingSubTab {
     this.csvLoadingEl = loadingEl;
     this.csvLoadingTextEl = loadingTextEl;
 
+    // "Remove CSV" — hidden until a CSV is imported; reverts to synthetic mode
+    // so the user can match a whole line without a schedule.
+    const removeBtn = wzButton({
+      text: i18next.t("panel.csvInput.remove"),
+      variant: "danger",
+      onClick: () => {
+        this.revertToSyntheticMode();
+      },
+    });
+    removeBtn.style.display = "none";
+    removeBtn.style.marginTop = "4px";
+    section.appendChild(removeBtn);
+    this.csvRemoveBtn = removeBtn;
+
     return section;
+  }
+
+  private setRemoveCsvVisible(visible: boolean): void {
+    if (this.csvRemoveBtn) {
+      this.csvRemoveBtn.style.display = visible ? "" : "none";
+    }
+  }
+
+  /**
+   * Drop the imported CSV for the selected line and fall back to a synthetic
+   * single-row schedule, so matching runs over the whole line again.
+   */
+  private revertToSyntheticMode(): void {
+    const entry = this.registry.getSelected();
+    if (!entry) return;
+
+    this.pipeline?.abort();
+    this.pipeline = null;
+    this.resetGuidedSessionState({ closePanel: true });
+    this.hideResumeBanner();
+
+    this.lastCsvText = null;
+    this.lastCsvRows = [];
+    this.registry.updateEntry(entry.id, {
+      mode: "synthetic",
+      csvRows: undefined,
+      csvText: undefined,
+    });
+
+    this.store.setCsvRows([buildSyntheticRow()], "");
+    this.store.setPhase("csv-loaded");
+    this.setSyntheticBannerVisible(true);
+    this.setRemoveCsvVisible(false);
   }
 
   private buildSyntheticBannerRow(): HTMLElement {
@@ -1761,6 +1813,7 @@ export class MatchingSubTab {
         });
       }
       this.setSyntheticBannerVisible(false);
+      this.setRemoveCsvVisible(true);
 
       // Show only the labels whose distances appear in the CSV so the track
       // decorations match the pipeline waypoints from the start.

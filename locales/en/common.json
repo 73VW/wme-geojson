@@ -85,7 +85,8 @@
       "processing": "Parsing CSV...",
       "labels": "Preparing labels...",
       "loading": "Loading file...",
-      "error": "Unable to read the file."
+      "error": "Unable to read the file.",
+      "remove": "Remove CSV (use a single time window)"
     },
     "openMatchingPanel": "Open matching panel",
     "startMatching": "Start matching",
