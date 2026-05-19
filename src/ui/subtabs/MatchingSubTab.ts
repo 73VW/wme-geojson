@@ -1976,7 +1976,10 @@ export class MatchingSubTab {
   }
 
   private getExportClosureGroups(rows: readonly CsvRow[]): ClosureRowGroup[] | null {
-    const closureGroups = (this.pipeline?.getMatchedGroups() ?? []) as ClosureRowGroup[];
+    // After a line switch the live pipeline belongs to a different line; fall
+    // back to the match groups snapshotted on the selected entry (Task 5).
+    const snapshotGroups = this.registry.getSelected()?.matchedGroups ?? [];
+    const closureGroups = (this.pipeline?.getMatchedGroups() ?? snapshotGroups) as ClosureRowGroup[];
     const missingGeoIndex = rows.findIndex(
       (row, index) =>
         row.segments !== null &&
