@@ -1,5 +1,5 @@
-// Shell panel: registers the WME sidebar tab and hosts a [Lignes][Matching]
-// segmented toggle over two sub-tab controllers. All matching logic lives in
+// Shell panel: registers the WME sidebar tab and hosts a native <wz-tabs>
+// control with [Lignes][Matching] sub-tabs. All matching logic lives in
 // MatchingSubTab; all line-loading logic in LinesSubTab.
 
 import type { WmeSDK } from "wme-sdk-typings";
@@ -7,18 +7,13 @@ import { i18next } from "../../locales/i18n";
 import { logger } from "../utils/logger";
 import type { SessionStore } from "../state/SessionStore";
 import type { LineRegistry } from "../lines/LineRegistry";
-import { wzButton } from "./components/wz";
+import { wzTabs, type WzTabsHandle } from "./components/wz";
 import { LinesSubTab } from "./subtabs/LinesSubTab";
 import { MatchingSubTab } from "./subtabs/MatchingSubTab";
 
-type SubTab = "lines" | "matching";
-
 export class MatchPanel {
   private tabPane: HTMLElement | null = null;
-  private linesBtn: HTMLButtonElement | null = null;
-  private matchingBtn: HTMLButtonElement | null = null;
-  private linesContainer: HTMLElement | null = null;
-  private matchingContainer: HTMLElement | null = null;
+  private tabs: WzTabsHandle | null = null;
   private linesSubTab: LinesSubTab | null = null;
   private matchingSubTab: MatchingSubTab | null = null;
   private loadFn: ((url: string) => Promise<void>) | null = null;
@@ -43,19 +38,6 @@ export class MatchPanel {
     tabPane.classList.add("wmegj-panel-root");
     this.injectShellStyles(tabPane);
 
-    const toggle = document.createElement("div");
-    toggle.className = "wmegj-subtab-toggle";
-    this.linesBtn = this.makeToggleButton(i18next.t("panel.subtabs.lines"), "lines");
-    this.matchingBtn = this.makeToggleButton(i18next.t("panel.subtabs.matching"), "matching");
-    toggle.appendChild(this.linesBtn);
-    toggle.appendChild(this.matchingBtn);
-    tabPane.appendChild(toggle);
-
-    this.linesContainer = document.createElement("div");
-    this.matchingContainer = document.createElement("div");
-    tabPane.appendChild(this.linesContainer);
-    tabPane.appendChild(this.matchingContainer);
-
     if (!this.loadFn) {
       logger.error("MatchPanel.mount: loadFn not set before mount");
       return;
@@ -64,22 +46,18 @@ export class MatchPanel {
     this.linesSubTab = new LinesSubTab({
       registry: this.registry,
       loadFn: this.loadFn,
-      onLineSelected: () => this.setActiveTab("matching"),
+      onLineSelected: () => this.tabs?.setActiveTab(1),
     });
-    this.linesContainer.appendChild(this.linesSubTab.root);
-
-    const backBtn = wzButton({
-      text: i18next.t("panel.matching.backToLines"),
-      variant: "secondary",
-      onClick: () => this.setActiveTab("lines"),
-    });
-    backBtn.classList.add("wmegj-back-btn");
-    this.matchingContainer.appendChild(backBtn);
 
     this.matchingSubTab = new MatchingSubTab(this.wmeSDK, this.store, this.registry);
-    this.matchingContainer.appendChild(this.matchingSubTab.buildRoot());
+    const matchingRoot = this.matchingSubTab.buildRoot();
 
-    this.setActiveTab("lines");
+    this.tabs = wzTabs([
+      { label: i18next.t("panel.subtabs.lines"), content: this.linesSubTab.root },
+      { label: i18next.t("panel.subtabs.matching"), content: matchingRoot },
+    ]);
+    tabPane.appendChild(this.tabs.root);
+
     logger.info("MatchPanel shell mounted");
   }
 
@@ -91,22 +69,6 @@ export class MatchPanel {
   /** Surface a URL load error in the Lignes sub-tab. */
   showLoadError(message: string): void {
     this.linesSubTab?.showError(message);
-  }
-
-  private makeToggleButton(label: string, tab: SubTab): HTMLButtonElement {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.textContent = label;
-    btn.addEventListener("click", () => this.setActiveTab(tab));
-    return btn;
-  }
-
-  private setActiveTab(tab: SubTab): void {
-    const showLines = tab === "lines";
-    if (this.linesContainer) this.linesContainer.style.display = showLines ? "" : "none";
-    if (this.matchingContainer) this.matchingContainer.style.display = showLines ? "none" : "";
-    this.linesBtn?.classList.toggle("wmegj-subtab-active", showLines);
-    this.matchingBtn?.classList.toggle("wmegj-subtab-active", !showLines);
   }
 
   private injectShellStyles(container: HTMLElement): void {
@@ -134,7 +96,6 @@ export class MatchPanel {
         font-weight: 700;
         color: #1f2937;
       }
-      .wmegj-back-btn { display: block; margin: 0 0 10px; }
       .wmegj-line-row {
         display: flex;
         align-items: center;

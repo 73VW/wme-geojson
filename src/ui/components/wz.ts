@@ -151,6 +151,95 @@ export function wzTextInput(props: WzTextInputProps): HTMLElement {
 }
 
 // ---------------------------------------------------------------------------
+// wz-tabs
+// ---------------------------------------------------------------------------
+
+export interface WzTabSpec {
+  /** Tab label shown in the tab bar. */
+  label: string;
+  /** Tab body content. */
+  content: HTMLElement;
+}
+
+export interface WzTabsHandle {
+  /** The root element to insert into the DOM. */
+  root: HTMLElement;
+  /** Activate the tab at `index` (0-based). */
+  setActiveTab(index: number): void;
+}
+
+/**
+ * Create a <wz-tabs> element with one <wz-tab> per spec (or a plain
+ * button-toggle fallback when WME is not running).
+ */
+export function wzTabs(tabs: WzTabSpec[]): WzTabsHandle {
+  const tagName = "wz-tabs";
+  const isRegistered =
+    typeof customElements !== "undefined" && customElements.get(tagName) !== undefined;
+
+  if (isRegistered) {
+    const tabsEl = document.createElement(tagName);
+    tabsEl.setAttribute("fixed", "");
+    const tabEls: HTMLElement[] = [];
+    for (const spec of tabs) {
+      const tabEl = document.createElement("wz-tab");
+      tabEl.setAttribute("label", spec.label);
+      tabEl.setAttribute("tooltip", spec.label);
+      tabEl.appendChild(spec.content);
+      tabsEl.appendChild(tabEl);
+      tabEls.push(tabEl);
+    }
+
+    return {
+      root: tabsEl,
+      setActiveTab(index: number): void {
+        // Clicking the matching shadow-DOM label is the reliable mechanism.
+        const labels = tabsEl.shadowRoot?.querySelectorAll(".wz-tab-label");
+        const label = labels?.[index];
+        if (label instanceof HTMLElement) {
+          label.click();
+        } else {
+          // Fallback if the shadow bar has not rendered yet: drive is-active.
+          tabEls.forEach((t, i) => {
+            if (i === index) t.setAttribute("is-active", "");
+            else t.removeAttribute("is-active");
+          });
+        }
+      },
+    };
+  }
+
+  warnMissingTag(tagName);
+  // Plain button-toggle fallback for non-WME / test environments.
+  const root = document.createElement("div");
+  const toggle = document.createElement("div");
+  toggle.className = "wmegj-subtab-toggle";
+  const buttons: HTMLButtonElement[] = [];
+  root.appendChild(toggle);
+
+  const setActiveTab = (index: number): void => {
+    tabs.forEach((spec, i) => {
+      spec.content.style.display = i === index ? "" : "none";
+      buttons[i]?.classList.toggle("wmegj-subtab-active", i === index);
+    });
+  };
+
+  tabs.forEach((spec, i) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = spec.label;
+    btn.addEventListener("click", () => setActiveTab(i));
+    toggle.appendChild(btn);
+    buttons.push(btn);
+    root.appendChild(spec.content);
+  });
+
+  setActiveTab(0);
+
+  return { root, setActiveTab };
+}
+
+// ---------------------------------------------------------------------------
 // file input (raw <input type="file">)
 // ---------------------------------------------------------------------------
 
