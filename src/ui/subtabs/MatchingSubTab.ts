@@ -1,8 +1,10 @@
 import type { WmeSDK } from "wme-sdk-typings";
 import { i18next } from "../../../locales/i18n";
 import { logger } from "../../utils/logger";
-import type { TrackLayer } from "../../layers/TrackLayer";
-import type { WalkController } from "../../controller/WalkController";
+import { TrackLayer } from "../../layers/TrackLayer";
+import { WalkController } from "../../controller/WalkController";
+import type { LineRegistry } from "../../lines/LineRegistry";
+import type { LineEntry } from "../../lines/types";
 import type { WalkState } from "../../controller/walkStates";
 import type { SessionStore, SessionPhase, SessionState, CsvRow } from "../../state/SessionStore";
 import { parseSchedule } from "../../csv/parseSchedule";
@@ -39,10 +41,15 @@ export class MatchingSubTab {
   private unsubscribeStore: (() => void) | null = null;
   private unsubscribeState: (() => void) | null = null;
   private unsubscribeMapDataLoaded: (() => void) | null = null;
+  private unsubscribeSelection: (() => void) | null = null;
 
   // Controllers wired lazily by loadAndAttachTrack after mount
   private controller: WalkController | null;
   private trackLayer: TrackLayer | null;
+
+  // Shell-level content toggling driven by the selected line.
+  private contentWrapperEl: HTMLElement | null = null;
+  private emptyStateEl: HTMLElement | null = null;
 
   // Injected by main.user.ts to avoid a circular module dependency:
   // loadAndAttachTrack imports MatchPanel, so MatchPanel cannot import it back.
@@ -132,11 +139,10 @@ export class MatchingSubTab {
   constructor(
     private readonly wmeSDK: WmeSDK,
     private readonly store: SessionStore,
-    initialController: WalkController | null,
-    initialTrackLayer: TrackLayer | null,
+    private readonly registry: LineRegistry,
   ) {
-    this.controller = initialController;
-    this.trackLayer = initialTrackLayer;
+    this.controller = null;
+    this.trackLayer = null;
   }
 
   // ---------------------------------------------------------------------------
@@ -144,28 +150,25 @@ export class MatchingSubTab {
   // ---------------------------------------------------------------------------
 
   /**
-   * Register a sidebar tab, build the DOM, and subscribe to the store.
-   * Safe to call only once; a second call is a no-op.
+   * Build the matching sub-tab DOM and subscribe to the store and registry.
+   * The shell owns sidebar-tab registration; this returns the content root.
+   * Safe to call only once; a second call returns the existing root.
    */
-  async mount(): Promise<void> {
-    if (this.tabPane) return;
+  buildRoot(): HTMLElement {
+    if (this.tabPane) return this.tabPane;
 
-    let tabLabel: HTMLElement;
-    let tabPane: HTMLElement;
+    const root = document.createElement("div");
+    this.tabPane = root;
+    root.classList.add("wmegj-panel-root");
+    this.injectStyles(root);
+    this.buildDOM(root);
+    this.contentWrapperEl = root.firstElementChild as HTMLElement | null;
 
-    try {
-      ({ tabLabel, tabPane } = await this.wmeSDK.Sidebar.registerScriptTab());
-    } catch (err) {
-      logger.error("MatchPanel.mount: failed to register sidebar tab", err);
-      return;
-    }
+    this.emptyStateEl = document.createElement("p");
+    this.emptyStateEl.className = "wmegj-section";
+    this.emptyStateEl.textContent = i18next.t("panel.matching.noSelection");
+    root.appendChild(this.emptyStateEl);
 
-    tabLabel.textContent = "GeoJ";
-    this.tabLabel = tabLabel;
-    this.tabPane = tabPane;
-    tabPane.classList.add("wmegj-panel-root");
-    this.injectStyles(tabPane);
-    this.buildDOM(tabPane);
     if (this.guidedMatchingRow && this.guidedMatchingRow.parentElement !== document.body) {
       document.body.appendChild(this.guidedMatchingRow);
     }
@@ -184,7 +187,7 @@ export class MatchingSubTab {
           eventHandler: () => {},
         }) ?? null;
     } catch (err) {
-      logger.warn("MatchPanel.mount: failed to subscribe to wme-map-data-loaded", err);
+      logger.warn("MatchingSubTab.buildRoot: failed to subscribe to wme-map-data-loaded", err);
     }
 
     // Re-render visibility whenever store phase changes
@@ -199,7 +202,44 @@ export class MatchingSubTab {
 
     this.renderPhase(this.store.getState().phase);
 
-    logger.info("MatchPanel mounted");
+    this.unsubscribeSelection = this.registry.onSelectedLineChanged((entry) => {
+      this.onSelectedLineChanged(entry);
+    });
+    this.onSelectedLineChanged(this.registry.getSelected());
+
+    logger.info("MatchingSubTab built");
+    return root;
+  }
+
+  /**
+   * React to the selected line changing: toggle the empty-state vs. content,
+   * stop any running walk, redraw the track layer, and rebuild the controller.
+   */
+  private onSelectedLineChanged(entry: LineEntry | null): void {
+    const hasLine = entry !== null;
+    if (this.contentWrapperEl) this.contentWrapperEl.style.display = hasLine ? "" : "none";
+    if (this.emptyStateEl) this.emptyStateEl.style.display = hasLine ? "none" : "";
+    if (!entry) return;
+
+    // Stop any walk in progress before re-attaching to a different line.
+    try {
+      this.controller?.stop();
+    } catch (err) {
+      logger.warn("MatchingSubTab.onSelectedLineChanged: controller.stop threw", err);
+    }
+
+    try {
+      this.wmeSDK.Map.removeLayer({ layerName: TrackLayer.LAYER_NAME });
+    } catch {
+      // No previous layer is the common case.
+    }
+    const layer = new TrackLayer(this.wmeSDK);
+    layer.draw(entry.track);
+
+    const controller = new WalkController(this.wmeSDK, entry.track.geometry);
+    this.setController(controller);
+    this.setTrackLayer(layer);
+    this.store.setTrack(entry.id, entry.lengthKm);
   }
 
   /**
@@ -272,9 +312,11 @@ export class MatchingSubTab {
     this.unsubscribeStore?.();
     this.unsubscribeState?.();
     this.unsubscribeMapDataLoaded?.();
+    this.unsubscribeSelection?.();
     this.unsubscribeStore = null;
     this.unsubscribeState = null;
     this.unsubscribeMapDataLoaded = null;
+    this.unsubscribeSelection = null;
 
     if (this.tabPane) {
       while (this.tabPane.firstChild) {
