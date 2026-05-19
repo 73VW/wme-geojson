@@ -1,10 +1,11 @@
 // Loads a GeoJSON source URL into one or more LineEntry objects.
-// Phase 7a: handles a single Feature only (reuses geojson/Loader.loadTrack).
-// Phase 7b will add the FeatureCollection branch.
+// Phase 7b: handles both a single Feature and a FeatureCollection.
 
 import { length as turfLength } from "@turf/turf";
 import type { NormalizedTrack } from "../geojson/types";
-import { loadTrack } from "../geojson/Loader";
+import { fetchGeoJson } from "../geojson/Loader";
+import { validateFeature, validateFeatureCollection } from "../geojson/validate";
+import { normalizeTrack } from "../geojson/normalize";
 import { computeDisplayName } from "./displayName";
 import { colorForLineId } from "./color";
 import type { LineEntry } from "./types";
@@ -51,10 +52,30 @@ function extractSlowupNumber(props: Record<string, unknown> | undefined): number
 }
 
 /**
- * Fetch a GeoJSON URL and build the list of lines.
- * Phase 7a: the URL must resolve to a single Feature.
+ * Build the list of LineEntry from an already-fetched GeoJSON payload.
+ * Pure — no fetch, no SDK. Accepts either a FeatureCollection (one entry per
+ * line feature, Points dropped) or a lone Feature (one entry).
+ */
+export function buildEntriesFromData(raw: unknown, sourceUrl: string): LineEntry[] {
+  const isFeatureCollection =
+    !!raw && typeof raw === "object" && (raw as Record<string, unknown>)["type"] === "FeatureCollection";
+
+  if (isFeatureCollection) {
+    const features = validateFeatureCollection(raw);
+    return features.map((feature, index) =>
+      buildEntryFromTrack(normalizeTrack(feature), sourceUrl, index),
+    );
+  }
+
+  const feature = validateFeature(raw);
+  return [buildEntryFromTrack(normalizeTrack(feature), sourceUrl, 0)];
+}
+
+/**
+ * Fetch a GeoJSON URL and build the list of lines. Handles both a lone
+ * Feature and a FeatureCollection.
  */
 export async function loadLines(url: string): Promise<LineEntry[]> {
-  const track = await loadTrack(url);
-  return [buildEntryFromTrack(track, url, 0)];
+  const raw = await fetchGeoJson(url);
+  return buildEntriesFromData(raw, url);
 }

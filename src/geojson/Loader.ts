@@ -12,17 +12,18 @@ const FETCH_TIMEOUT_MS = 30_000;
  * userscript context. Throws TrackLoadError on any failure.
  */
 export function loadTrack(url: string): Promise<NormalizedTrack> {
-  return fetchJson(url).then((data) => {
+  return fetchGeoJson(url).then((data) => {
     const feature = validateFeature(data);
     return normalizeTrack(feature);
   });
 }
 
 /**
- * Wrap GM.xmlHttpRequest in a Promise.
+ * Fetch and JSON-parse a GeoJSON URL via GM.xmlHttpRequest (CORS bypass).
  * Rejects with TrackLoadError on non-2xx status, network error, or timeout.
+ * Exported so the multi-line loader can fetch once and branch on the payload.
  */
-function fetchJson(url: string): Promise<unknown> {
+export function fetchGeoJson(url: string): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const hostname = safeHostname(url);
 
