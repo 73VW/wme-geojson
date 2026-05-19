@@ -171,7 +171,8 @@
         "completedSummary": "Matching complete: {{rowsValidated}} row(s) validated, {{totalSegments}} segment(s) selected. You can now download the closures file.",
         "pauseFinalizingStep": "Finalizing the current step before pausing…",
         "unknown": "Pipeline step"
-      }
+      },
+      "backToLines": "← Lines"
     },
     "finalFields": {
       "title": "Export closures — final details",

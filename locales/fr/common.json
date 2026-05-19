@@ -171,7 +171,8 @@
         "completedSummary": "Matching terminé : {{rowsValidated}} ligne(s) validée(s), {{totalSegments}} segment(s) sélectionné(s). Vous pouvez télécharger le fichier de fermetures.",
         "pauseFinalizingStep": "Finalisation de l'étape avant mise en pause…",
         "unknown": "Étape du pipeline"
-      }
+      },
+      "backToLines": "← Lignes"
     },
     "finalFields": {
       "title": "Exporter les fermetures — détails finaux",
