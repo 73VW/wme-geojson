@@ -11,6 +11,8 @@ export interface LinesSubTabDeps {
   loadFn: (url: string) => Promise<void>;
   /** Called after a line is selected, so the shell can switch sub-tabs. */
   onLineSelected: () => void;
+  /** Zooms the WME map to the bounding box of all loaded lines. */
+  onCenterAll: () => void;
 }
 
 export class LinesSubTab {
@@ -24,6 +26,7 @@ export class LinesSubTab {
     this.view = new LinesListView({
       onLoadUrl: (url) => void this.handleLoad(url),
       onSelect: (id) => this.handleSelect(id),
+      onCenterAll: deps.onCenterAll,
     });
     this.root = this.view.root;
 

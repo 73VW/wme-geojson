@@ -49,6 +49,7 @@ export class MatchPanel {
       registry: this.registry,
       loadFn: this.loadFn,
       onLineSelected: () => this.tabs?.setActiveTab(1),
+      onCenterAll: () => this.centerOnAllLines(),
     });
 
     this.matchingSubTab = new MatchingSubTab(this.wmeSDK, this.store, this.registry);
@@ -99,6 +100,32 @@ export class MatchPanel {
   /** Surface a URL load error in the Lignes sub-tab. */
   showLoadError(message: string): void {
     this.linesSubTab?.showError(message);
+  }
+
+  /** Zoom the WME map to the bounding box enclosing every loaded line. */
+  private centerOnAllLines(): void {
+    const entries = this.registry.getAll();
+    if (entries.length === 0) return;
+
+    let minLon = Infinity;
+    let minLat = Infinity;
+    let maxLon = -Infinity;
+    let maxLat = -Infinity;
+    for (const entry of entries) {
+      for (const line of entry.track.geometry.coordinates) {
+        for (const coord of line) {
+          const lon = coord[0];
+          const lat = coord[1];
+          if (lon < minLon) minLon = lon;
+          if (lat < minLat) minLat = lat;
+          if (lon > maxLon) maxLon = lon;
+          if (lat > maxLat) maxLat = lat;
+        }
+      }
+    }
+    if (!Number.isFinite(minLon)) return;
+
+    this.wmeSDK.Map.zoomToExtent({ bbox: [minLon, minLat, maxLon, maxLat] as import("geojson").BBox });
   }
 
   private injectShellStyles(container: HTMLElement): void {

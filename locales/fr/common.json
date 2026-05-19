@@ -110,7 +110,8 @@
       "sourceCollection": "FeatureCollection ({{count}} lignes)",
       "empty": "Aucune ligne dans cette source.",
       "fallbackName": "Tracé de {{km}} km",
-      "select": "Sélectionner"
+      "select": "Sélectionner",
+      "centerAll": "Centrer sur tous les tracés"
     },
     "matching": {
       "panelTitle": "Correspondance",

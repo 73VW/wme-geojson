@@ -6,6 +6,7 @@ import { LineRowView } from "./LineRowView";
 export interface LinesListProps {
   onLoadUrl: (url: string) => void;
   onSelect: (id: string) => void;
+  onCenterAll: () => void;
 }
 
 /**
@@ -21,6 +22,7 @@ export class LinesListView {
   private currentUrl = "";
   private readonly errorEl: HTMLElement;
   private readonly sourceEl: HTMLElement;
+  private readonly centerBtn: HTMLElement;
   private readonly listEl: HTMLElement;
   private readonly onSelect: (id: string) => void;
 
@@ -61,6 +63,15 @@ export class LinesListView {
     this.sourceEl.className = "wmegj-source-line";
     this.root.appendChild(this.sourceEl);
 
+    this.centerBtn = wzButton({
+      text: i18next.t("panel.lines.centerAll"),
+      variant: "secondary",
+      onClick: props.onCenterAll,
+    });
+    this.centerBtn.style.display = "none";
+    this.centerBtn.style.margin = "4px 0 8px";
+    this.root.appendChild(this.centerBtn);
+
     this.listEl = document.createElement("section");
     this.listEl.className = "wmegj-section";
     this.root.appendChild(this.listEl);
@@ -80,14 +91,18 @@ export class LinesListView {
     this.listEl.replaceChildren();
     if (entries.length === 0) {
       this.sourceEl.textContent = "";
+      this.centerBtn.style.display = "none";
       const empty = document.createElement("p");
       empty.className = "wmegj-lines-empty";
       empty.textContent = i18next.t("panel.lines.empty");
       this.listEl.appendChild(empty);
       return;
     }
-    // Phase 7a always has exactly one entry (single Feature).
-    this.sourceEl.textContent = i18next.t("panel.lines.sourceFeature");
+    this.sourceEl.textContent =
+      entries.length === 1
+        ? i18next.t("panel.lines.sourceFeature")
+        : i18next.t("panel.lines.sourceCollection", { count: entries.length });
+    this.centerBtn.style.display = "";
     for (const entry of entries) {
       const row = new LineRowView({ entry, onSelect: this.onSelect });
       this.listEl.appendChild(row.root);
