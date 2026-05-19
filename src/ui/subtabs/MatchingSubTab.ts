@@ -243,14 +243,23 @@ export class MatchingSubTab {
     if (entry.id === this.attachedLineId) return;
 
     // Snapshot the outgoing line's matching state so returning to it restores
-    // the work in progress.
+    // the work in progress. structuredClone freezes the snapshot against any
+    // later in-place mutation of the (now shared) state object.
     if (this.attachedLineId !== null) {
       this.registry.updateEntry(this.attachedLineId, {
-        session: this.store.getState(),
+        session: structuredClone(this.store.getState()) as SessionState,
         sessionCsvText: this.registry.getEntryById(this.attachedLineId)?.csvText ?? "",
         matchedGroups: this.pipeline ? [...this.pipeline.getMatchedGroups()] : undefined,
       });
     }
+
+    // The outgoing line's pipeline must not keep running against the store,
+    // which is about to be repointed to the new line. Its match groups are
+    // already snapshotted above; the new line builds its own pipeline on
+    // demand. Without this, getExportClosureGroups would read a stale pipeline
+    // belonging to a different line.
+    this.pipeline?.abort();
+    this.pipeline = null;
 
     this.attachedLineId = entry.id;
 
@@ -272,20 +281,24 @@ export class MatchingSubTab {
     const controller = new WalkController(this.wmeSDK, entry.track.geometry);
     this.setController(controller);
     this.setTrackLayer(layer);
-    this.store.setTrack(entry.id, entry.lengthKm);
 
     if (entry.session) {
       // Returning to a line worked on earlier — restore its full state.
+      // rehydrate replaces the whole SessionState (including geojsonUrl and
+      // trackLengthKm), so a setTrack call here would only be a redundant
+      // intermediate mutation.
       this.store.rehydrate(entry.session, entry.sessionCsvText ?? "");
       const isCsv = entry.mode === "csv";
       this.setSyntheticBannerVisible(!isCsv);
       this.setRemoveCsvVisible(isCsv);
     } else if (entry.mode === "csv" && entry.csvRows) {
+      this.store.setTrack(entry.id, entry.lengthKm);
       this.store.setCsvRows(entry.csvRows, entry.csvText ?? "");
       this.store.setPhase("csv-loaded");
       this.setSyntheticBannerVisible(false);
       this.setRemoveCsvVisible(true);
     } else {
+      this.store.setTrack(entry.id, entry.lengthKm);
       this.store.setCsvRows([buildSyntheticRow()], "");
       this.store.setPhase("csv-loaded");
       this.setSyntheticBannerVisible(true);

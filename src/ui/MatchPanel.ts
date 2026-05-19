@@ -60,6 +60,9 @@ export class MatchPanel {
     ]);
     tabPane.appendChild(this.tabs.root);
 
+    // The shell mounts once per WME session and is never re-mounted (mount()
+    // early-returns when tabPane exists), so these registry subscriptions are
+    // intentionally never unsubscribed — they live for the page lifetime.
     this.previewLayer = new LinesPreviewLayer(this.wmeSDK);
     this.registry.onLinesChanged(() => this.refreshPreview());
     this.registry.onSelectedLineChanged((entry) => {
