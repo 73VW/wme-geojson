@@ -26,10 +26,20 @@
       "cancel": "Cancel"
     },
     "modal": {
-      "largeSelectionWarning": "You are about to select {{count}} segments. Large selections may be slow or fail. Continue?"
+      "largeSelectionWarning": "You are about to select {{count}} segments. Large selections may be slow or fail. Continue?",
+      "closureWindow": {
+        "title": "Closure window",
+        "start": "Start",
+        "end": "End",
+        "errorRequired": "Both start and end are required.",
+        "errorOrder": "End must be after start.",
+        "cancel": "Cancel",
+        "download": "Download"
+      }
     },
     "errors": {
-      "selectionFailed": "Selection failed: {{error}}"
+      "selectionFailed": "Selection failed: {{error}}",
+      "loadUrl": "Failed to load the URL: {{message}}"
     },
     "range": {
       "title": "Visible distance range",
@@ -88,6 +98,19 @@
     "resumeIndex": "Resuming at row {{index}} / {{total}}",
     "resume": "Resume",
     "startFresh": "Start fresh",
+    "subtabs": {
+      "lines": "Lines",
+      "matching": "Matching"
+    },
+    "lines": {
+      "urlLabel": "GeoJSON URL",
+      "urlLoad": "Load",
+      "sourceFeature": "Feature (1 line)",
+      "sourceCollection": "FeatureCollection ({{count}} lines)",
+      "empty": "No line in this source.",
+      "fallbackName": "Track {{km}} km long",
+      "select": "Select"
+    },
     "matching": {
       "panelTitle": "Matching",
       "close": "Close",
@@ -118,6 +141,8 @@
       "validate": "Validate",
       "skip": "Skip row",
       "back": "Back",
+      "syntheticBanner": "No CSV — the whole line will be closed over a single time window (entered at download).",
+      "noSelection": "Select a line in the Lines tab.",
       "reselectMatched": "Reselect matched",
       "rerunCurrentRow": "Rerun row",
       "burstRunning": "Burst mode: matched segments are auto-validated.",

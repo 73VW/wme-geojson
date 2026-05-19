@@ -26,10 +26,20 @@
       "cancel": "Annuler"
     },
     "modal": {
-      "largeSelectionWarning": "Vous êtes sur le point de sélectionner {{count}} segments. Les grandes sélections peuvent être lentes ou échouer. Continuer ?"
+      "largeSelectionWarning": "Vous êtes sur le point de sélectionner {{count}} segments. Les grandes sélections peuvent être lentes ou échouer. Continuer ?",
+      "closureWindow": {
+        "title": "Fenêtre de fermeture",
+        "start": "Début",
+        "end": "Fin",
+        "errorRequired": "Le début et la fin sont obligatoires.",
+        "errorOrder": "La fin doit être après le début.",
+        "cancel": "Annuler",
+        "download": "Télécharger"
+      }
     },
     "errors": {
-      "selectionFailed": "Échec de la sélection : {{error}}"
+      "selectionFailed": "Échec de la sélection : {{error}}",
+      "loadUrl": "Échec du chargement de l'URL : {{message}}"
     },
     "range": {
       "title": "Plage de distance visible",
@@ -88,6 +98,19 @@
     "resumeIndex": "Reprise à la ligne {{index}} / {{total}}",
     "resume": "Reprendre",
     "startFresh": "Recommencer depuis le début",
+    "subtabs": {
+      "lines": "Lignes",
+      "matching": "Matching"
+    },
+    "lines": {
+      "urlLabel": "URL GeoJSON",
+      "urlLoad": "Charger",
+      "sourceFeature": "Feature (1 ligne)",
+      "sourceCollection": "FeatureCollection ({{count}} lignes)",
+      "empty": "Aucune ligne dans cette source.",
+      "fallbackName": "Tracé de {{km}} km",
+      "select": "Sélectionner"
+    },
     "matching": {
       "panelTitle": "Correspondance",
       "close": "Fermer",
@@ -118,6 +141,8 @@
       "validate": "Valider",
       "skip": "Passer la ligne",
       "back": "Retour",
+      "syntheticBanner": "Pas de CSV — la ligne entière sera fermée sur une seule fenêtre temporelle (saisie au téléchargement).",
+      "noSelection": "Sélectionne une ligne dans l'onglet Lignes.",
       "reselectMatched": "Resélectionner",
       "rerunCurrentRow": "Relancer la ligne",
       "burstRunning": "Mode burst : les segments trouvés sont validés automatiquement.",
