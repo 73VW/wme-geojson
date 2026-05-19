@@ -71,6 +71,9 @@ export class MatchPanel {
     this.registry.onSelectedLineChanged((entry) => {
       if (entry) {
         this.previewLayer?.destroy();
+        // Always center the map on the newly selected line so it is
+        // immediately identifiable without going back to the list.
+        this.zoomToEntries([entry]);
       } else {
         this.refreshPreview();
       }
