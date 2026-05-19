@@ -178,6 +178,7 @@ export function wzTabs(tabs: WzTabSpec[]): WzTabsHandle {
     typeof customElements !== "undefined" && customElements.get(tagName) !== undefined;
 
   if (isRegistered) {
+    let activeTabIndex = 0;
     const tabsEl = document.createElement(tagName);
     tabsEl.setAttribute("fixed", "");
     const tabEls: HTMLElement[] = [];
@@ -195,9 +196,32 @@ export function wzTabs(tabs: WzTabSpec[]): WzTabsHandle {
       tabEls.push(tabEl);
     });
 
+    // When the sidebar pane is hidden on load (display:none), <wz-tabs> measures
+    // the active label at 0 width and the indicator renders as a zero-width line.
+    // An IntersectionObserver fires once the pane first becomes visible; we then
+    // re-click the active shadow label so the component re-measures and sizes the
+    // indicator correctly.
+    if (typeof IntersectionObserver !== "undefined") {
+      const observer = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            observer.disconnect();
+            const labels = tabsEl.shadowRoot?.querySelectorAll(".wz-tab-label");
+            const label = labels?.[activeTabIndex];
+            if (label instanceof HTMLElement) {
+              label.click();
+            }
+            break;
+          }
+        }
+      });
+      observer.observe(tabsEl);
+    }
+
     return {
       root: tabsEl,
       setActiveTab(index: number): void {
+        activeTabIndex = index;
         // Clicking the matching shadow-DOM label is the reliable mechanism.
         const labels = tabsEl.shadowRoot?.querySelectorAll(".wz-tab-label");
         const label = labels?.[index];
