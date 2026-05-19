@@ -14,6 +14,7 @@ import { MatchingPipeline, type PipelineStepEvent } from "../../controller/Match
 import { promptFinalFields } from "../promptFinalFields";
 import { load as persistenceLoad, clearForCurrent } from "../../persistence/sessionStorage";
 import { confirmModal } from "../modal";
+import { MatchingHeaderView } from "../views/MatchingHeaderView";
 import { bboxOfMultiLineString, sliceMultiLineByDistance } from "../../matching/trackPortions";
 import { computeMatchingWorkItems } from "../../matching/trackPortions";
 
@@ -65,8 +66,8 @@ export class MatchingSubTab {
   private urlInputEl: HTMLElement | null = null;
   private urlErrorEl: HTMLElement | null = null;
 
-  // State badge driven by WalkController
-  private badgeEl: HTMLElement | null = null;
+  // Header view (title + state badge) — extracted as MatchingHeaderView
+  private headerView: MatchingHeaderView | null = null;
 
   // Pending slider frame (rAF coalescing — see buildRangeSlider)
   private _onRangeChanged: (() => void) | null = null;
@@ -293,7 +294,7 @@ export class MatchingSubTab {
     this.resumeBannerRow = null;
     this.urlInputEl = null;
     this.urlErrorEl = null;
-    this.badgeEl = null;
+    this.headerView = null;
     const guidedMatchingRow = this.guidedMatchingRow;
     if (guidedMatchingRow?.parentElement) {
       guidedMatchingRow.parentElement.removeChild(guidedMatchingRow);
@@ -342,18 +343,8 @@ export class MatchingSubTab {
     wrapper.appendChild(subwrapper);
     container.appendChild(wrapper);
     container = subwrapper;
-    const title = document.createElement("h3");
-    title.className = "wmegj-panel-title";
-    title.textContent = i18next.t("panel.title");
-    container.appendChild(title);
-
-    // State badge (driven by WalkController state changes)
-    const badgeWrapper = document.createElement("p");
-    const badge = document.createElement("strong");
-    badge.textContent = "—";
-    badgeWrapper.appendChild(badge);
-    container.appendChild(badgeWrapper);
-    this.badgeEl = badge;
+    this.headerView = new MatchingHeaderView();
+    container.appendChild(this.headerView.root);
 
     // Row 1 — GeoJSON URL input + Load button
     this.urlRow = this.buildUrlRow();
@@ -2046,9 +2037,7 @@ export class MatchingSubTab {
   // ---------------------------------------------------------------------------
 
   private updateBadge(state: WalkState): void {
-    if (this.badgeEl) {
-      this.badgeEl.textContent = i18next.t(`panel.status.${state}`);
-    }
+    this.headerView?.setBadge(state);
   }
 
   // ---------------------------------------------------------------------------
