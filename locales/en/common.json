@@ -111,7 +111,8 @@
       "empty": "No line in this source.",
       "fallbackName": "Track {{km}} km long",
       "select": "Select",
-      "centerAll": "Center on all tracks"
+      "centerAll": "Center on all tracks",
+      "center": "Center"
     },
     "matching": {
       "panelTitle": "Matching",

@@ -111,7 +111,8 @@
       "empty": "Aucune ligne dans cette source.",
       "fallbackName": "Tracé de {{km}} km",
       "select": "Sélectionner",
-      "centerAll": "Centrer sur tous les tracés"
+      "centerAll": "Centrer sur tous les tracés",
+      "center": "Centrer"
     },
     "matching": {
       "panelTitle": "Correspondance",

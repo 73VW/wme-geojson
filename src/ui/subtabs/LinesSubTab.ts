@@ -13,6 +13,8 @@ export interface LinesSubTabDeps {
   onLineSelected: () => void;
   /** Zooms the WME map to the bounding box of all loaded lines. */
   onCenterAll: () => void;
+  /** Zooms the WME map to the bounding box of a single line. */
+  onCenterLine: (id: string) => void;
 }
 
 export class LinesSubTab {
@@ -27,6 +29,7 @@ export class LinesSubTab {
       onLoadUrl: (url) => void this.handleLoad(url),
       onSelect: (id) => this.handleSelect(id),
       onCenterAll: deps.onCenterAll,
+      onCenterLine: deps.onCenterLine,
     });
     this.root = this.view.root;
 

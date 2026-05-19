@@ -7,6 +7,7 @@ import { i18next } from "../../locales/i18n";
 import { logger } from "../utils/logger";
 import type { SessionStore } from "../state/SessionStore";
 import type { LineRegistry } from "../lines/LineRegistry";
+import type { LineEntry } from "../lines/types";
 import { wzTabs, type WzTabsHandle } from "./components/wz";
 import { LinesSubTab } from "./subtabs/LinesSubTab";
 import { MatchingSubTab } from "./subtabs/MatchingSubTab";
@@ -50,6 +51,7 @@ export class MatchPanel {
       loadFn: this.loadFn,
       onLineSelected: () => this.tabs?.setActiveTab(1),
       onCenterAll: () => this.centerOnAllLines(),
+      onCenterLine: (id) => this.centerOnLine(id),
     });
 
     this.matchingSubTab = new MatchingSubTab(this.wmeSDK, this.store, this.registry);
@@ -104,7 +106,17 @@ export class MatchPanel {
 
   /** Zoom the WME map to the bounding box enclosing every loaded line. */
   private centerOnAllLines(): void {
-    const entries = this.registry.getAll();
+    this.zoomToEntries(this.registry.getAll());
+  }
+
+  /** Zoom the WME map to the bounding box of a single line. */
+  private centerOnLine(id: string): void {
+    const entry = this.registry.getEntryById(id);
+    if (entry) this.zoomToEntries([entry]);
+  }
+
+  /** Zoom the WME map to the bounding box enclosing the given lines. */
+  private zoomToEntries(entries: readonly LineEntry[]): void {
     if (entries.length === 0) return;
 
     let minLon = Infinity;

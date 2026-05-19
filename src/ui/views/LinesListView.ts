@@ -7,6 +7,7 @@ export interface LinesListProps {
   onLoadUrl: (url: string) => void;
   onSelect: (id: string) => void;
   onCenterAll: () => void;
+  onCenterLine: (id: string) => void;
 }
 
 /**
@@ -25,9 +26,11 @@ export class LinesListView {
   private readonly centerBtn: HTMLElement;
   private readonly listEl: HTMLElement;
   private readonly onSelect: (id: string) => void;
+  private readonly onCenterLine: (id: string) => void;
 
   constructor(props: LinesListProps) {
     this.onSelect = props.onSelect;
+    this.onCenterLine = props.onCenterLine;
     this.root = document.createElement("div");
     this.root.classList.add("wmegj-panel-root");
 
@@ -104,7 +107,7 @@ export class LinesListView {
         : i18next.t("panel.lines.sourceCollection", { count: entries.length });
     this.centerBtn.style.display = "";
     for (const entry of entries) {
-      const row = new LineRowView({ entry, onSelect: this.onSelect });
+      const row = new LineRowView({ entry, onSelect: this.onSelect, onCenter: this.onCenterLine });
       this.listEl.appendChild(row.root);
     }
   }

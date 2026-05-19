@@ -5,6 +5,7 @@ import type { LineEntry } from "../../lines/types";
 export interface LineRowProps {
   entry: LineEntry;
   onSelect: (id: string) => void;
+  onCenter: (id: string) => void;
 }
 
 /**
@@ -28,6 +29,13 @@ export class LineRowView {
     this.nameEl = document.createElement("span");
     this.nameEl.className = "wmegj-line-name";
     this.root.appendChild(this.nameEl);
+
+    const centerBtn = wzButton({
+      text: i18next.t("panel.lines.center"),
+      variant: "secondary",
+      onClick: () => props.onCenter(props.entry.id),
+    });
+    this.root.appendChild(centerBtn);
 
     const selectBtn = wzButton({
       text: i18next.t("panel.lines.select"),
