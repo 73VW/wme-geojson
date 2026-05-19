@@ -181,14 +181,19 @@ export function wzTabs(tabs: WzTabSpec[]): WzTabsHandle {
     const tabsEl = document.createElement(tagName);
     tabsEl.setAttribute("fixed", "");
     const tabEls: HTMLElement[] = [];
-    for (const spec of tabs) {
+    tabs.forEach((spec, index) => {
       const tabEl = document.createElement("wz-tab");
       tabEl.setAttribute("label", spec.label);
       tabEl.setAttribute("tooltip", spec.label);
+      // wz-tabs activates no tab on its own — mark the first one active so the
+      // panel opens on a populated tab instead of a blank pane.
+      if (index === 0) {
+        tabEl.setAttribute("is-active", "");
+      }
       tabEl.appendChild(spec.content);
       tabsEl.appendChild(tabEl);
       tabEls.push(tabEl);
-    }
+    });
 
     return {
       root: tabsEl,
