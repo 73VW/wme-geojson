@@ -40,6 +40,11 @@ export class LineRegistry {
     return this.entries.find((e) => e.id === this.selectedId) ?? null;
   }
 
+  /** Look up an entry by id, or null if unknown. */
+  getEntryById(id: string): LineEntry | null {
+    return this.entries.find((e) => e.id === id) ?? null;
+  }
+
   /** Replace the whole list. Always clears the current selection. */
   setEntries(entries: LineEntry[]): void {
     this.entries = [...entries];

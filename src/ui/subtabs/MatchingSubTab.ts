@@ -241,6 +241,17 @@ export class MatchingSubTab {
     // full re-attach then — rebuilding the controller would clobber any
     // in-progress matching state and mutate the store out of order.
     if (entry.id === this.attachedLineId) return;
+
+    // Snapshot the outgoing line's matching state so returning to it restores
+    // the work in progress.
+    if (this.attachedLineId !== null) {
+      this.registry.updateEntry(this.attachedLineId, {
+        session: this.store.getState(),
+        sessionCsvText: this.registry.getEntryById(this.attachedLineId)?.csvText ?? "",
+        matchedGroups: this.pipeline ? [...this.pipeline.getMatchedGroups()] : undefined,
+      });
+    }
+
     this.attachedLineId = entry.id;
 
     // Stop any walk in progress before re-attaching to a different line.
@@ -263,7 +274,13 @@ export class MatchingSubTab {
     this.setTrackLayer(layer);
     this.store.setTrack(entry.id, entry.lengthKm);
 
-    if (entry.mode === "csv" && entry.csvRows) {
+    if (entry.session) {
+      // Returning to a line worked on earlier — restore its full state.
+      this.store.rehydrate(entry.session, entry.sessionCsvText ?? "");
+      const isCsv = entry.mode === "csv";
+      this.setSyntheticBannerVisible(!isCsv);
+      this.setRemoveCsvVisible(isCsv);
+    } else if (entry.mode === "csv" && entry.csvRows) {
       this.store.setCsvRows(entry.csvRows, entry.csvText ?? "");
       this.store.setPhase("csv-loaded");
       this.setSyntheticBannerVisible(false);

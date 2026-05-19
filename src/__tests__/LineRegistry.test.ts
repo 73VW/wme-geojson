@@ -81,6 +81,13 @@ describe("LineRegistry", () => {
     expect(reg.getSelected()?.displayName).toBe("renamed");
   });
 
+  it("getEntryById returns the entry or null", () => {
+    const reg = new LineRegistry();
+    reg.setEntries([makeEntry("a"), makeEntry("b")]);
+    expect(reg.getEntryById("b")?.id).toBe("b");
+    expect(reg.getEntryById("missing")).toBeNull();
+  });
+
   it("subscribers can unsubscribe", () => {
     const reg = new LineRegistry();
     const cb = vi.fn();

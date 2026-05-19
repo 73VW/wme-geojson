@@ -3,6 +3,8 @@
 
 import type { NormalizedTrack } from "../geojson/types";
 import type { CsvRow } from "../state/SessionStore";
+import type { SessionState } from "../state/SessionStore";
+import type { ClosureRowGroup } from "../csv/buildClosuresCsv";
 
 /**
  * SlowUp event detail, fetched from the SchweizMobil refid API.
@@ -50,4 +52,10 @@ export interface LineEntry {
   csvText?: string;
   /** Coarse matching phase for UI display. */
   matchPhase: LineMatchPhase;
+  /** Snapshot of SessionStore state, saved when the user switches away. */
+  session?: SessionState;
+  /** csvText that accompanied `session` (needed by SessionStore.rehydrate). */
+  sessionCsvText?: string;
+  /** Pipeline match groups (geo anchors), snapshotted alongside `session`. */
+  matchedGroups?: ClosureRowGroup[];
 }
