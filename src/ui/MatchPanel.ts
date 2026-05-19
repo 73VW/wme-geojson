@@ -194,13 +194,13 @@ export class MatchPanel {
         border-radius: 50%;
         border: 1px solid #d3d8de;
         background: #fff;
-        color: #5b6770;
+        color: #2c6fbb;
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
       }
-      .wmegj-icon-btn:hover { background: #e9edf2; color: #1f2937; }
+      .wmegj-icon-btn:hover { background: #e9edf2; color: #1d5a9e; }
       .wmegj-line-arrow { flex: 0 0 auto; color: #9aa6b1; }
       .wmegj-source-line { font-weight: 600; font-size: 13px; margin: 4px 0 8px; }
       .wmegj-url-error { color: #c0392b; font-size: 12px; margin-top: 6px; }
