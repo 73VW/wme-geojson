@@ -52,6 +52,10 @@ export class MatchingSubTab {
   // Shell-level content toggling driven by the selected line.
   private contentWrapperEl: HTMLElement | null = null;
   private emptyStateEl: HTMLElement | null = null;
+  // Id of the line currently attached (controller/layer/store). Guards against
+  // re-attaching when updateEntry() re-fires onSelectedLineChanged for the
+  // same line.
+  private attachedLineId: string | null = null;
 
   // Injected by main.user.ts to avoid a circular module dependency:
   // loadAndAttachTrack imports MatchPanel, so MatchPanel cannot import it back.
@@ -225,7 +229,17 @@ export class MatchingSubTab {
     const hasLine = entry !== null;
     if (this.contentWrapperEl) this.contentWrapperEl.style.display = hasLine ? "" : "none";
     if (this.emptyStateEl) this.emptyStateEl.style.display = hasLine ? "none" : "";
-    if (!entry) return;
+    if (!entry) {
+      this.attachedLineId = null;
+      return;
+    }
+
+    // updateEntry() on the selected line (e.g. processCsvText recording
+    // mode="csv") re-fires onSelectedLineChanged for the same line. Skip the
+    // full re-attach then — rebuilding the controller would clobber any
+    // in-progress matching state and mutate the store out of order.
+    if (entry.id === this.attachedLineId) return;
+    this.attachedLineId = entry.id;
 
     // Stop any walk in progress before re-attaching to a different line.
     try {
@@ -349,6 +363,7 @@ export class MatchingSubTab {
     this.csvLoadingTextEl = null;
     this.startMatchingRow = null;
     this.syntheticBannerRow = null;
+    this.attachedLineId = null;
     this.downloadRow = null;
     this.resumeBannerRow = null;
     this.urlInputEl = null;
@@ -406,8 +421,11 @@ export class MatchingSubTab {
     container.appendChild(this.headerView.root);
 
     // Row 1 — GeoJSON URL input + Load button
+    // The URL row is built so its element fields stay non-null, but it is NOT
+    // appended: URL loading lives in the Lignes sub-tab now, and this row's
+    // Load button has no loadFn wired. (Re-exposing "Center on track" is a
+    // Phase 7b follow-up.)
     this.urlRow = this.buildUrlRow();
-    container.appendChild(this.urlRow);
 
     // Row 2 — Track length (hidden until track-loaded)
     this.trackLengthRow = this.buildTrackLengthRow();

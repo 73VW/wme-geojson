@@ -133,6 +133,8 @@ export async function promptClosureWindow(
         showError(i18next.t("panel.modal.closureWindow.errorRequired"));
         return;
       }
+      // datetime-local values are "YYYY-MM-DDTHH:MM" — lexicographic order
+      // equals chronological order, so a plain string compare is correct here.
       if (!(start < end)) {
         showError(i18next.t("panel.modal.closureWindow.errorOrder"));
         return;
