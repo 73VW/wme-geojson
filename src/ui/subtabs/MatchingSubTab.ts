@@ -162,7 +162,10 @@ export class MatchingSubTab {
     root.classList.add("wmegj-panel-root");
     this.injectStyles(root);
     this.buildDOM(root);
-    this.contentWrapperEl = root.firstElementChild as HTMLElement | null;
+    // buildDOM appends exactly one wrapper <div>; injectStyles already added a
+    // <style> as the first child, so the content wrapper is the last child here
+    // (the empty-state element is appended only after this line).
+    this.contentWrapperEl = root.lastElementChild as HTMLElement | null;
 
     this.emptyStateEl = document.createElement("p");
     this.emptyStateEl.className = "wmegj-section";
