@@ -142,6 +142,42 @@ export class SessionStore {
     });
   }
 
+  /**
+   * Apply a closure time window to one already-matched row.
+   * Rewrites the row's date/startTime/endTime from the ISO bounds and rebuilds
+   * that row's entries in closuresBySegment from its current `segments`.
+   * Used by synthetic (CSV-less) mode, where the window is chosen at download.
+   */
+  setClosureWindowForRow(index: number, startISO: string, endISO: string): void {
+    const rows = this.state.csvRows;
+    if (index < 0 || index >= rows.length) {
+      throw new Error(
+        `[SessionStore] setClosureWindowForRow: index ${index} out of range (${rows.length} rows)`,
+      );
+    }
+
+    const date = startISO.slice(0, 10);
+    const startTime = startISO.slice(11, 16);
+    const endTime = endISO.slice(11, 16);
+    const updatedRows = rows.map((row, i) =>
+      i === index ? { ...row, date, startTime, endTime } : row,
+    );
+
+    // Drop any existing ranges for this row, then re-add from the row's segments.
+    const closuresBySegment: Record<number, ClosureRange[]> = {};
+    for (const [segIdStr, ranges] of Object.entries(this.state.closuresBySegment)) {
+      const kept = ranges.filter((r) => r.rowIndex !== index);
+      if (kept.length > 0) closuresBySegment[Number(segIdStr)] = kept;
+    }
+    const range: ClosureRange = { startISO, endISO, rowIndex: index };
+    for (const segId of updatedRows[index].segments ?? []) {
+      const existing = closuresBySegment[segId];
+      closuresBySegment[segId] = existing ? [...existing, range] : [range];
+    }
+
+    this.mutate({ csvRows: updatedRows, closuresBySegment });
+  }
+
   rewindToRow(index: number): void {
     const rows = this.state.csvRows;
     if (index < 0 || index >= rows.length) {

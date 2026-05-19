@@ -19,6 +19,8 @@ import { confirmModal } from "../modal";
 import { MatchingHeaderView } from "../views/MatchingHeaderView";
 import { bboxOfMultiLineString, sliceMultiLineByDistance } from "../../matching/trackPortions";
 import { computeMatchingWorkItems } from "../../matching/trackPortions";
+import { buildSyntheticRow } from "../../csv/syntheticSchedule";
+import { promptClosureWindow } from "../components/promptClosureWindow";
 
 /**
  * Sidebar panel for the CSV-driven closures pipeline.
@@ -65,6 +67,7 @@ export class MatchingSubTab {
   private csvLoadingEl: HTMLElement | null = null;
   private csvLoadingTextEl: HTMLElement | null = null;
   private startMatchingRow: HTMLElement | null = null;
+  private syntheticBannerRow: HTMLElement | null = null;
   private guidedMatchingRow: HTMLElement | null = null;
   private downloadRow: HTMLElement | null = null;
   private resumeBannerRow: HTMLElement | null = null;
@@ -243,6 +246,16 @@ export class MatchingSubTab {
     this.setController(controller);
     this.setTrackLayer(layer);
     this.store.setTrack(entry.id, entry.lengthKm);
+
+    if (entry.mode === "csv" && entry.csvRows) {
+      this.store.setCsvRows(entry.csvRows, entry.csvText ?? "");
+      this.store.setPhase("csv-loaded");
+      this.setSyntheticBannerVisible(false);
+    } else {
+      this.store.setCsvRows([buildSyntheticRow(entry.lengthKm)], "");
+      this.store.setPhase("csv-loaded");
+      this.setSyntheticBannerVisible(true);
+    }
   }
 
   /**
@@ -335,6 +348,7 @@ export class MatchingSubTab {
     this.csvLoadingEl = null;
     this.csvLoadingTextEl = null;
     this.startMatchingRow = null;
+    this.syntheticBannerRow = null;
     this.downloadRow = null;
     this.resumeBannerRow = null;
     this.urlInputEl = null;
@@ -407,6 +421,10 @@ export class MatchingSubTab {
     // Row 4 — CSV upload (hidden until track-loaded)
     this.csvUploadRow = this.buildCsvUploadRow();
     container.appendChild(this.csvUploadRow);
+
+    // Synthetic-mode banner — shown when no CSV is imported (visibility mode-driven)
+    this.syntheticBannerRow = this.buildSyntheticBannerRow();
+    container.appendChild(this.syntheticBannerRow);
 
     // Row 5 — Start matching button (hidden during matching, shown on csv-loaded / done)
     this.startMatchingRow = this.buildStartMatchingRow();
@@ -532,6 +550,24 @@ export class MatchingSubTab {
     this.csvLoadingTextEl = loadingTextEl;
 
     return section;
+  }
+
+  private buildSyntheticBannerRow(): HTMLElement {
+    const section = document.createElement("section");
+    section.className = "wmegj-section";
+    section.style.display = "none";
+    const p = document.createElement("p");
+    p.style.margin = "0";
+    p.style.fontStyle = "italic";
+    p.textContent = i18next.t("panel.matching.syntheticBanner");
+    section.appendChild(p);
+    return section;
+  }
+
+  private setSyntheticBannerVisible(visible: boolean): void {
+    if (this.syntheticBannerRow) {
+      this.syntheticBannerRow.style.display = visible ? "" : "none";
+    }
   }
 
   private buildStartMatchingRow(): HTMLElement {
@@ -1698,6 +1734,16 @@ export class MatchingSubTab {
       this.lastCsvText = text;
       this.lastCsvRows = rows;
 
+      const selectedLineId = this.registry.getSelected()?.id;
+      if (selectedLineId) {
+        this.registry.updateEntry(selectedLineId, {
+          mode: "csv",
+          csvRows: rows,
+          csvText: text,
+        });
+      }
+      this.setSyntheticBannerVisible(false);
+
       // Show only the labels whose distances appear in the CSV so the track
       // decorations match the pipeline waypoints from the start.
       if (this.trackLayer) {
@@ -1778,6 +1824,15 @@ export class MatchingSubTab {
       return;
     }
 
+    const selected = this.registry.getSelected();
+    const isSynthetic = selected?.mode !== "csv";
+
+    if (isSynthetic) {
+      void this.downloadClosuresSynthetic(closureGroups);
+      return;
+    }
+
+    // --- CSV mode: existing flow, unchanged ---
     promptFinalFields()
       .then((fields: FinalFields | null) => {
         if (!fields) return;
@@ -1796,6 +1851,37 @@ export class MatchingSubTab {
       .catch((err: unknown) => {
         logger.error("MatchPanel: promptFinalFields rejected", err);
       });
+  }
+
+  /**
+   * Synthetic (CSV-less) download path: prompt for the closure time window,
+   * apply it to the synthetic row (index 0), then build and download the CSV.
+   */
+  private async downloadClosuresSynthetic(closureGroups: ClosureRowGroup[]): Promise<void> {
+    const today = new Date().toISOString().slice(0, 10);
+    const window = await promptClosureWindow({
+      date: today,
+      startTime: "09:00",
+      endTime: "17:30",
+    });
+    if (!window) return;
+
+    // Rewrite the synthetic row (index 0) with the chosen window and rebuild
+    // closuresBySegment so buildClosuresCsv sees correct ISO ranges.
+    this.store.setClosureWindowForRow(0, window.startISO, window.endISO);
+
+    const fields = await promptFinalFields();
+    if (!fields) return;
+
+    const { csvRows, closuresBySegment } = this.store.getState();
+    try {
+      const csv = buildClosuresCsv(csvRows, closureGroups, closuresBySegment, fields);
+      this.triggerDownload(csv, "closures.csv", "text/csv");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error("MatchingSubTab: buildClosuresCsv (synthetic) failed", err);
+      alert(message);
+    }
   }
 
   private hasValidatedProgress(rows: readonly CsvRow[]): boolean {
