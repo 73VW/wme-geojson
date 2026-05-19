@@ -10,6 +10,7 @@ import type { LineRegistry } from "../lines/LineRegistry";
 import { wzTabs, type WzTabsHandle } from "./components/wz";
 import { LinesSubTab } from "./subtabs/LinesSubTab";
 import { MatchingSubTab } from "./subtabs/MatchingSubTab";
+import { LinesPreviewLayer } from "../layers/LinesPreviewLayer";
 
 export class MatchPanel {
   private tabPane: HTMLElement | null = null;
@@ -17,6 +18,7 @@ export class MatchPanel {
   private linesSubTab: LinesSubTab | null = null;
   private matchingSubTab: MatchingSubTab | null = null;
   private loadFn: ((url: string) => Promise<void>) | null = null;
+  private previewLayer: LinesPreviewLayer | null = null;
 
   constructor(
     private readonly wmeSDK: WmeSDK,
@@ -58,7 +60,32 @@ export class MatchPanel {
     ]);
     tabPane.appendChild(this.tabs.root);
 
+    this.previewLayer = new LinesPreviewLayer(this.wmeSDK);
+    this.registry.onLinesChanged(() => this.refreshPreview());
+    this.registry.onSelectedLineChanged((entry) => {
+      if (entry) {
+        this.previewLayer?.destroy();
+      } else {
+        this.refreshPreview();
+      }
+    });
+
     logger.info("MatchPanel shell mounted");
+  }
+
+  /** Show the multi-colour preview only while no line is selected. */
+  private refreshPreview(): void {
+    if (!this.previewLayer) return;
+    if (this.registry.getSelected() !== null) {
+      this.previewLayer.destroy();
+      return;
+    }
+    const entries = this.registry.getAll();
+    if (entries.length === 0) {
+      this.previewLayer.destroy();
+    } else {
+      this.previewLayer.draw(entries);
+    }
   }
 
   /** Pre-fill the URL field from the query param. */
