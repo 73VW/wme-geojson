@@ -27,7 +27,7 @@ export class LinesListView {
   constructor(props: LinesListProps) {
     this.onSelect = props.onSelect;
     this.root = document.createElement("div");
-    this.root.classList.add("sidebar-tab-pane-body", "wmegj-panel-root");
+    this.root.classList.add("wmegj-panel-root");
 
     const urlRow = document.createElement("section");
     urlRow.className = "wmegj-section";

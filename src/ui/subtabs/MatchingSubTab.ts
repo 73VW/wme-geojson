@@ -418,7 +418,6 @@ export class MatchingSubTab {
   private buildDOM(container: HTMLElement): void {
     const wrapper = document.createElement("div");
     const subwrapper = document.createElement("div");
-    subwrapper.classList.add("sidebar-tab-pane-body");
     wrapper.appendChild(subwrapper);
     container.appendChild(wrapper);
     container = subwrapper;
