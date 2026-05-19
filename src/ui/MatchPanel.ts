@@ -7,6 +7,7 @@ import { i18next } from "../../locales/i18n";
 import { logger } from "../utils/logger";
 import type { SessionStore } from "../state/SessionStore";
 import type { LineRegistry } from "../lines/LineRegistry";
+import { wzButton } from "./components/wz";
 import { LinesSubTab } from "./subtabs/LinesSubTab";
 import { MatchingSubTab } from "./subtabs/MatchingSubTab";
 
@@ -40,7 +41,7 @@ export class MatchPanel {
     this.tabPane = tabPane;
     tabLabel.textContent = "GeoJ";
     tabPane.classList.add("wmegj-panel-root");
-    this.injectToggleStyles(tabPane);
+    this.injectShellStyles(tabPane);
 
     const toggle = document.createElement("div");
     toggle.className = "wmegj-subtab-toggle";
@@ -66,6 +67,14 @@ export class MatchPanel {
       onLineSelected: () => this.setActiveTab("matching"),
     });
     this.linesContainer.appendChild(this.linesSubTab.root);
+
+    const backBtn = wzButton({
+      text: i18next.t("panel.matching.backToLines"),
+      variant: "secondary",
+      onClick: () => this.setActiveTab("lines"),
+    });
+    backBtn.classList.add("wmegj-back-btn");
+    this.matchingContainer.appendChild(backBtn);
 
     this.matchingSubTab = new MatchingSubTab(this.wmeSDK, this.store, this.registry);
     this.matchingContainer.appendChild(this.matchingSubTab.buildRoot());
@@ -100,12 +109,52 @@ export class MatchPanel {
     this.matchingBtn?.classList.toggle("wmegj-subtab-active", !showLines);
   }
 
-  private injectToggleStyles(container: HTMLElement): void {
+  private injectShellStyles(container: HTMLElement): void {
     const style = document.createElement("style");
     style.textContent = `
-      .wmegj-subtab-toggle { display: flex; gap: 0; margin-bottom: 8px; }
-      .wmegj-subtab-toggle button { flex: 1; padding: 6px; cursor: pointer; border: 1px solid #ccc; background: #f4f4f4; }
-      .wmegj-subtab-toggle button.wmegj-subtab-active { background: #fff; font-weight: 700; }
+      .wmegj-subtab-toggle {
+        display: flex;
+        margin: 10px 0 12px;
+        border: 1px solid #d3d8de;
+        border-radius: 6px;
+        overflow: hidden;
+      }
+      .wmegj-subtab-toggle button {
+        flex: 1;
+        padding: 8px 6px;
+        cursor: pointer;
+        border: 0;
+        background: #f2f4f7;
+        font-size: 13px;
+        color: #5b6770;
+      }
+      .wmegj-subtab-toggle button + button { border-left: 1px solid #d3d8de; }
+      .wmegj-subtab-toggle button.wmegj-subtab-active {
+        background: #fff;
+        font-weight: 700;
+        color: #1f2937;
+      }
+      .wmegj-back-btn { display: block; margin: 0 0 10px; }
+      .wmegj-line-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border: 1px solid #e5e8eb;
+        border-radius: 6px;
+        margin-bottom: 6px;
+      }
+      .wmegj-line-pill {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        flex: 0 0 auto;
+      }
+      .wmegj-line-name { flex: 1 1 auto; font-size: 13px; }
+      .wmegj-source-line { font-weight: 600; font-size: 13px; margin: 4px 0 8px; }
+      .wmegj-url-error { color: #c0392b; font-size: 12px; margin-top: 6px; }
+      .wmegj-load-btn { display: block; margin-top: 8px; }
+      .wmegj-lines-empty { font-size: 13px; color: #5b6770; }
     `;
     container.appendChild(style);
   }

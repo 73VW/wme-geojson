@@ -1,4 +1,5 @@
 import { i18next } from "../../../locales/i18n";
+import { wzButton } from "../components/wz";
 import type { LineEntry } from "../../lines/types";
 
 export interface LineRowProps {
@@ -8,7 +9,8 @@ export interface LineRowProps {
 
 /**
  * Pure DOM view for a single line in the Lignes list: colour pill, name,
- * and a "Sélectionner" button. No store access.
+ * and a "Sélectionner" button. No store access. Styling comes from the
+ * shell-injected `.wmegj-line-*` rules so it matches the WME editor look.
  */
 export class LineRowView {
   readonly root: HTMLElement;
@@ -18,26 +20,20 @@ export class LineRowView {
   constructor(props: LineRowProps) {
     this.root = document.createElement("div");
     this.root.className = "wmegj-line-row";
-    this.root.style.display = "flex";
-    this.root.style.alignItems = "center";
-    this.root.style.gap = "8px";
-    this.root.style.padding = "6px 0";
 
     this.pill = document.createElement("span");
-    this.pill.style.width = "12px";
-    this.pill.style.height = "12px";
-    this.pill.style.borderRadius = "50%";
-    this.pill.style.flex = "0 0 auto";
+    this.pill.className = "wmegj-line-pill";
     this.root.appendChild(this.pill);
 
     this.nameEl = document.createElement("span");
-    this.nameEl.style.flex = "1 1 auto";
+    this.nameEl.className = "wmegj-line-name";
     this.root.appendChild(this.nameEl);
 
-    const selectBtn = document.createElement("button");
-    selectBtn.type = "button";
-    selectBtn.textContent = i18next.t("panel.lines.select");
-    selectBtn.addEventListener("click", () => props.onSelect(props.entry.id));
+    const selectBtn = wzButton({
+      text: i18next.t("panel.lines.select"),
+      variant: "primary",
+      onClick: () => props.onSelect(props.entry.id),
+    });
     this.root.appendChild(selectBtn);
 
     this.update(props.entry);

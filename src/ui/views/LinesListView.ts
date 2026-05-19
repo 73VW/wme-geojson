@@ -1,4 +1,5 @@
 import { i18next } from "../../../locales/i18n";
+import { wzButton, wzTextInput } from "../components/wz";
 import type { LineEntry } from "../../lines/types";
 import { LineRowView } from "./LineRowView";
 
@@ -10,10 +11,14 @@ export interface LinesListProps {
 /**
  * Pure DOM view for the Lignes sub-tab: URL input + Load button, an inline
  * error slot, a source-type info line, and the list of LineRowViews.
+ *
+ * Uses the WME web components (wz-text-input / wz-button) so the sub-tab
+ * matches the editor's native look.
  */
 export class LinesListView {
   readonly root: HTMLElement;
-  private readonly urlInput: HTMLInputElement;
+  private readonly urlInputHost: HTMLElement;
+  private currentUrl = "";
   private readonly errorEl: HTMLElement;
   private readonly sourceEl: HTMLElement;
   private readonly listEl: HTMLElement;
@@ -22,44 +27,53 @@ export class LinesListView {
   constructor(props: LinesListProps) {
     this.onSelect = props.onSelect;
     this.root = document.createElement("div");
-    this.root.classList.add("sidebar-tab-pane-body");
+    this.root.classList.add("sidebar-tab-pane-body", "wmegj-panel-root");
 
     const urlRow = document.createElement("section");
     urlRow.className = "wmegj-section";
 
-    const label = document.createElement("label");
-    label.textContent = i18next.t("panel.lines.urlLabel");
-    urlRow.appendChild(label);
+    this.urlInputHost = wzTextInput({
+      label: i18next.t("panel.lines.urlLabel"),
+      type: "url",
+      placeholder: "https://…",
+      onInput: (value) => {
+        this.currentUrl = value;
+      },
+    });
+    urlRow.appendChild(this.urlInputHost);
 
-    this.urlInput = document.createElement("input");
-    this.urlInput.type = "url";
-    this.urlInput.style.width = "100%";
-    urlRow.appendChild(this.urlInput);
-
-    const loadBtn = document.createElement("button");
-    loadBtn.type = "button";
-    loadBtn.textContent = i18next.t("panel.lines.urlLoad");
-    loadBtn.addEventListener("click", () => props.onLoadUrl(this.urlInput.value.trim()));
+    const loadBtn = wzButton({
+      text: i18next.t("panel.lines.urlLoad"),
+      variant: "primary",
+      onClick: () => props.onLoadUrl(this.currentUrl.trim()),
+    });
+    loadBtn.classList.add("wmegj-load-btn");
     urlRow.appendChild(loadBtn);
 
     this.errorEl = document.createElement("p");
-    this.errorEl.style.color = "#c00";
-    this.errorEl.style.fontSize = "12px";
+    this.errorEl.className = "wmegj-url-error";
     this.errorEl.style.display = "none";
     urlRow.appendChild(this.errorEl);
 
     this.root.appendChild(urlRow);
 
     this.sourceEl = document.createElement("p");
-    this.sourceEl.style.fontWeight = "600";
+    this.sourceEl.className = "wmegj-source-line";
     this.root.appendChild(this.sourceEl);
 
-    this.listEl = document.createElement("div");
+    this.listEl = document.createElement("section");
+    this.listEl.className = "wmegj-section";
     this.root.appendChild(this.listEl);
   }
 
+  /** Pre-fill the URL field (e.g. from the query param). */
   setUrl(url: string): void {
-    this.urlInput.value = url;
+    this.currentUrl = url;
+    // The wz host exposes `.value`; the plain-input fallback nests an <input>.
+    (this.urlInputHost as unknown as { value?: string }).value = url;
+    this.urlInputHost.setAttribute("value", url);
+    const nested = this.urlInputHost.querySelector("input");
+    if (nested) nested.value = url;
   }
 
   setEntries(entries: readonly LineEntry[]): void {
@@ -67,6 +81,7 @@ export class LinesListView {
     if (entries.length === 0) {
       this.sourceEl.textContent = "";
       const empty = document.createElement("p");
+      empty.className = "wmegj-lines-empty";
       empty.textContent = i18next.t("panel.lines.empty");
       this.listEl.appendChild(empty);
       return;
