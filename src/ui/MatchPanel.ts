@@ -173,6 +173,11 @@ export class MatchPanel {
         border: 1px solid #e5e8eb;
         border-radius: 6px;
         margin-bottom: 6px;
+        cursor: pointer;
+      }
+      .wmegj-line-row:hover {
+        background: #f2f4f7;
+        border-color: #d3d8de;
       }
       .wmegj-line-pill {
         width: 12px;
@@ -181,6 +186,22 @@ export class MatchPanel {
         flex: 0 0 auto;
       }
       .wmegj-line-name { flex: 1 1 auto; font-size: 13px; }
+      .wmegj-icon-btn {
+        flex: 0 0 auto;
+        width: 32px;
+        height: 32px;
+        padding: 0;
+        border-radius: 50%;
+        border: 1px solid #d3d8de;
+        background: #fff;
+        color: #5b6770;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .wmegj-icon-btn:hover { background: #e9edf2; color: #1f2937; }
+      .wmegj-line-arrow { flex: 0 0 auto; color: #9aa6b1; }
       .wmegj-source-line { font-weight: 600; font-size: 13px; margin: 4px 0 8px; }
       .wmegj-url-error { color: #c0392b; font-size: 12px; margin-top: 6px; }
       .wmegj-load-btn { display: block; margin-top: 8px; }
