@@ -1786,3 +1786,19 @@ git commit -m "chore: Phase 7a verification and changelog notes"
 - **Spec coverage:** Goals 1–4 of the spec are covered — single-Feature load (Tasks 5, 10), sub-tab split (Tasks 7–9), CSV-less synthetic matching (Tasks 4, 10), closure-window prompt with today/09:00/17:30 defaults (Tasks 6, 10). FeatureCollection parsing, multi-color preview, and slowUp details are explicitly Phase 7b/7c and excluded.
 - **Known soft spots flagged for the executor:** (a) the `MatchingSubTab` extraction (Task 7) is a move, verified by build+tests+smoke rather than reproduced code; (b) the `MatchingSubTab` constructor/`buildRoot` adaptation (Task 9 Step 5) is the riskiest single step; (c) the synthetic-row re-validation against `SessionStore` (Task 10 Step 4) has a flagged decision point — prefer adding `SessionStore.setClosureWindowForRow` if the simpler path drops matched segments.
 - **Type consistency:** `LineEntry`, `LineRegistry` method names, `ClosureWindow`, and `buildSyntheticRow`'s `CsvRow` shape are used consistently across tasks.
+
+---
+
+## Implementation outcome (2026-05-19)
+
+Phase 7a implemented via subagent-driven development. Divergences from the plan as written:
+
+- **Task ordering.** i18n keys (Task 11) were done first so the new UI renders real text. Tasks 9 and 10 were split along green-build boundaries instead of the plan's split: Task 9 became the full structural change (shell + sub-tabs + `main.user.ts` + `loadAndAttachLines`), keeping the build green and CSV mode working end-to-end; Task 10 added synthetic mode purely additively. The plan's original Task 9/10 split would have left the build broken between them (the `MatchPanel` constructor change breaks `main.user.ts` until the wiring lands).
+- **Task 2 test.** The plan's top-level `await i18next.init(...)` is rejected by the project's `module: ES6` tsconfig; replaced with `beforeAll(async …)`.
+- **Task 8 scope.** Reduced to extracting only the title + badge into `MatchingHeaderView` (DOM-adjacent, zero reorder). The plan's `setLine`/back-button were dropped — the `[Lignes][Matching]` toggle is the back navigation, so no separate back control is needed.
+- **i18n key.** `panel.matching.back` already existed (guided-overlay button); the sub-tab nav uses a new `panel.matching.backToLines` key.
+- **`loadAndAttachLines`.** Simplified to load + `registry.setEntries` only. Drawing the track and building the `WalkController` happen in `MatchingSubTab.onSelectedLineChanged` when a line is selected — a single draw path.
+- **Bug fixed during Task 9.** `buildRoot` captured the content wrapper via `root.firstElementChild`, which is the `<style>` injected by `injectStyles`; corrected to `lastElementChild`.
+- **Task 10 `SessionStore` method.** The flagged decision point resolved in favour of adding `SessionStore.setClosureWindowForRow(index, startISO, endISO)`, covered by unit tests.
+
+**Final state:** 247 tests pass, `npm run build` succeeds, `npx tsc --noEmit` shows only the pre-existing `waitForMapIdle.test.ts` error, `npm run lint` shows only pre-existing issues in untouched files (`WalkController.ts`, `SegmentMatcher.ts`). Browser smoke-testing on a live WME session remains for the user to perform.
