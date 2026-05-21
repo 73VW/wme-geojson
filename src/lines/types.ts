@@ -2,7 +2,7 @@
 // Pure types — no SDK, no DOM. Safe to import anywhere.
 
 import type { NormalizedTrack } from "../geojson/types";
-import type { CsvRow } from "../state/SessionStore";
+import type { CsvRow, ClosureRange } from "../state/SessionStore";
 import type { SessionState } from "../state/SessionStore";
 import type { ClosureRowGroup } from "../csv/buildClosuresCsv";
 
@@ -15,6 +15,20 @@ export interface SlowupDetails {
   refid: number;
   title: string;
   date: string; // "YYYY-MM-DD"
+}
+
+export interface ChainMergeSnapshot {
+  chainId: string;
+  status: "idle" | "matching" | "done" | "skipped" | "error";
+  matchedGroups: ClosureRowGroup[];
+  closuresBySegment: Record<number, ClosureRange[]>;
+}
+
+export interface ChainMergeState {
+  mode: "single-track" | "chain-by-chain";
+  chains: ChainMergeSnapshot[];
+  mergedGroups: ClosureRowGroup[];
+  mergedClosuresBySegment: Record<number, ClosureRange[]>;
 }
 
 /** Coarse matching progress for one line, mirrored from the pipeline. */
@@ -58,4 +72,6 @@ export interface LineEntry {
   sessionCsvText?: string;
   /** Pipeline match groups (geo anchors), snapshotted alongside `session`. */
   matchedGroups?: ClosureRowGroup[];
+  /** Chain-by-chain aggregate snapshot used for merge export. */
+  chainMergeState?: ChainMergeState;
 }

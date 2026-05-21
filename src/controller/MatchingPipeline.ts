@@ -38,8 +38,30 @@ const VIEW_SLICE_EPSILON_KM = 0.005;
 const VIEW_SLICE_MIN_SPAN_KM = 0.01;
 const MAX_VIEW_SLICES_PER_ROW = 200;
 const VIEW_SLICE_HEAD_RATIO = 0.75;
+const PLAN_VIEW_ZOOM_SETTLE_MS = 0;
 const MATCH_VIEW_SETTLE_DELAY_MS = 650;
 const MATCH_POST_IDLE_DELAY_MS = 0;
+
+function nowMs(): number {
+  if (typeof performance !== "undefined" && typeof performance.now === "function") {
+    return performance.now();
+  }
+  return Date.now();
+}
+
+function roundMs(value: number): number {
+  return Number(value.toFixed(1));
+}
+
+function countGeometryPoints(geometry: import("geojson").MultiLineString): number {
+  return geometry.coordinates.reduce((sum, line) => sum + line.length, 0);
+}
+
+function waitForNextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -645,8 +667,10 @@ export class MatchingPipeline {
    * exported independently with their own map anchor.
    */
   private async planLeafSlices(rowIndex: number, kmA: number, kmB: number): Promise<ViewSlice[]> {
+    const planStartedAt = nowMs();
     const slices: ViewSlice[] = [];
     const tailBuffer: PendingSlice[] = [{ kmA, kmB }];
+    let processedPendingSlices = 0;
     this.events.onStep?.({
       key: "planningStart",
       rowIndex,
@@ -674,8 +698,23 @@ export class MatchingPipeline {
       if (!pendingSlice) {
         break;
       }
+      processedPendingSlices += 1;
 
+      const fitStartedAt = nowMs();
       const fittedSlice = await this.fitPendingSlice(rowIndex, pendingSlice, tailBuffer);
+      const fitDurationMs = nowMs() - fitStartedAt;
+      logger.debug("MatchingPipeline.planLeafSlices: pending slice processed", {
+        rowIndex,
+        pendingKmA: Number(pendingSlice.kmA.toFixed(3)),
+        pendingKmB: Number(pendingSlice.kmB.toFixed(3)),
+        pendingSpanKm: Number((pendingSlice.kmB - pendingSlice.kmA).toFixed(3)),
+        accepted: fittedSlice !== null,
+        acceptedKmA: fittedSlice ? Number(fittedSlice.kmA.toFixed(3)) : null,
+        acceptedKmB: fittedSlice ? Number(fittedSlice.kmB.toFixed(3)) : null,
+        acceptedZoom: fittedSlice?.zoom ?? null,
+        tailBufferSize: tailBuffer.length,
+        fitDurationMs: roundMs(fitDurationMs),
+      });
       if (fittedSlice === null) {
         this.events.onStep?.({
           key: "sliceDropped",
@@ -691,6 +730,16 @@ export class MatchingPipeline {
       slices.push(fittedSlice);
     }
 
+    logger.debug("MatchingPipeline.planLeafSlices: completed", {
+      rowIndex,
+      requestedKmA: Number(kmA.toFixed(3)),
+      requestedKmB: Number(kmB.toFixed(3)),
+      requestedSpanKm: Number((kmB - kmA).toFixed(3)),
+      generatedSlices: slices.length,
+      processedPendingSlices,
+      durationMs: roundMs(nowMs() - planStartedAt),
+    });
+
     return slices;
   }
 
@@ -699,6 +748,28 @@ export class MatchingPipeline {
     pendingSlice: PendingSlice,
     tailBuffer: PendingSlice[],
   ): Promise<ViewSlice | null> {
+    const fitStartedAt = nowMs();
+    let splitCount = 0;
+    let evaluateCount = 0;
+
+    const finish = (result: ViewSlice | null, reason: string): ViewSlice | null => {
+      logger.debug("MatchingPipeline.fitPendingSlice: completed", {
+        rowIndex,
+        pendingKmA: Number(pendingSlice.kmA.toFixed(3)),
+        pendingKmB: Number(pendingSlice.kmB.toFixed(3)),
+        pendingSpanKm: Number((pendingSlice.kmB - pendingSlice.kmA).toFixed(3)),
+        reason,
+        evaluateCount,
+        splitCount,
+        acceptedKmA: result ? Number(result.kmA.toFixed(3)) : null,
+        acceptedKmB: result ? Number(result.kmB.toFixed(3)) : null,
+        acceptedZoom: result?.zoom ?? null,
+        tailBufferSize: tailBuffer.length,
+        durationMs: roundMs(nowMs() - fitStartedAt),
+      });
+      return result;
+    };
+
     let currentKmA = pendingSlice.kmA;
     let currentGeometry = sliceMultiLineByDistance(
       this.track.geometry,
@@ -719,11 +790,12 @@ export class MatchingPipeline {
 
     while (currentGeometry.coordinates.length > 0) {
       if (this.abortRequested || this.pauseRequested) {
-        return null;
+        return finish(null, "interrupted");
       }
+      evaluateCount += 1;
       const candidateSlice = await this.evaluateLeafSlice(currentKmA, currentGeometry);
       if (candidateSlice === null) {
-        return null;
+        return finish(null, "candidate-null");
       }
 
       const fitsAtTargetZoom = candidateSlice.zoom >= MIN_BBOX_ZOOM;
@@ -739,7 +811,7 @@ export class MatchingPipeline {
             zoom: candidateSlice.zoom,
           },
         });
-        return candidateSlice;
+        return finish(candidateSlice, "fits-target-zoom");
       }
 
       if (spanKm <= VIEW_SLICE_MIN_SPAN_KM) {
@@ -760,7 +832,7 @@ export class MatchingPipeline {
             zoom: candidateSlice.zoom,
           },
         });
-        return candidateSlice;
+        return finish(candidateSlice, "min-span-accepted");
       }
 
       const headKmB = currentKmA + spanKm * VIEW_SLICE_HEAD_RATIO;
@@ -776,7 +848,7 @@ export class MatchingPipeline {
           },
         );
         enqueueRemainingTail(candidateSlice.kmB);
-        return candidateSlice;
+        return finish(candidateSlice, "split-no-progress");
       }
 
       const headGeometry = sliceMultiLineByDistance(this.track.geometry, currentKmA, headKmB);
@@ -789,8 +861,10 @@ export class MatchingPipeline {
           },
         );
         enqueueRemainingTail(candidateSlice.kmB);
-        return candidateSlice;
+        return finish(candidateSlice, "split-empty-head");
       }
+
+      splitCount += 1;
 
       this.events.onStep?.({
         key: "splitTail",
@@ -807,13 +881,14 @@ export class MatchingPipeline {
       currentGeometry = headGeometry;
     }
 
-    return null;
+    return finish(null, "empty-geometry");
   }
 
   private async evaluateLeafSlice(
     kmA: number,
     geometry: import("geojson").MultiLineString,
   ): Promise<ViewSlice | null> {
+    const evalStartedAt = nowMs();
     if (this.abortRequested || this.pauseRequested) {
       return null;
     }
@@ -825,17 +900,34 @@ export class MatchingPipeline {
     }
 
     this.wmeSDK.Map.zoomToExtent({ bbox: box });
-    await waitForMapIdle(this.wmeSDK);
+    const settleStartedAt = nowMs();
+    await waitForNextFrame();
+    if (PLAN_VIEW_ZOOM_SETTLE_MS > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, PLAN_VIEW_ZOOM_SETTLE_MS));
+    }
+    const settleDurationMs = nowMs() - settleStartedAt;
 
     const zoom = this.wmeSDK.Map.getZoomLevel();
     const kmB = kmA + multiLineLengthKm(geometry);
-    return {
+    const result = {
       kmA,
       kmB,
       lon: (box[0] + box[2]) / 2,
       lat: (box[1] + box[3]) / 2,
       zoom,
     };
+
+    logger.debug("MatchingPipeline.evaluateLeafSlice: timing", {
+      kmA: Number(kmA.toFixed(3)),
+      kmB: Number(kmB.toFixed(3)),
+      spanKm: Number((kmB - kmA).toFixed(3)),
+      zoom,
+      points: countGeometryPoints(geometry),
+      zoomSettleMs: roundMs(settleDurationMs),
+      totalMs: roundMs(nowMs() - evalStartedAt),
+    });
+
+    return result;
   }
 
   // ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@ import type { WalkState } from "../../controller/walkStates";
 export class MatchingHeaderView {
   /** Root element — append this where the title + badge used to be built. */
   readonly root: HTMLElement;
+  private readonly titleEl: HTMLElement;
   private readonly badgeEl: HTMLElement;
 
   constructor() {
@@ -17,12 +18,18 @@ export class MatchingHeaderView {
     title.className = "wmegj-panel-title";
     title.textContent = i18next.t("panel.title");
     this.root.appendChild(title);
+    this.titleEl = title;
 
     const badgeWrapper = document.createElement("p");
     this.badgeEl = document.createElement("strong");
     this.badgeEl.textContent = "—";
     badgeWrapper.appendChild(this.badgeEl);
     this.root.appendChild(badgeWrapper);
+  }
+
+  /** Replace the panel title with the selected line's display name. */
+  setTitle(name: string): void {
+    this.titleEl.textContent = name;
   }
 
   /** Update the walk-state badge text. */

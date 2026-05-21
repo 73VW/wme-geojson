@@ -4,9 +4,15 @@ import { logger } from "../../utils/logger";
 import { TrackLayer } from "../../layers/TrackLayer";
 import { WalkController } from "../../controller/WalkController";
 import type { LineRegistry } from "../../lines/LineRegistry";
-import type { LineEntry } from "../../lines/types";
+import type { LineEntry, ChainMergeState, ChainMergeSnapshot } from "../../lines/types";
 import type { WalkState } from "../../controller/walkStates";
-import type { SessionStore, SessionPhase, SessionState, CsvRow } from "../../state/SessionStore";
+import type {
+  SessionStore,
+  SessionPhase,
+  SessionState,
+  CsvRow,
+  ClosureRange,
+} from "../../state/SessionStore";
 import { parseSchedule } from "../../csv/parseSchedule";
 import { serializeSchedule } from "../../csv/serializeSchedule";
 import { buildClosuresCsv } from "../../csv/buildClosuresCsv";
@@ -19,8 +25,22 @@ import { confirmModal } from "../modal";
 import { MatchingHeaderView } from "../views/MatchingHeaderView";
 import { bboxOfMultiLineString, sliceMultiLineByDistance } from "../../matching/trackPortions";
 import { computeMatchingWorkItems } from "../../matching/trackPortions";
+import { multiLineLengthKm } from "../../matching/trackPortions";
 import { buildSyntheticRow } from "../../csv/syntheticSchedule";
 import { promptClosureWindow } from "../components/promptClosureWindow";
+import {
+  listTrackChains,
+  mergeTrackChainsByEndpoints,
+  type TrackChain,
+} from "../../matching/chainTracks";
+import { mergeChainClosures, mergeChainGroups } from "../../matching/chainMerge";
+import type { NormalizedTrack } from "../../geojson/types";
+import {
+  formatSubLineLabel,
+  mergeSubLineState,
+  subLineStateFromStep,
+  type SubLineState,
+} from "./sublineDebug";
 
 /**
  * Sidebar panel for the CSV-driven closures pipeline.
@@ -36,6 +56,7 @@ import { promptClosureWindow } from "../components/promptClosureWindow";
 export class MatchingSubTab {
   private static readonly PANEL_POSITION_KEY = "wme-geojson.matchPanel.position";
   private static readonly PANEL_COLLAPSED_KEY = "wme-geojson.matchPanel.collapsed";
+  private static readonly SLOWUP_CHAIN_MERGE_MAX_GAP_KM = 0.05;
 
   private tabPane: HTMLElement | null = null;
 
@@ -113,6 +134,10 @@ export class MatchingSubTab {
   private guidedMatchPaneEl: HTMLElement | null = null;
   private guidedDebugPaneEl: HTMLElement | null = null;
   private guidedManualActionsEl: HTMLElement | null = null;
+  private guidedSubLinesListEl: HTMLElement | null = null;
+  private guidedMergeSummaryEl: HTMLElement | null = null;
+  private guidedMergeChainsListEl: HTMLElement | null = null;
+  private guidedMergeGeoJsonEl: HTMLElement | null = null;
   private guidedStepsListEl: HTMLElement | null = null;
   private guidedToggleBtn: HTMLElement | null = null;
   private guidedCloseBtn: HTMLElement | null = null;
@@ -143,6 +168,15 @@ export class MatchingSubTab {
   private currentRowKmA: number | null = null;
   private currentRowKmB: number | null = null;
   private currentMatchedIds: number[] = [];
+  private currentSubLines: SubLineState[] = [];
+  private chainByChainEnabled = false;
+  private activeChains: TrackChain[] = [];
+  private activeChainIndex: number | null = null;
+  private chainSnapshots: ChainMergeSnapshot[] = [];
+  private mergedChainGroups: ClosureRowGroup[] = [];
+  private mergedChainClosuresBySegment: Record<number, ClosureRange[]> = {};
+  private mergedGeoJsonDebugCacheKey = "";
+  private mergedGeoJsonDebugText = "";
   private guidedDebugFeedbackEl: HTMLElement | null = null;
 
   constructor(
@@ -228,6 +262,10 @@ export class MatchingSubTab {
    * stop any running walk, redraw the track layer, and rebuild the controller.
    */
   private onSelectedLineChanged(entry: LineEntry | null): void {
+    void this.onSelectedLineChangedAsync(entry);
+  }
+
+  private async onSelectedLineChangedAsync(entry: LineEntry | null): Promise<void> {
     const hasLine = entry !== null;
     if (this.contentWrapperEl) this.contentWrapperEl.style.display = hasLine ? "" : "none";
     if (this.emptyStateEl) this.emptyStateEl.style.display = hasLine ? "none" : "";
@@ -250,60 +288,167 @@ export class MatchingSubTab {
         session: structuredClone(this.store.getState()) as SessionState,
         sessionCsvText: this.registry.getEntryById(this.attachedLineId)?.csvText ?? "",
         matchedGroups: this.pipeline ? [...this.pipeline.getMatchedGroups()] : undefined,
+        chainMergeState: this.buildChainMergeState(),
       });
     }
-
-    // The outgoing line's pipeline must not keep running against the store,
-    // which is about to be repointed to the new line. Its match groups are
-    // already snapshotted above; the new line builds its own pipeline on
-    // demand. Without this, getExportClosureGroups would read a stale pipeline
-    // belonging to a different line.
-    this.pipeline?.abort();
-    this.pipeline = null;
-
-    this.attachedLineId = entry.id;
-
-    // Stop any walk in progress before re-attaching to a different line.
-    try {
-      this.controller?.stop();
-    } catch (err) {
-      logger.warn("MatchingSubTab.onSelectedLineChanged: controller.stop threw", err);
+    const shouldShowMergeSpinner = this.shouldUseChainByChain(entry);
+    if (shouldShowMergeSpinner) {
+      this.setGuidedLoading(true, i18next.t("panel.matching.steps.mergePreparingTrack"));
+      await waitForNextPaint();
     }
 
     try {
-      this.wmeSDK.Map.removeLayer({ layerName: TrackLayer.LAYER_NAME });
-    } catch {
-      // No previous layer is the common case.
-    }
-    const layer = new TrackLayer(this.wmeSDK);
-    layer.draw(entry.track);
+      // The outgoing line's pipeline must not keep running against the store,
+      // which is about to be repointed to the new line. Its match groups are
+      // already snapshotted above; the new line builds its own pipeline on
+      // demand. Without this, getExportClosureGroups would read a stale pipeline
+      // belonging to a different line.
+      this.pipeline?.abort();
+      this.pipeline = null;
 
-    const controller = new WalkController(this.wmeSDK, entry.track.geometry);
-    this.setController(controller);
-    this.setTrackLayer(layer);
+      this.attachedLineId = entry.id;
+      this.headerView?.setTitle(entry.displayName);
 
-    if (entry.session) {
-      // Returning to a line worked on earlier — restore its full state.
-      // rehydrate replaces the whole SessionState (including geojsonUrl and
-      // trackLengthKm), so a setTrack call here would only be a redundant
-      // intermediate mutation.
-      this.store.rehydrate(entry.session, entry.sessionCsvText ?? "");
-      const isCsv = entry.mode === "csv";
-      this.setSyntheticBannerVisible(!isCsv);
-      this.setRemoveCsvVisible(isCsv);
-    } else if (entry.mode === "csv" && entry.csvRows) {
-      this.store.setTrack(entry.id, entry.lengthKm);
-      this.store.setCsvRows(entry.csvRows, entry.csvText ?? "");
-      this.store.setPhase("csv-loaded");
-      this.setSyntheticBannerVisible(false);
-      this.setRemoveCsvVisible(true);
-    } else {
-      this.store.setTrack(entry.id, entry.lengthKm);
-      this.store.setCsvRows([buildSyntheticRow()], "");
-      this.store.setPhase("csv-loaded");
-      this.setSyntheticBannerVisible(true);
-      this.setRemoveCsvVisible(false);
+      // Stop any walk in progress before re-attaching to a different line.
+      try {
+        this.controller?.stop();
+      } catch (err) {
+        logger.warn("MatchingSubTab.onSelectedLineChanged: controller.stop threw", err);
+      }
+
+      try {
+        this.wmeSDK.Map.removeLayer({ layerName: TrackLayer.LAYER_NAME });
+      } catch {
+        // No previous layer is the common case.
+      }
+      const selectedTrack = this.resolveSelectedTrack(entry);
+
+      const layer = new TrackLayer(this.wmeSDK);
+      layer.draw(selectedTrack, {
+        colorMode:
+          entry.slowupNumber !== undefined && selectedTrack.geometry.coordinates.length > 1
+            ? "per-subline"
+            : "single",
+      });
+
+      const controller = new WalkController(this.wmeSDK, selectedTrack.geometry);
+      this.setController(controller);
+      this.setTrackLayer(layer);
+
+      if (entry.session) {
+        // Returning to a line worked on earlier — restore its full state.
+        // rehydrate replaces the whole SessionState (including geojsonUrl and
+        // trackLengthKm), so a setTrack call here would only be a redundant
+        // intermediate mutation.
+        this.store.rehydrate(entry.session, entry.sessionCsvText ?? "");
+        const isCsv = entry.mode === "csv";
+        this.setSyntheticBannerVisible(!isCsv);
+        this.setRemoveCsvVisible(isCsv);
+      } else if (entry.mode === "csv" && entry.csvRows) {
+        this.store.setTrack(entry.id, multiLineLengthKm(selectedTrack.geometry));
+        this.store.setCsvRows(entry.csvRows, entry.csvText ?? "");
+        this.store.setPhase("csv-loaded");
+        this.setSyntheticBannerVisible(false);
+        this.setRemoveCsvVisible(true);
+      } else {
+        this.store.setTrack(entry.id, multiLineLengthKm(selectedTrack.geometry));
+        this.store.setCsvRows([buildSyntheticRow()], "");
+        this.store.setPhase("csv-loaded");
+        this.setSyntheticBannerVisible(true);
+        this.setRemoveCsvVisible(false);
+      }
+
+      this.ensureMergeInitializedForSelectedSlowup(entry, layer);
+    } finally {
+      if (shouldShowMergeSpinner) {
+        this.setGuidedLoading(false);
+      }
     }
+  }
+
+  private resolveSelectedTrack(entry: LineEntry): NormalizedTrack {
+    if (!this.shouldUseChainByChain(entry)) {
+      return entry.track;
+    }
+
+    const rawChains = listTrackChains(entry.track);
+    const mergedChains = mergeTrackChainsByEndpoints(
+      rawChains,
+      MatchingSubTab.SLOWUP_CHAIN_MERGE_MAX_GAP_KM,
+    );
+    logger.info("MatchingSubTab.merge: track merge for selected slowup", {
+      lineId: entry.id,
+      slowupNumber: entry.slowupNumber,
+      rawChainCount: rawChains.length,
+      mergedChainCount: mergedChains.length,
+      maxGapKm: MatchingSubTab.SLOWUP_CHAIN_MERGE_MAX_GAP_KM,
+    });
+    if (mergedChains.length === rawChains.length) {
+      return entry.track;
+    }
+
+    return {
+      trackId: entry.track.trackId,
+      geometry: {
+        type: "MultiLineString",
+        coordinates: mergedChains.map((chain) => chain.geometry.coordinates[0]),
+      },
+      rawProperties: entry.track.rawProperties,
+    };
+  }
+
+  private ensureMergeInitializedForSelectedSlowup(entry: LineEntry, layer: TrackLayer): void {
+    if (!this.shouldUseChainByChain(entry)) {
+      return;
+    }
+
+    const geometry = layer.getTrackGeometry();
+    if (!geometry) {
+      return;
+    }
+
+    const rawChains = listTrackChains({ trackId: null, geometry });
+    const chains = mergeTrackChainsByEndpoints(
+      rawChains,
+      MatchingSubTab.SLOWUP_CHAIN_MERGE_MAX_GAP_KM,
+    );
+    if (chains.length <= 1) {
+      return;
+    }
+
+    if (this.chainSnapshots.length === 0) {
+      this.chainByChainEnabled = true;
+      this.activeChains = chains;
+      this.activeChainIndex = 0;
+      this.chainSnapshots = chains.map((chain) => ({
+        chainId: chain.id,
+        status: "idle",
+        matchedGroups: [],
+        closuresBySegment: {},
+      }));
+    }
+
+    logger.info("MatchingSubTab.merge: initializing on slowup open", {
+      lineId: entry.id,
+      slowupNumber: entry.slowupNumber,
+      rawChainCount: rawChains.length,
+      chainCount: chains.length,
+      snapshotCount: this.chainSnapshots.length,
+    });
+
+    void this.recomputeMergedChainStateWithLoading().then(() => {
+      logger.info("MatchingSubTab.merge: initialized on slowup open", {
+        lineId: entry.id,
+        mergedGroups: this.mergedChainGroups.length,
+        mergedSegmentCount: this.mergedChainGroups.reduce(
+          (sum, group) => sum + group.segmentIds.length,
+          0,
+        ),
+      });
+      this.renderMergeDebugState();
+      this.persistChainMergeState();
+      this.appendGuidedStep(i18next.t("panel.matching.steps.mergeInitialized"));
+    });
   }
 
   /**
@@ -421,6 +566,10 @@ export class MatchingSubTab {
     this.guidedMatchPaneEl = null;
     this.guidedDebugPaneEl = null;
     this.guidedManualActionsEl = null;
+    this.guidedSubLinesListEl = null;
+    this.guidedMergeSummaryEl = null;
+    this.guidedMergeChainsListEl = null;
+    this.guidedMergeGeoJsonEl = null;
     this.guidedStepsListEl = null;
     this.guidedToggleBtn = null;
     this.guidedCloseBtn = null;
@@ -437,6 +586,8 @@ export class MatchingSubTab {
     this.guidedCopyDebugBtn = null;
     this.guidedDownloadEnrichedBtn = null;
     this.guidedMatchingRow = null;
+    this.mergedGeoJsonDebugCacheKey = "";
+    this.mergedGeoJsonDebugText = "";
 
     logger.info("MatchPanel unmounted");
   }
@@ -931,6 +1082,44 @@ export class MatchingSubTab {
     });
     this.guidedRestartBtn.classList.add("wmegj-guided-button--restart");
 
+    const subLinesTitleEl = document.createElement("p");
+    subLinesTitleEl.className = "wmegj-guided-debug-title";
+    subLinesTitleEl.textContent = i18next.t("panel.matching.subLinesTitle");
+    debugPane.appendChild(subLinesTitleEl);
+
+    const subLinesListEl = document.createElement("ul");
+    subLinesListEl.className = "wmegj-guided-steps";
+    debugPane.appendChild(subLinesListEl);
+    this.guidedSubLinesListEl = subLinesListEl;
+    this.renderCurrentSubLines();
+
+    const mergeTitleEl = document.createElement("p");
+    mergeTitleEl.className = "wmegj-guided-debug-title";
+    mergeTitleEl.textContent = i18next.t("panel.matching.mergeTitle");
+    debugPane.appendChild(mergeTitleEl);
+
+    const mergeSummaryEl = document.createElement("p");
+    mergeSummaryEl.className = "wmegj-guided-meta";
+    debugPane.appendChild(mergeSummaryEl);
+    this.guidedMergeSummaryEl = mergeSummaryEl;
+
+    const mergeChainsListEl = document.createElement("ul");
+    mergeChainsListEl.className = "wmegj-guided-steps";
+    debugPane.appendChild(mergeChainsListEl);
+    this.guidedMergeChainsListEl = mergeChainsListEl;
+
+    const mergeGeoJsonTitleEl = document.createElement("p");
+    mergeGeoJsonTitleEl.className = "wmegj-guided-debug-title";
+    mergeGeoJsonTitleEl.textContent = i18next.t("panel.matching.mergeGeoJsonTitle");
+    debugPane.appendChild(mergeGeoJsonTitleEl);
+
+    const mergeGeoJsonEl = document.createElement("pre");
+    mergeGeoJsonEl.className = "wmegj-guided-json";
+    debugPane.appendChild(mergeGeoJsonEl);
+    this.guidedMergeGeoJsonEl = mergeGeoJsonEl;
+
+    this.renderMergeDebugState();
+
     const stepsTitleEl = document.createElement("p");
     stepsTitleEl.className = "wmegj-guided-debug-title";
     stepsTitleEl.textContent = i18next.t("panel.matching.stepsTitle");
@@ -1194,6 +1383,13 @@ export class MatchingSubTab {
             date: row.date,
           }
         : null,
+      subLines: this.currentSubLines.map((line) => ({
+        index: line.index,
+        total: line.total,
+        kmA: line.kmA ?? null,
+        kmB: line.kmB ?? null,
+        status: line.status,
+      })),
       trackSlice: {
         type: "Feature" as const,
         geometry: trackSlice,
@@ -1202,6 +1398,7 @@ export class MatchingSubTab {
       matchedSegments,
       currentSelectionIds: selectionIds,
       currentSelectionSegments: selectionSegments,
+      mergedTrackGeoJson: this.buildMergedTrackGeoJsonDebug(),
     };
 
     const json = JSON.stringify(payload, null, 2);
@@ -1270,8 +1467,16 @@ export class MatchingSubTab {
     this.currentRowKmA = null;
     this.currentRowKmB = null;
     this.currentMatchedIds = [];
+    this.currentSubLines = [];
+    this.chainByChainEnabled = false;
+    this.activeChains = [];
+    this.activeChainIndex = null;
+    this.chainSnapshots = [];
+    this.mergedChainGroups = [];
+    this.mergedChainClosuresBySegment = {};
     this.trackLayer?.setHighlightedSlice(null);
     this.resetGuidedSteps();
+    this.renderMergeDebugState();
     this.setDebugFeedback("");
     this.setGuidedLoading(false);
 
@@ -1910,7 +2115,8 @@ export class MatchingSubTab {
   }
 
   private onDownloadClosuresClick(): void {
-    const { csvRows, closuresBySegment } = this.store.getState();
+    const { csvRows } = this.store.getState();
+    const closuresBySegment = this.getExportClosuresBySegment();
 
     if (!this.hasValidatedProgress(csvRows)) {
       const message = i18next.t("panel.matching.mustValidateFirst");
@@ -1967,14 +2173,26 @@ export class MatchingSubTab {
     });
     if (!window) return;
 
-    // Rewrite the synthetic row (index 0) with the chosen window and rebuild
-    // closuresBySegment so buildClosuresCsv sees correct ISO ranges.
-    this.store.setClosureWindowForRow(0, window.startISO, window.endISO);
-
     const fields = await promptFinalFields();
     if (!fields) return;
 
-    const { csvRows, closuresBySegment } = this.store.getState();
+    const rows = this.store.getState().csvRows;
+    const csvRows = rows.map((row, index) =>
+      index === 0
+        ? {
+            ...row,
+            date: window.startISO.slice(0, 10),
+            startTime: window.startISO.slice(11, 16),
+            endTime: window.endISO.slice(11, 16),
+          }
+        : row,
+    );
+    const closuresBySegment = this.buildSyntheticClosuresBySegment(
+      closureGroups,
+      window.startISO,
+      window.endISO,
+    );
+
     try {
       const csv = buildClosuresCsv(csvRows, closureGroups, closuresBySegment, fields);
       this.triggerDownload(csv, "closures.csv", "text/csv");
@@ -1986,14 +2204,28 @@ export class MatchingSubTab {
   }
 
   private hasValidatedProgress(rows: readonly CsvRow[]): boolean {
+    if (this.isChainMergeModeActive()) {
+      return this.chainSnapshots.some((snapshot) => snapshot.status === "done");
+    }
     return rows.some((row) => row.segments !== null);
   }
 
   private getExportClosureGroups(rows: readonly CsvRow[]): ClosureRowGroup[] | null {
+    if (this.isChainMergeModeActive()) {
+      if (this.mergedChainGroups.length === 0) {
+        const message = i18next.t("panel.matching.noPipelineRun");
+        logger.warn("MatchPanel: " + message);
+        alert(message);
+        return null;
+      }
+      return this.mergedChainGroups;
+    }
+
     // After a line switch the live pipeline belongs to a different line; fall
     // back to the match groups snapshotted on the selected entry (Task 5).
     const snapshotGroups = this.registry.getSelected()?.matchedGroups ?? [];
-    const closureGroups = (this.pipeline?.getMatchedGroups() ?? snapshotGroups) as ClosureRowGroup[];
+    const closureGroups = (this.pipeline?.getMatchedGroups() ??
+      snapshotGroups) as ClosureRowGroup[];
     const missingGeoIndex = rows.findIndex(
       (row, index) =>
         row.segments !== null &&
@@ -2015,6 +2247,22 @@ export class MatchingSubTab {
     logger.warn("MatchPanel: " + message);
     alert(message);
     return null;
+  }
+
+  private getExportClosuresBySegment(): Record<number, ClosureRange[]> {
+    if (this.isChainMergeModeActive()) {
+      return this.mergedChainClosuresBySegment;
+    }
+
+    return this.store.getState().closuresBySegment;
+  }
+
+  private isChainMergeModeActive(): boolean {
+    if (this.chainByChainEnabled) {
+      return true;
+    }
+
+    return this.registry.getSelected()?.chainMergeState?.mode === "chain-by-chain";
   }
 
   private onStartMatchingClick(mode: "interactive" | "burst"): void {
@@ -2068,10 +2316,43 @@ export class MatchingSubTab {
     }
 
     const track = { trackId: null, geometry: trackGeometry };
+    const selectedEntry = this.registry.getSelected();
+    const chainByChain = this.shouldUseChainByChain(selectedEntry);
+    const chains = chainByChain
+      ? mergeTrackChainsByEndpoints(
+          listTrackChains(track),
+          MatchingSubTab.SLOWUP_CHAIN_MERGE_MAX_GAP_KM,
+        )
+      : [];
+
+    this.chainByChainEnabled = chainByChain && chains.length > 0;
+    this.activeChains = this.chainByChainEnabled ? chains : [];
+    this.activeChainIndex = this.chainByChainEnabled ? 0 : null;
+    if (this.chainByChainEnabled) {
+      this.chainSnapshots = this.activeChains.map((chain) => ({
+        chainId: chain.id,
+        status: "idle",
+        matchedGroups: [],
+        closuresBySegment: {},
+      }));
+      this.mergedChainGroups = [];
+      this.mergedChainClosuresBySegment = {};
+      this.renderMergeDebugState();
+    }
 
     if (phase === "done") {
       logger.info("MatchPanel.onStartMatchingClick: restarting completed run from row 0");
       this.store.rewindToRow(0);
+    }
+
+    if (this.chainByChainEnabled) {
+      this.store.rewindToRow(0);
+      this.appendGuidedStep(
+        i18next.t("panel.matching.chainStart", {
+          chainIndex: 1,
+          chainTotal: this.activeChains.length,
+        }),
+      );
     }
 
     logger.info("MatchPanel.onStartMatchingClick: switching store phase to matching");
@@ -2090,11 +2371,53 @@ export class MatchingSubTab {
       this.guidedManualActionsEl.style.display = "flex";
     }
 
-    logger.info("MatchPanel.onStartMatchingClick: creating MatchingPipeline", {
-      rowCount: csvRows.length,
+    const initialTrack = this.chainByChainEnabled ? this.activeChains[0].geometry : track.geometry;
+    this.startPipeline(initialTrack, mode);
+  }
+
+  private shouldUseChainByChain(entry: LineEntry | null): boolean {
+    return entry !== null && entry.slowupNumber !== undefined && entry.mode === "synthetic";
+  }
+
+  private appendChainSuffix(baseText: string): string {
+    if (
+      !this.chainByChainEnabled ||
+      this.activeChainIndex === null ||
+      this.activeChains.length < 2
+    ) {
+      return baseText;
+    }
+
+    return i18next.t("panel.matching.chainSuffix", {
+      base: baseText,
+      chainIndex: this.activeChainIndex + 1,
+      chainTotal: this.activeChains.length,
+    });
+  }
+
+  private startPipeline(
+    trackGeometry: ReturnType<TrackLayer["getTrackGeometry"]> extends infer T
+      ? Exclude<T, null>
+      : never,
+    mode: "interactive" | "burst",
+  ): void {
+    if (!this.controller || !this.trackLayer) {
+      logger.warn("MatchPanel.startPipeline: missing controller or trackLayer");
+      return;
+    }
+
+    const track = { trackId: null, geometry: trackGeometry };
+    this.markActiveChainStatus("matching");
+
+    logger.info("MatchPanel.startPipeline: creating MatchingPipeline", {
+      rowCount: this.store.getState().csvRows.length,
       currentIndex: this.store.getState().currentIndex,
       mode,
+      chainByChain: this.chainByChainEnabled,
+      activeChainIndex: this.activeChainIndex,
+      activeChainCount: this.activeChains.length,
     });
+
     this.pipeline = new MatchingPipeline(
       this.wmeSDK,
       this.store,
@@ -2107,13 +2430,14 @@ export class MatchingSubTab {
           const rows = this.store.getState().csvRows;
           const row = rows[index];
           if (row && this.guidedRowHeaderEl) {
-            this.guidedRowHeaderEl.textContent = i18next.t("panel.matching.rowHeader", {
+            const baseHeader = i18next.t("panel.matching.rowHeader", {
               index: index + 1,
               total,
               km: row.distance.toFixed(1),
               startTime: row.startTime,
               endTime: row.endTime,
             });
+            this.guidedRowHeaderEl.textContent = this.appendChainSuffix(baseHeader);
           }
           if (this.guidedSegmentCountEl) {
             this.guidedSegmentCountEl.textContent = i18next.t("panel.matching.segmentsMatched", {
@@ -2128,6 +2452,7 @@ export class MatchingSubTab {
           this.currentRowKmA = workItem?.kmA ?? null;
           this.currentRowKmB = workItem?.kmB ?? null;
           this.currentMatchedIds = [];
+          this.resetCurrentSubLines();
           this.setDebugFeedback("");
           this.resetGuidedSteps();
         },
@@ -2142,6 +2467,7 @@ export class MatchingSubTab {
           this.updateGuidedControls();
         },
         onStep: (event) => {
+          this.applySubLineStep(event);
           const message = this.formatPipelineStep(event);
           this.setGuidedLoading(event.key !== "waitingLeafValidation", message);
           this.appendGuidedStep(message);
@@ -2151,11 +2477,41 @@ export class MatchingSubTab {
           this.setGuidedLoading(false);
           logger.error("MatchingPipeline error:", message);
         },
-        onDone: () => {
-          logger.info("MatchPanel.onStartMatchingClick: pipeline reported done");
+        onDone: async () => {
+          logger.info("MatchPanel.startPipeline: pipeline reported done", {
+            chainByChain: this.chainByChainEnabled,
+            activeChainIndex: this.activeChainIndex,
+            activeChainCount: this.activeChains.length,
+          });
           this.pausePending = false;
           this.setGuidedLoading(false);
           this.currentMatchedIds = [];
+
+          if (
+            this.chainByChainEnabled &&
+            this.activeChainIndex !== null &&
+            this.activeChainIndex + 1 < this.activeChains.length
+          ) {
+            await this.captureActiveChainSnapshot("done");
+            this.activeChainIndex += 1;
+            this.store.rewindToRow(0);
+            this.currentSubLines = [];
+            const message = i18next.t("panel.matching.chainSwitching", {
+              chainIndex: this.activeChainIndex + 1,
+              chainTotal: this.activeChains.length,
+            });
+            this.appendGuidedStep(message);
+            this.setGuidedLoading(true, message);
+            this.updateGuidedControls();
+            const nextChain = this.activeChains[this.activeChainIndex];
+            this.startPipeline(nextChain.geometry, this.matchingMode);
+            return;
+          }
+
+          if (this.chainByChainEnabled) {
+            await this.captureActiveChainSnapshot("done");
+          }
+
           const rowsValidated = this.store
             .getState()
             .csvRows.filter((row) => row.segments !== null).length;
@@ -2175,15 +2531,14 @@ export class MatchingSubTab {
           this.updateGuidedControls();
         },
         onAborted: () => {
-          logger.info("MatchPanel.onStartMatchingClick: pipeline reported aborted");
+          logger.info("MatchPanel.startPipeline: pipeline reported aborted");
           this.pausePending = false;
           this.setGuidedLoading(false);
-          // Return to csv-loaded phase so the user can restart
           this.store.setPhase("csv-loaded");
           this.updateGuidedControls();
         },
         onPaused: () => {
-          logger.info("MatchPanel.onStartMatchingClick: pipeline reported paused");
+          logger.info("MatchPanel.startPipeline: pipeline reported paused");
           this.pausePending = false;
           this.setGuidedLoading(false);
           this.store.setPhase("csv-loaded");
@@ -2203,8 +2558,333 @@ export class MatchingSubTab {
       { burstMode: mode === "burst" },
     );
 
-    logger.info("MatchPanel.onStartMatchingClick: starting pipeline");
+    logger.info("MatchPanel.startPipeline: starting pipeline");
     this.pipeline.start();
+  }
+
+  private buildSyntheticClosuresBySegment(
+    groups: readonly ClosureRowGroup[],
+    startISO: string,
+    endISO: string,
+  ): Record<number, ClosureRange[]> {
+    const closuresBySegment: Record<number, ClosureRange[]> = {};
+
+    groups.forEach((group) => {
+      group.segmentIds.forEach((segmentId) => {
+        const existing = closuresBySegment[segmentId] ?? [];
+        closuresBySegment[segmentId] = [
+          ...existing,
+          {
+            rowIndex: group.rowIndex,
+            startISO,
+            endISO,
+          },
+        ];
+      });
+    });
+
+    return closuresBySegment;
+  }
+
+  private async captureActiveChainSnapshot(status: ChainMergeSnapshot["status"]): Promise<void> {
+    if (!this.chainByChainEnabled || this.activeChainIndex === null) {
+      return;
+    }
+
+    const activeChain = this.activeChains[this.activeChainIndex];
+    const pipelineGroups = this.pipeline?.getMatchedGroups() ?? [];
+    const closuresBySegment = structuredClone(this.store.getState().closuresBySegment) as Record<
+      number,
+      ClosureRange[]
+    >;
+
+    this.chainSnapshots = this.chainSnapshots.map((snapshot, index) => {
+      if (index !== this.activeChainIndex || snapshot.chainId !== activeChain.id) {
+        return snapshot;
+      }
+
+      return {
+        chainId: snapshot.chainId,
+        status,
+        matchedGroups: pipelineGroups.map((group) => ({
+          rowIndex: group.rowIndex,
+          segmentIds: [...group.segmentIds],
+          geo: group.geo,
+        })),
+        closuresBySegment,
+      };
+    });
+
+    await this.recomputeMergedChainStateWithLoading();
+    this.persistChainMergeState();
+    this.renderMergeDebugState();
+  }
+
+  private async recomputeMergedChainStateWithLoading(): Promise<void> {
+    const message = i18next.t("panel.matching.steps.mergeRecomputing");
+    logger.info("MatchingSubTab.merge: recompute start", {
+      chainSnapshotCount: this.chainSnapshots.length,
+      doneChains: this.chainSnapshots.filter((snapshot) => snapshot.status === "done").length,
+    });
+    this.setGuidedLoading(true, message);
+    await waitForNextPaint();
+    this.recomputeMergedChainState();
+    this.setGuidedLoading(false);
+    logger.info("MatchingSubTab.merge: recompute done", {
+      mergedGroups: this.mergedChainGroups.length,
+      mergedClosureSegments: Object.keys(this.mergedChainClosuresBySegment).length,
+    });
+  }
+
+  private recomputeMergedChainState(): void {
+    const inputs = this.chainSnapshots
+      .filter((snapshot) => snapshot.status === "done" || snapshot.status === "skipped")
+      .map((snapshot) => ({
+        chainId: snapshot.chainId,
+        matchedGroups: snapshot.matchedGroups,
+        closuresBySegment: snapshot.closuresBySegment,
+      }));
+
+    this.mergedChainGroups = mergeChainGroups(inputs);
+    this.mergedChainClosuresBySegment = mergeChainClosures(inputs);
+  }
+
+  private buildChainMergeState(): ChainMergeState | undefined {
+    if (!this.chainByChainEnabled) {
+      return undefined;
+    }
+
+    return {
+      mode: "chain-by-chain",
+      chains: this.chainSnapshots.map((snapshot) => ({
+        chainId: snapshot.chainId,
+        status: snapshot.status,
+        matchedGroups: snapshot.matchedGroups.map((group) => ({
+          rowIndex: group.rowIndex,
+          segmentIds: [...group.segmentIds],
+          geo: group.geo,
+        })),
+        closuresBySegment: structuredClone(snapshot.closuresBySegment) as Record<
+          number,
+          ClosureRange[]
+        >,
+      })),
+      mergedGroups: this.mergedChainGroups.map((group) => ({
+        rowIndex: group.rowIndex,
+        segmentIds: [...group.segmentIds],
+        geo: group.geo,
+      })),
+      mergedClosuresBySegment: structuredClone(this.mergedChainClosuresBySegment) as Record<
+        number,
+        ClosureRange[]
+      >,
+    };
+  }
+
+  private persistChainMergeState(): void {
+    const selected = this.registry.getSelected();
+    if (!selected || !this.chainByChainEnabled) {
+      return;
+    }
+
+    this.registry.updateEntry(selected.id, {
+      chainMergeState: this.buildChainMergeState(),
+    });
+  }
+
+  private restoreChainMergeState(state: ChainMergeState | undefined): void {
+    if (!state || state.mode !== "chain-by-chain") {
+      this.chainByChainEnabled = false;
+      this.chainSnapshots = [];
+      this.mergedChainGroups = [];
+      this.mergedChainClosuresBySegment = {};
+      this.renderMergeDebugState();
+      return;
+    }
+
+    this.chainByChainEnabled = true;
+    this.chainSnapshots = state.chains.map((snapshot) => ({
+      chainId: snapshot.chainId,
+      status: snapshot.status,
+      matchedGroups: snapshot.matchedGroups.map((group) => ({
+        rowIndex: group.rowIndex,
+        segmentIds: [...group.segmentIds],
+        geo: group.geo,
+      })),
+      closuresBySegment: structuredClone(snapshot.closuresBySegment) as Record<
+        number,
+        ClosureRange[]
+      >,
+    }));
+    // Always recompute from per-chain snapshots when opening the slowup,
+    // so the merge state is refreshed even if a persisted merged snapshot is stale.
+    void this.recomputeMergedChainStateWithLoading().then(() => {
+      this.renderMergeDebugState();
+    });
+  }
+
+  private renderMergeDebugState(): void {
+    if (!this.guidedMergeSummaryEl || !this.guidedMergeChainsListEl || !this.guidedMergeGeoJsonEl) {
+      return;
+    }
+
+    const isActive = this.isChainMergeModeActive();
+    if (!isActive) {
+      this.guidedMergeSummaryEl.textContent = this.formatMergeInactiveMessage();
+      while (this.guidedMergeChainsListEl.firstChild) {
+        this.guidedMergeChainsListEl.removeChild(this.guidedMergeChainsListEl.firstChild);
+      }
+      this.guidedMergeGeoJsonEl.textContent = i18next.t("panel.matching.mergeGeoJsonInactive");
+      this.mergedGeoJsonDebugCacheKey = "";
+      this.mergedGeoJsonDebugText = "";
+      return;
+    }
+
+    const doneCount = this.chainSnapshots.filter((snapshot) => snapshot.status === "done").length;
+    const chainCount = this.chainSnapshots.length;
+    const rawSegments = this.chainSnapshots.reduce(
+      (sum, snapshot) =>
+        sum + snapshot.matchedGroups.reduce((acc, g) => acc + g.segmentIds.length, 0),
+      0,
+    );
+    const dedupedSegments = this.mergedChainGroups.reduce(
+      (sum, group) => sum + group.segmentIds.length,
+      0,
+    );
+
+    if (rawSegments === 0 && dedupedSegments === 0) {
+      this.guidedMergeSummaryEl.textContent = i18next.t("panel.matching.mergeSummaryEmpty", {
+        total: chainCount,
+      });
+    } else {
+      this.guidedMergeSummaryEl.textContent = i18next.t("panel.matching.mergeSummary", {
+        done: doneCount,
+        total: chainCount,
+        raw: rawSegments,
+        deduped: dedupedSegments,
+      });
+    }
+
+    while (this.guidedMergeChainsListEl.firstChild) {
+      this.guidedMergeChainsListEl.removeChild(this.guidedMergeChainsListEl.firstChild);
+    }
+
+    this.chainSnapshots.forEach((snapshot, index) => {
+      const item = document.createElement("li");
+      const isActive = this.activeChainIndex === index;
+      const statusLabel = i18next.t(`panel.matching.mergeStatus.${snapshot.status}`);
+      const baseText = i18next.t("panel.matching.mergeChainItem", {
+        index: index + 1,
+        chainId: snapshot.chainId,
+        status: statusLabel,
+        groups: snapshot.matchedGroups.length,
+      });
+      item.textContent = isActive
+        ? `${baseText} ${i18next.t("panel.matching.mergeActiveMarker")}`
+        : baseText;
+      this.guidedMergeChainsListEl?.appendChild(item);
+    });
+
+    this.updateMergedTrackGeoJsonDebugText();
+  }
+
+  private buildMergedTrackGeoJsonDebug():
+    | {
+        type: "FeatureCollection";
+        features: Array<{
+          type: "Feature";
+          id: string;
+          geometry: TrackChain["geometry"];
+          properties: {
+            chainIndex: number;
+            chainId: string;
+            lengthKm: number;
+          };
+        }>;
+      }
+    | null {
+    if (!this.isChainMergeModeActive()) {
+      return null;
+    }
+
+    return {
+      type: "FeatureCollection",
+      features: this.activeChains.map((chain, index) => ({
+        type: "Feature",
+        id: chain.id,
+        geometry: chain.geometry,
+        properties: {
+          chainIndex: index + 1,
+          chainId: chain.id,
+          lengthKm: chain.lengthKm,
+        },
+      })),
+    };
+  }
+
+  private updateMergedTrackGeoJsonDebugText(): void {
+    if (!this.guidedMergeGeoJsonEl) {
+      return;
+    }
+
+    const mergedGeoJson = this.buildMergedTrackGeoJsonDebug();
+    if (mergedGeoJson === null) {
+      this.guidedMergeGeoJsonEl.textContent = i18next.t("panel.matching.mergeGeoJsonInactive");
+      this.mergedGeoJsonDebugCacheKey = "";
+      this.mergedGeoJsonDebugText = "";
+      return;
+    }
+
+    if (mergedGeoJson.features.length === 0) {
+      this.guidedMergeGeoJsonEl.textContent = i18next.t("panel.matching.mergeGeoJsonEmpty");
+      this.mergedGeoJsonDebugCacheKey = "";
+      this.mergedGeoJsonDebugText = "";
+      return;
+    }
+
+    const key = mergedGeoJson.features
+      .map((feature) => `${feature.id}:${feature.geometry.coordinates[0]?.length ?? 0}`)
+      .join("|");
+
+    if (key !== this.mergedGeoJsonDebugCacheKey) {
+      this.mergedGeoJsonDebugText = JSON.stringify(mergedGeoJson, null, 2);
+      this.mergedGeoJsonDebugCacheKey = key;
+    }
+
+    this.guidedMergeGeoJsonEl.textContent = this.mergedGeoJsonDebugText;
+  }
+
+  private markActiveChainStatus(status: ChainMergeSnapshot["status"]): void {
+    if (!this.chainByChainEnabled || this.activeChainIndex === null) {
+      return;
+    }
+
+    this.chainSnapshots = this.chainSnapshots.map((snapshot, index) =>
+      index === this.activeChainIndex ? { ...snapshot, status } : snapshot,
+    );
+    this.renderMergeDebugState();
+  }
+
+  private formatMergeInactiveMessage(): string {
+    const selected = this.registry.getSelected();
+    const geometry = this.trackLayer?.getTrackGeometry();
+    const chainCount = geometry
+      ? mergeTrackChainsByEndpoints(
+          listTrackChains({ trackId: null, geometry }),
+          MatchingSubTab.SLOWUP_CHAIN_MERGE_MAX_GAP_KM,
+        ).length
+      : 0;
+    const isEligible =
+      selected !== null &&
+      selected.slowupNumber !== undefined &&
+      selected.mode === "synthetic" &&
+      chainCount > 1;
+
+    if (isEligible) {
+      return i18next.t("panel.matching.mergeEligible", { chainCount });
+    }
+
+    return i18next.t("panel.matching.mergeInactive");
   }
 
   private triggerDownload(content: string, filename: string, mimeType: string): void {
@@ -2226,6 +2906,63 @@ export class MatchingSubTab {
     while (list.firstChild) {
       list.removeChild(list.firstChild);
     }
+  }
+
+  private resetCurrentSubLines(): void {
+    this.currentSubLines = [];
+    this.renderCurrentSubLines();
+  }
+
+  private renderCurrentSubLines(): void {
+    const list = this.guidedSubLinesListEl;
+    if (!list) return;
+
+    while (list.firstChild) {
+      list.removeChild(list.firstChild);
+    }
+
+    if (this.currentSubLines.length === 0) {
+      const item = document.createElement("li");
+      item.textContent = i18next.t("panel.matching.subLinesEmpty");
+      list.appendChild(item);
+      return;
+    }
+
+    for (const subLine of this.currentSubLines) {
+      const item = document.createElement("li");
+      const statusTag =
+        subLine.status === "matched" ? "[ok]" : subLine.status === "waiting" ? "[wait]" : "[run]";
+      item.textContent = `${statusTag} ${formatSubLineLabel(subLine)}`;
+      list.appendChild(item);
+    }
+  }
+
+  private updateRowHeaderWithSubLine(subLine: SubLineState): void {
+    if (this.currentRowIndex === null || !this.guidedRowHeaderEl) return;
+
+    const rows = this.store.getState().csvRows;
+    const row = rows[this.currentRowIndex];
+    if (!row) return;
+
+    const baseHeader = i18next.t("panel.matching.rowHeaderWithSubLine", {
+      index: this.currentRowIndex + 1,
+      total: rows.length,
+      km: row.distance.toFixed(1),
+      startTime: row.startTime,
+      endTime: row.endTime,
+      subIndex: subLine.index,
+      subTotal: subLine.total,
+    });
+    this.guidedRowHeaderEl.textContent = this.appendChainSuffix(baseHeader);
+  }
+
+  private applySubLineStep(event: PipelineStepEvent): void {
+    const subLine = subLineStateFromStep(event);
+    if (!subLine) return;
+
+    this.currentSubLines = mergeSubLineState(this.currentSubLines, subLine);
+    this.renderCurrentSubLines();
+    this.updateRowHeaderWithSubLine(subLine);
   }
 
   private appendGuidedStep(message: string): void {
@@ -2652,6 +3389,22 @@ export class MatchingSubTab {
         overflow-y: auto;
         color: #475467;
         font-size: 11px;
+      }
+
+      .wmegj-guided-json {
+        margin: 0 0 10px 0;
+        padding: 8px;
+        max-height: 220px;
+        overflow: auto;
+        border: 1px solid #e4e8ee;
+        border-radius: 4px;
+        background: #f8fafc;
+        color: #334155;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+          "Courier New", monospace;
+        font-size: 11px;
+        line-height: 1.35;
+        white-space: pre;
       }
 
       .wmegj-guided-loader {
