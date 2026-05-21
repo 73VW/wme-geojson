@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildEntriesFromData } from "../lines/featureCollectionLoader";
 import { listTrackChains, mergeTrackChainsByEndpoints } from "../matching/chainTracks";
-import slowupsData from "../../slowups.json";
+import slowupsData from "./fixtures/slowups.json";
 
 const SLOWUP_MERGE_MAX_GAP_KM = 20;
 const SLOWUP_STRICT_MERGE_MAX_GAP_KM = 0.05;

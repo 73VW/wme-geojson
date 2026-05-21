@@ -148,7 +148,9 @@ export class MatchPanel {
     }
     if (!Number.isFinite(minLon)) return;
 
-    this.wmeSDK.Map.zoomToExtent({ bbox: [minLon, minLat, maxLon, maxLat] as import("geojson").BBox });
+    this.wmeSDK.Map.zoomToExtent({
+      bbox: [minLon, minLat, maxLon, maxLat] as import("geojson").BBox,
+    });
   }
 
   private injectShellStyles(container: HTMLElement): void {

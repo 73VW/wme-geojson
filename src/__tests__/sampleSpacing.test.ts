@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { effectiveSampleSpacing, effectiveSampleSpacingProjection } from "../matching/sampleSpacing";
+import {
+  effectiveSampleSpacing,
+  effectiveSampleSpacingProjection,
+} from "../matching/sampleSpacing";
 
 describe("effectiveSampleSpacing (SegmentMatcher / BUFFERED, floor 10 m)", () => {
   it("returns 10 m for very short segments (< 100 m)", () => {

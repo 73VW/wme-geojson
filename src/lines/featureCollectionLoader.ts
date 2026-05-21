@@ -114,7 +114,9 @@ function groupFeaturesIntoTracks(
  */
 export function buildEntriesFromData(raw: unknown, sourceUrl: string): LineEntry[] {
   const isFeatureCollection =
-    !!raw && typeof raw === "object" && (raw as Record<string, unknown>)["type"] === "FeatureCollection";
+    !!raw &&
+    typeof raw === "object" &&
+    (raw as Record<string, unknown>)["type"] === "FeatureCollection";
 
   if (isFeatureCollection) {
     const features = validateFeatureCollection(raw);

@@ -28,7 +28,13 @@ describe("validateFeatureCollection", () => {
   it("returns the line features and drops Point features", () => {
     const fc = {
       type: "FeatureCollection",
-      features: [lineFeature([[7, 46], [7.01, 46]]), pointFeature],
+      features: [
+        lineFeature([
+          [7, 46],
+          [7.01, 46],
+        ]),
+        pointFeature,
+      ],
     };
     const result = validateFeatureCollection(fc);
     expect(result).toHaveLength(1);
@@ -39,10 +45,21 @@ describe("validateFeatureCollection", () => {
     const fc = {
       type: "FeatureCollection",
       features: [
-        lineFeature([[7, 46], [7.01, 46]]),
+        lineFeature([
+          [7, 46],
+          [7.01, 46],
+        ]),
         {
           type: "Feature",
-          geometry: { type: "MultiLineString", coordinates: [[[7, 46], [7.02, 46]]] },
+          geometry: {
+            type: "MultiLineString",
+            coordinates: [
+              [
+                [7, 46],
+                [7.02, 46],
+              ],
+            ],
+          },
           properties: {},
         },
       ],
@@ -62,7 +79,12 @@ describe("validateFeatureCollection", () => {
   it("rejects a line feature with projected (non-WGS84) coordinates", () => {
     const fc = {
       type: "FeatureCollection",
-      features: [lineFeature([[2600000, 1200000], [2600100, 1200100]])],
+      features: [
+        lineFeature([
+          [2600000, 1200000],
+          [2600100, 1200100],
+        ]),
+      ],
     };
     expect(() => validateFeatureCollection(fc)).toThrow(TrackLoadError);
   });
@@ -75,9 +97,29 @@ describe("buildEntriesFromData", () => {
     const fc = {
       type: "FeatureCollection",
       features: [
-        { type: "Feature", geometry: { type: "LineString", coordinates: [[0, 0], [0.009, 0]] }, properties: { name: "A" } },
+        {
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: [
+              [0, 0],
+              [0.009, 0],
+            ],
+          },
+          properties: { name: "A" },
+        },
         { type: "Feature", geometry: { type: "Point", coordinates: [0, 0] }, properties: {} },
-        { type: "Feature", geometry: { type: "LineString", coordinates: [[1, 0], [1.009, 0]] }, properties: { name: "B" } },
+        {
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: [
+              [1, 0],
+              [1.009, 0],
+            ],
+          },
+          properties: { name: "B" },
+        },
       ],
     };
     const entries = buildEntriesFromData(fc, url);
@@ -88,8 +130,28 @@ describe("buildEntriesFromData", () => {
     const fc = {
       type: "FeatureCollection",
       features: [
-        { type: "Feature", geometry: { type: "LineString", coordinates: [[0, 0], [0.009, 0]] }, properties: {} },
-        { type: "Feature", geometry: { type: "LineString", coordinates: [[1, 0], [1.009, 0]] }, properties: {} },
+        {
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: [
+              [0, 0],
+              [0.009, 0],
+            ],
+          },
+          properties: {},
+        },
+        {
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: [
+              [1, 0],
+              [1.009, 0],
+            ],
+          },
+          properties: {},
+        },
       ],
     };
     const entries = buildEntriesFromData(fc, url);
@@ -99,7 +161,13 @@ describe("buildEntriesFromData", () => {
   it("still handles a lone Feature payload (one entry)", () => {
     const feature = {
       type: "Feature",
-      geometry: { type: "LineString", coordinates: [[0, 0], [0.009, 0]] },
+      geometry: {
+        type: "LineString",
+        coordinates: [
+          [0, 0],
+          [0.009, 0],
+        ],
+      },
       properties: { name: "Solo" },
     };
     const entries = buildEntriesFromData(feature, url);
@@ -111,8 +179,28 @@ describe("buildEntriesFromData", () => {
     const fc = {
       type: "FeatureCollection",
       features: [
-        { type: "Feature", geometry: { type: "LineString", coordinates: [[0, 0], [0.009, 0]] }, properties: {} },
-        { type: "Feature", geometry: { type: "LineString", coordinates: [[1, 0], [1.009, 0]] }, properties: {} },
+        {
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: [
+              [0, 0],
+              [0.009, 0],
+            ],
+          },
+          properties: {},
+        },
+        {
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: [
+              [1, 0],
+              [1.009, 0],
+            ],
+          },
+          properties: {},
+        },
       ],
     };
     const [a, b] = buildEntriesFromData(fc, url);
@@ -133,9 +221,18 @@ describe("buildEntriesFromData — slowUp grouping", () => {
     const fc = {
       type: "FeatureCollection",
       features: [
-        slowupFeature(19, [[0, 0], [0.009, 0]]),
-        slowupFeature(19, [[1, 0], [1.009, 0]]),
-        slowupFeature(7, [[2, 0], [2.009, 0]]),
+        slowupFeature(19, [
+          [0, 0],
+          [0.009, 0],
+        ]),
+        slowupFeature(19, [
+          [1, 0],
+          [1.009, 0],
+        ]),
+        slowupFeature(7, [
+          [2, 0],
+          [2.009, 0],
+        ]),
       ],
     };
     const entries = buildEntriesFromData(fc, url);
@@ -148,8 +245,14 @@ describe("buildEntriesFromData — slowUp grouping", () => {
     const fc = {
       type: "FeatureCollection",
       features: [
-        slowupFeature(19, [[0, 0], [0.009, 0]]),
-        slowupFeature(19, [[1, 0], [1.009, 0]]),
+        slowupFeature(19, [
+          [0, 0],
+          [0.009, 0],
+        ]),
+        slowupFeature(19, [
+          [1, 0],
+          [1.009, 0],
+        ]),
       ],
     };
     const [entry] = buildEntriesFromData(fc, url);
@@ -160,7 +263,12 @@ describe("buildEntriesFromData — slowUp grouping", () => {
   it("gives merged entries a stable slowup-based id", () => {
     const fc = {
       type: "FeatureCollection",
-      features: [slowupFeature(19, [[0, 0], [0.009, 0]])],
+      features: [
+        slowupFeature(19, [
+          [0, 0],
+          [0.009, 0],
+        ]),
+      ],
     };
     expect(buildEntriesFromData(fc, url)[0].id).toBe(`${url}#slowup-19`);
   });
@@ -169,8 +277,28 @@ describe("buildEntriesFromData — slowUp grouping", () => {
     const fc = {
       type: "FeatureCollection",
       features: [
-        { type: "Feature", geometry: { type: "LineString", coordinates: [[0, 0], [0.009, 0]] }, properties: {} },
-        { type: "Feature", geometry: { type: "LineString", coordinates: [[1, 0], [1.009, 0]] }, properties: {} },
+        {
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: [
+              [0, 0],
+              [0.009, 0],
+            ],
+          },
+          properties: {},
+        },
+        {
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: [
+              [1, 0],
+              [1.009, 0],
+            ],
+          },
+          properties: {},
+        },
       ],
     };
     expect(buildEntriesFromData(fc, url)).toHaveLength(2);
@@ -180,9 +308,18 @@ describe("buildEntriesFromData — slowUp grouping", () => {
     const fc = {
       type: "FeatureCollection",
       features: [
-        slowupFeature(19, [[0, 0], [0.009, 0]]),
-        slowupFeature(7, [[1, 0], [1.009, 0]]),
-        slowupFeature(19, [[2, 0], [2.009, 0]]),
+        slowupFeature(19, [
+          [0, 0],
+          [0.009, 0],
+        ]),
+        slowupFeature(7, [
+          [1, 0],
+          [1.009, 0],
+        ]),
+        slowupFeature(19, [
+          [2, 0],
+          [2.009, 0],
+        ]),
       ],
     };
     const entries = buildEntriesFromData(fc, url);

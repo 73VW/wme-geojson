@@ -17,7 +17,12 @@ const track: NormalizedTrack = {
   geometry: {
     type: "MultiLineString",
     // ~1 km along the equator
-    coordinates: [[[0, 0], [0.009, 0]]],
+    coordinates: [
+      [
+        [0, 0],
+        [0.009, 0],
+      ],
+    ],
   },
   rawProperties: { name: "Test line" },
 };

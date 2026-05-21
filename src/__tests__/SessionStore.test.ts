@@ -195,10 +195,7 @@ describe("SessionStore.setClosureWindowForRow", () => {
   it("rewrites the row's date/time and rebuilds closuresBySegment from its segments", () => {
     const store = new SessionStore();
     store.setTrack("u", 10);
-    store.setCsvRows(
-      [{ distance: 10, startTime: "", endTime: "", date: "", segments: null }],
-      "",
-    );
+    store.setCsvRows([{ distance: 10, startTime: "", endTime: "", date: "", segments: null }], "");
     // Simulate synthetic matching: segments validated with placeholder ISO.
     store.validateRow(0, [111, 222], "T", "T");
 
@@ -219,8 +216,6 @@ describe("SessionStore.setClosureWindowForRow", () => {
   it("throws on an out-of-range index", () => {
     const store = new SessionStore();
     store.setCsvRows([], "");
-    expect(() =>
-      store.setClosureWindowForRow(0, "2026-04-19T09:00", "2026-04-19T17:30"),
-    ).toThrow();
+    expect(() => store.setClosureWindowForRow(0, "2026-04-19T09:00", "2026-04-19T17:30")).toThrow();
   });
 });

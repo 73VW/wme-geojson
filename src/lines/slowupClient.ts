@@ -81,7 +81,11 @@ export function fetchSlowupDetails(refid: number, lang: string): Promise<SlowupD
         );
       },
       ontimeout() {
-        reject(new Error(`Request timed out after ${FETCH_TIMEOUT_MS / 1000}s fetching slowUp details for refid ${refid}.`));
+        reject(
+          new Error(
+            `Request timed out after ${FETCH_TIMEOUT_MS / 1000}s fetching slowUp details for refid ${refid}.`,
+          ),
+        );
       },
     });
   });
