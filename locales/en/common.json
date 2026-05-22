@@ -143,6 +143,7 @@
       "rowHeaderWithSubLineNoTime": "Line {{index}} / {{total}} — {{km}} km | sub-line {{subIndex}}/{{subTotal}}",
       "validateOrCorrect": "Validate, or correct then validate",
       "segmentsMatched": "{{count}} segment(s) matched",
+      "matchingInProgress": "Matching segments…",
       "subLinesTitle": "Current sub-lines",
       "resumeBanner": "Session resumed at line {{line}} / sub-line {{subLine}}",
       "debugTitle": "Debug — Current source",

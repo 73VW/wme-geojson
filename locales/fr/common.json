@@ -143,6 +143,7 @@
       "rowHeaderWithSubLineNoTime": "Ligne {{index}} / {{total}} — {{km}} km | sous-ligne {{subIndex}}/{{subTotal}}",
       "validateOrCorrect": "Validez ou corrigez et validez",
       "segmentsMatched": "{{count}} segment(s) trouvé(s)",
+      "matchingInProgress": "Recherche des segments…",
       "subLinesTitle": "Sous-lignes courantes",
       "resumeBanner": "Session reprise à la ligne {{line}} / sous-ligne {{subLine}}",
       "debugTitle": "Debug — Source courante",

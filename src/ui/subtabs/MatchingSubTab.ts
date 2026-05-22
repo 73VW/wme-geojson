@@ -841,7 +841,7 @@ export class MatchingSubTab {
     loaderEl.appendChild(spinnerEl);
 
     const loaderTextEl = document.createElement("span");
-    loaderTextEl.textContent = i18next.t("panel.matching.steps.unknown");
+    loaderTextEl.textContent = i18next.t("panel.matching.matchingInProgress");
     loaderEl.appendChild(loaderTextEl);
 
     matchPane.appendChild(loaderEl);
@@ -1359,7 +1359,7 @@ export class MatchingSubTab {
 
   /** Run a pipeline step, surfacing the spinner and completion state. */
   private async runStep(step: () => Promise<void>): Promise<void> {
-    this.setGuidedLoading(true, i18next.t("panel.matching.steps.unknown"));
+    this.setGuidedLoading(true, i18next.t("panel.matching.matchingInProgress"));
     try {
       await step();
     } catch (err) {
@@ -1378,6 +1378,10 @@ export class MatchingSubTab {
         );
       }
       this.trackLayer?.setHighlightedSlice(null);
+    } else {
+      // Refresh header/overlay/segment-count now that the step has set
+      // pendingMatched (the addSubLine onChange fired before the match ran).
+      this.renderSourceState();
     }
     this.updateGuidedControls();
   }
@@ -1664,10 +1668,15 @@ export class MatchingSubTab {
       this.guidedRowHeaderEl.textContent = this.formatHeader(src, cursor.lineIndex, cursor.subLineIndex);
     }
 
-    // Segment count for the current sub-line.
+    // Segment count for the current sub-line. Before validation the matched
+    // ids live on the pipeline (pendingMatched) — sub.segmentIds is only filled
+    // on validate — so prefer the pending count while the gate is open.
     if (this.guidedSegmentCountEl && sub) {
+      const count = sub.validated
+        ? sub.segmentIds.length
+        : (this.lazyPipeline?.getPendingMatched().length ?? sub.segmentIds.length);
       this.guidedSegmentCountEl.textContent = i18next.t("panel.matching.segmentsMatched", {
-        count: sub.segmentIds.length,
+        count,
       });
     }
 

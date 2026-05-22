@@ -51,6 +51,14 @@ export class LazyMatchingPipeline {
     this.pendingMatched = matched;
   }
 
+  /**
+   * Segment ids matched in the most recent step, before validation. Empty once
+   * the current sub-line has been validated (or before the first match).
+   */
+  getPendingMatched(): number[] {
+    return this.pendingMatched ?? [];
+  }
+
   validate(segmentIdsOverride?: number[]): void {
     const src = this.opts.store.getSource();
     if (!src || !src.cursor) throw new Error("LazyMatchingPipeline.validate: no cursor");
