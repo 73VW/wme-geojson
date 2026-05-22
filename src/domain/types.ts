@@ -1,6 +1,12 @@
 // src/domain/types.ts
-export interface Bbox4 { readonly bbox: [number, number, number, number]; }
-export interface MapAnchor { lon: number; lat: number; zoom: number; }
+export interface Bbox4 {
+  readonly bbox: [number, number, number, number];
+}
+export interface MapAnchor {
+  lon: number;
+  lat: number;
+  zoom: number;
+}
 
 export interface MatchedSegment {
   segmentId: number;

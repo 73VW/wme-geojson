@@ -19,7 +19,15 @@ describe("domain types", () => {
     const line: Line = {
       index: 0,
       bbox: [0, 0, 1, 1],
-      geometry: { type: "MultiLineString", coordinates: [[[0, 0], [1, 1]]] },
+      geometry: {
+        type: "MultiLineString",
+        coordinates: [
+          [
+            [0, 0],
+            [1, 1],
+          ],
+        ],
+      },
       lengthKm: 1.4,
       subLines: [],
       pendingTail: [{ kmA: 0, kmB: 1.4 }],
