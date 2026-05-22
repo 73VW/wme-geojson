@@ -1,4 +1,6 @@
 import type { WmeSDK, ZoomLevel } from "wme-sdk-typings";
+import type { MultiLineString } from "geojson";
+import type { NormalizedTrack } from "../../geojson/types";
 import { i18next } from "../../../locales/i18n";
 import { logger } from "../../utils/logger";
 import { TrackLayer } from "../../layers/TrackLayer";
@@ -253,23 +255,34 @@ export class MatchingSubTab {
       // No previous layer is the common case.
     }
 
-    const selectedTrack = entry.track;
+    // Build (or resume) the Source first so the preview and matcher use the
+    // per-line geometry (slowup endpoint-merged chains / CSV slices) rather
+    // than the raw, un-merged track.
+    const existing = this.persistence.load(entry.id);
+    const source = existing ?? this.buildSourceForEntry(entry);
+
+    // Display geometry = the union of the source's line geometries. For a
+    // slowup this collapses the ~10 raw fragments into the ~2 endpoint-merged
+    // chains; for CSV it is the per-row slices; for a plain geojson line it is
+    // the whole track.
+    const displayGeometry: MultiLineString = {
+      type: "MultiLineString",
+      coordinates: source.lines.flatMap((line) => line.geometry.coordinates),
+    };
+    const displayTrack: NormalizedTrack = { ...entry.track, geometry: displayGeometry };
 
     const layer = new TrackLayer(this.wmeSDK);
-    layer.draw(selectedTrack, {
+    layer.draw(displayTrack, {
       colorMode:
-        entry.slowupNumber !== undefined && selectedTrack.geometry.coordinates.length > 1
+        entry.slowupNumber !== undefined && displayGeometry.coordinates.length > 1
           ? "per-subline"
           : "single",
     });
 
-    const controller = new WalkController(this.wmeSDK, selectedTrack.geometry);
+    const controller = new WalkController(this.wmeSDK, displayGeometry);
     this.setController(controller);
     this.setTrackLayer(layer);
 
-    // Build (or resume) the Source for this entry and hydrate the store.
-    const existing = this.persistence.load(entry.id);
-    const source = existing ?? this.buildSourceForEntry(entry);
     this.lazyPipeline = null;
     this.matchingMode = "interactive";
     this.burstRunning = false;
@@ -279,7 +292,7 @@ export class MatchingSubTab {
     this.detachPersistence = attachPersistence(this.sourceStore, this.persistence);
 
     // Drive simple phase/length display off the legacy session store.
-    this.store.setTrack(entry.id, multiLineLengthKm(selectedTrack.geometry));
+    this.store.setTrack(entry.id, multiLineLengthKm(entry.track.geometry));
     this.store.setPhase("csv-loaded");
 
     // CSV upload + Remove-CSV only for non-slowup geojson lines.
@@ -1210,8 +1223,14 @@ export class MatchingSubTab {
         const src = this.sourceStore.getSource();
         if (!controller || !src || !src.cursor) return [];
         const { lineIndex, subLineIndex } = src.cursor;
-        const sub = src.lines[lineIndex]?.subLines[subLineIndex];
-        if (!sub) return [];
+        const line = src.lines[lineIndex];
+        const sub = line?.subLines[subLineIndex];
+        if (!line || !sub) return [];
+
+        // sub.kmA/kmB are relative to THIS line's (merged) geometry, so rescope
+        // the controller to it before matching — otherwise the km-range would
+        // be applied to the whole raw track and slice the wrong portion.
+        controller.setTrack(line.geometry);
 
         const set = new Set<number>();
         const unsubscribe = controller.onMatchFound((id) => set.add(id));
