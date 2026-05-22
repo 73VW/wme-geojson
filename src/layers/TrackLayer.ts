@@ -137,7 +137,7 @@ export class TrackLayer {
 
   /**
    * Return the MultiLineString geometry of the currently-drawn track, or null
-   * if no track has been drawn yet. Used by MatchingPipeline to build the
+   * if no track has been drawn yet. Used by LazyMatchingPipeline to build the
    * NormalizedTrack it needs for bbox bisection without re-reading from disk.
    */
   getTrackGeometry(): NormalizedTrack["geometry"] | null {
