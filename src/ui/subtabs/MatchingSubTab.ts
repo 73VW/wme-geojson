@@ -2788,21 +2788,19 @@ export class MatchingSubTab {
     this.updateMergedTrackGeoJsonDebugText();
   }
 
-  private buildMergedTrackGeoJsonDebug():
-    | {
-        type: "FeatureCollection";
-        features: Array<{
-          type: "Feature";
-          id: string;
-          geometry: TrackChain["geometry"];
-          properties: {
-            chainIndex: number;
-            chainId: string;
-            lengthKm: number;
-          };
-        }>;
-      }
-    | null {
+  private buildMergedTrackGeoJsonDebug(): {
+    type: "FeatureCollection";
+    features: Array<{
+      type: "Feature";
+      id: string;
+      geometry: TrackChain["geometry"];
+      properties: {
+        chainIndex: number;
+        chainId: string;
+        lengthKm: number;
+      };
+    }>;
+  } | null {
     if (!this.isChainMergeModeActive()) {
       return null;
     }
