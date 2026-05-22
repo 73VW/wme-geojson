@@ -403,6 +403,15 @@ export class MatchingSubTab {
     this.guidedRerunBtn = null;
     this.guidedDoneCloseBtn = null;
     this.guidedRestartBtn = null;
+    this.guidedStartBurstBtn = null;
+    this.guidedPauseBtn = null;
+    this.guidedResumeBtn = null;
+    this.guidedTabMatchEl = null;
+    this.guidedTabDebugEl = null;
+    this.guidedMatchPaneEl = null;
+    this.guidedDebugPaneEl = null;
+    this.guidedDebugBodyEl = null;
+    this.guidedDebugFeedbackEl = null;
     this.guidedMatchingRow = null;
 
     logger.info("MatchPanel unmounted");
@@ -777,9 +786,18 @@ export class MatchingSubTab {
     section.appendChild(bodyEl);
     this.guidedBodyEl = bodyEl;
 
+    const tabRow = document.createElement("div");
+    tabRow.className = "wmegj-guided-tabs";
+    bodyEl.appendChild(tabRow);
+    this.guidedTabMatchEl = this.buildGuidedTab("match", i18next.t("panel.matching.tabs.match"));
+    this.guidedTabDebugEl = this.buildGuidedTab("debug", i18next.t("panel.matching.tabs.debug"));
+    tabRow.appendChild(this.guidedTabMatchEl);
+    tabRow.appendChild(this.guidedTabDebugEl);
+
     const matchPane = document.createElement("div");
     matchPane.className = "wmegj-guided-tabpane";
     bodyEl.appendChild(matchPane);
+    this.guidedMatchPaneEl = matchPane;
 
     const headerEl = document.createElement("p");
     headerEl.className = "wmegj-guided-row";
@@ -830,6 +848,14 @@ export class MatchingSubTab {
       },
     });
     this.guidedStartBtn.classList.add("wmegj-guided-button--start");
+    this.guidedStartBurstBtn = this.appendGuidedButton(matchActions, {
+      text: i18next.t("panel.matching.startAutomatic"),
+      variant: "primary",
+      onClick: () => {
+        void this.onStartBurstClick();
+      },
+    });
+    this.guidedStartBurstBtn.classList.add("wmegj-guided-button--start");
     this.guidedValidateBtn = this.appendGuidedButton(matchActions, {
       text: i18next.t("panel.matching.validate"),
       variant: "primary",
@@ -854,6 +880,23 @@ export class MatchingSubTab {
       },
     });
     this.guidedBackBtn.classList.add("wmegj-guided-button--back");
+    this.guidedPauseBtn = this.appendGuidedButton(matchActions, {
+      text: i18next.t("panel.matching.pause"),
+      variant: "secondary",
+      onClick: () => {
+        this.burstPaused = true;
+        this.updateGuidedControls();
+      },
+    });
+    this.guidedPauseBtn.classList.add("wmegj-guided-button--pause");
+    this.guidedResumeBtn = this.appendGuidedButton(matchActions, {
+      text: i18next.t("panel.matching.resume"),
+      variant: "secondary",
+      onClick: () => {
+        void this.onResumeBurstClick();
+      },
+    });
+    this.guidedResumeBtn.classList.add("wmegj-guided-button--resume");
     this.guidedDoneCloseBtn = this.appendGuidedButton(matchActions, {
       text: i18next.t("panel.matching.closePanel"),
       variant: "primary",
@@ -899,10 +942,69 @@ export class MatchingSubTab {
     });
     this.guidedRestartBtn.classList.add("wmegj-guided-button--restart");
 
+    // ── Debug pane ─────────────────────────────────────────────────────────
+    const debugPane = document.createElement("div");
+    debugPane.className = "wmegj-guided-tabpane";
+    debugPane.style.display = "none";
+    bodyEl.appendChild(debugPane);
+    this.guidedDebugPaneEl = debugPane;
+
+    const debugTitle = document.createElement("p");
+    debugTitle.className = "wmegj-guided-debug-title";
+    debugTitle.textContent = i18next.t("panel.matching.debugTitle");
+    debugPane.appendChild(debugTitle);
+
+    const debugBody = document.createElement("div");
+    debugBody.className = "wmegj-guided-debug-body";
+    debugPane.appendChild(debugBody);
+    this.guidedDebugBodyEl = debugBody;
+
+    const debugActions = document.createElement("div");
+    debugActions.className = "wmegj-guided-actions";
+    debugPane.appendChild(debugActions);
+    this.appendGuidedButton(debugActions, {
+      text: i18next.t("panel.matching.copyDebugJson"),
+      variant: "secondary",
+      onClick: () => {
+        void this.onCopyDebugJsonClick();
+      },
+    });
+
+    const debugFeedback = document.createElement("p");
+    debugFeedback.className = "wmegj-guided-feedback";
+    debugPane.appendChild(debugFeedback);
+    this.guidedDebugFeedbackEl = debugFeedback;
+
     this.setGuidedCollapsed(this.guidedCollapsed);
+    this.setGuidedActiveTab(this.guidedActiveTab);
+    this.renderDebugPane();
     this.updateGuidedControls();
 
     return section;
+  }
+
+  private buildGuidedTab(tab: "match" | "debug", label: string): HTMLElement {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "wmegj-guided-tab";
+    button.textContent = label;
+    button.addEventListener("click", () => {
+      this.setGuidedActiveTab(tab);
+    });
+    return button;
+  }
+
+  private setGuidedActiveTab(tab: "match" | "debug"): void {
+    this.guidedActiveTab = tab;
+    this.guidedTabMatchEl?.classList.toggle("is-active", tab === "match");
+    this.guidedTabDebugEl?.classList.toggle("is-active", tab === "debug");
+    if (this.guidedMatchPaneEl) {
+      this.guidedMatchPaneEl.style.display = tab === "match" ? "" : "none";
+    }
+    if (this.guidedDebugPaneEl) {
+      this.guidedDebugPaneEl.style.display = tab === "debug" ? "" : "none";
+    }
+    if (tab === "debug") this.renderDebugPane();
   }
 
   private appendGuidedButton(container: HTMLElement, props: WzButtonProps): HTMLElement {
@@ -947,6 +1049,7 @@ export class MatchingSubTab {
   private openMatchingPanel(): void {
     this.matchingPanelOpen = true;
     this.setGuidedCollapsed(false);
+    this.setGuidedActiveTab("match");
     this.renderPhase(this.store.getState().phase);
   }
 
@@ -1051,6 +1154,9 @@ export class MatchingSubTab {
       this.matchingPanelOpen = false;
     }
     this.guidedBusy = false;
+    this.burstRunning = false;
+    this.burstPaused = false;
+    this.matchingMode = "interactive";
     this.trackLayer?.setHighlightedSlice(null);
     this.setGuidedLoading(false);
 
@@ -1134,6 +1240,7 @@ export class MatchingSubTab {
     if (this.guidedBusy) return;
     const pipeline = this.ensurePipeline();
     if (!pipeline) return;
+    this.matchingMode = "interactive";
     this.matchingActive = true;
     this.matchingPanelOpen = true;
     this.store.setPhase("matching");
@@ -1141,6 +1248,61 @@ export class MatchingSubTab {
       this.guidedInstructionEl.textContent = i18next.t("panel.matching.validateOrCorrect");
     }
     await this.runStep(() => pipeline.stepUntilValidation());
+  }
+
+  /** Burst: auto-step + auto-validate until complete or paused. */
+  private async onStartBurstClick(): Promise<void> {
+    if (this.guidedBusy || this.burstRunning) return;
+    const pipeline = this.ensurePipeline();
+    if (!pipeline) return;
+    this.matchingMode = "burst";
+    this.matchingActive = true;
+    this.matchingPanelOpen = true;
+    this.burstPaused = false;
+    this.store.setPhase("matching");
+    if (this.guidedInstructionEl) {
+      this.guidedInstructionEl.textContent = i18next.t("panel.matching.burstRunning");
+    }
+    await this.runBurstLoop(pipeline);
+  }
+
+  /** Resume a paused burst run from the current cursor. */
+  private async onResumeBurstClick(): Promise<void> {
+    if (this.guidedBusy || this.burstRunning) return;
+    const pipeline = this.lazyPipeline;
+    if (!pipeline) return;
+    this.matchingMode = "burst";
+    this.matchingActive = true;
+    this.burstPaused = false;
+    this.store.setPhase("matching");
+    await this.runBurstLoop(pipeline);
+  }
+
+  /**
+   * Repeatedly step to the next unvalidated sub-line and auto-validate it
+   * (no override → pipeline uses its pendingMatched) until the source is
+   * complete or the operator pauses.
+   */
+  private async runBurstLoop(pipeline: LazyMatchingPipeline): Promise<void> {
+    this.burstRunning = true;
+    this.updateGuidedControls();
+    try {
+      while (!this.burstPaused && !this.isSourceComplete()) {
+        await this.runStep(() => pipeline.stepUntilValidation());
+        if (this.burstPaused || this.isSourceComplete()) break;
+        // Validate the current sub-line only if it is awaiting validation;
+        // otherwise the step produced nothing — avoid an infinite loop.
+        const src = this.sourceStore.getSource();
+        const cursor = src?.cursor;
+        const sub =
+          cursor && src ? src.lines[cursor.lineIndex]?.subLines[cursor.subLineIndex] : undefined;
+        if (!sub || sub.validated) break;
+        pipeline.validate();
+      }
+    } finally {
+      this.burstRunning = false;
+      this.updateGuidedControls();
+    }
   }
 
   private async onValidateClick(): Promise<void> {
@@ -1284,6 +1446,9 @@ export class MatchingSubTab {
         this.persistence.clear(entry.id);
         this.lazyPipeline = null;
         this.matchingActive = false;
+        this.matchingMode = "interactive";
+        this.burstRunning = false;
+        this.burstPaused = false;
         const fresh = this.buildSourceForEntry(entry);
         this.sourceStore.hydrate(fresh);
         this.store.setPhase("csv-loaded");
@@ -1300,23 +1465,37 @@ export class MatchingSubTab {
     const hasSource = this.sourceStore.getSource() !== null;
     const isDone = phase === "done";
     const isMatching = this.matchingActive && !isDone;
-    const isWaiting = isMatching && !this.guidedBusy;
+    const isBurst = this.matchingMode === "burst";
+    const isInteractive = !isBurst;
+    // Interactive per-sub-line controls are only live while waiting (not busy).
+    const isWaiting = isMatching && isInteractive && !this.guidedBusy;
     const canStart = hasSource && !this.matchingActive && !isDone && !this.guidedBusy;
 
+    // Burst sub-states.
+    const burstActive = isMatching && isBurst;
+    const showPause = burstActive && this.burstRunning && !this.burstPaused;
+    const showResume = burstActive && !this.burstRunning && this.burstPaused;
+
     this.setButtonDisabled(this.guidedStartBtn, !canStart);
+    this.setButtonDisabled(this.guidedStartBurstBtn, !canStart);
     this.setButtonDisabled(this.guidedValidateBtn, !isWaiting);
     this.setButtonDisabled(this.guidedSkipBtn, !isWaiting);
     this.setButtonDisabled(this.guidedBackBtn, !isWaiting);
     this.setButtonDisabled(this.guidedReselectBtn, !isWaiting);
     this.setButtonDisabled(this.guidedRerunBtn, !isWaiting);
+    this.setButtonDisabled(this.guidedPauseBtn, !showPause);
+    this.setButtonDisabled(this.guidedResumeBtn, !showResume);
     this.setButtonDisabled(this.guidedRestartBtn, !hasSource);
 
     this.setButtonVisible(this.guidedStartBtn, canStart);
-    this.setButtonVisible(this.guidedValidateBtn, isMatching);
-    this.setButtonVisible(this.guidedSkipBtn, isMatching);
-    this.setButtonVisible(this.guidedBackBtn, isMatching);
-    this.setButtonVisible(this.guidedReselectBtn, isMatching);
-    this.setButtonVisible(this.guidedRerunBtn, isMatching);
+    this.setButtonVisible(this.guidedStartBurstBtn, canStart);
+    this.setButtonVisible(this.guidedValidateBtn, isMatching && isInteractive);
+    this.setButtonVisible(this.guidedSkipBtn, isMatching && isInteractive);
+    this.setButtonVisible(this.guidedBackBtn, isMatching && isInteractive);
+    this.setButtonVisible(this.guidedReselectBtn, isMatching && isInteractive);
+    this.setButtonVisible(this.guidedRerunBtn, isMatching && isInteractive);
+    this.setButtonVisible(this.guidedPauseBtn, showPause);
+    this.setButtonVisible(this.guidedResumeBtn, showResume);
     this.setButtonVisible(this.guidedDoneCloseBtn, isDone);
     this.setButtonVisible(this.guidedRestartBtn, hasSource && !isDone);
 
@@ -1351,7 +1530,100 @@ export class MatchingSubTab {
   // Private — SourceStore-driven view updates (header / overlay / counts)
   // ---------------------------------------------------------------------------
 
+  // ---------------------------------------------------------------------------
+  // Private — debug tab
+  // ---------------------------------------------------------------------------
+
+  /** Render the current Source into the debug pane as plain text. */
+  private renderDebugPane(): void {
+    const body = this.guidedDebugBodyEl;
+    if (!body) return;
+    body.replaceChildren();
+
+    const src = this.sourceStore.getSource();
+    if (!src) {
+      const p = document.createElement("p");
+      p.className = "wmegj-guided-meta";
+      p.textContent = "—";
+      body.appendChild(p);
+      return;
+    }
+
+    const cursorEl = document.createElement("p");
+    cursorEl.className = "wmegj-guided-meta";
+    cursorEl.textContent = src.cursor
+      ? i18next.t("panel.matching.debugCursor", {
+          line: src.cursor.lineIndex + 1,
+          subLine: src.cursor.subLineIndex + 1,
+        })
+      : i18next.t("panel.matching.debugCursorNone");
+    body.appendChild(cursorEl);
+
+    src.lines.forEach((line, li) => {
+      const lineEl = document.createElement("p");
+      lineEl.className = "wmegj-guided-row";
+      let lineText = i18next.t("panel.matching.debugLineItem", {
+        index: li + 1,
+        total: src.lines.length,
+        kmA: "0.0",
+        kmB: line.lengthKm.toFixed(1),
+      });
+      if (line.startISO && line.endISO) {
+        lineText +=
+          " — " +
+          i18next.t("panel.matching.debugLineWindow", {
+            startTime: line.startISO.slice(11, 16),
+            endTime: line.endISO.slice(11, 16),
+          });
+      }
+      lineEl.textContent = lineText;
+      body.appendChild(lineEl);
+
+      const list = document.createElement("ul");
+      list.className = "wmegj-guided-steps";
+      line.subLines.forEach((sub) => {
+        const item = document.createElement("li");
+        item.textContent = i18next.t("panel.matching.debugSubLineItem", {
+          index: sub.index,
+          kmA: sub.kmA.toFixed(2),
+          kmB: sub.kmB.toFixed(2),
+          zoom: sub.view.zoom,
+          validated: i18next.t(
+            sub.validated ? "panel.matching.debugValidated" : "panel.matching.debugUnvalidated",
+          ),
+          count: sub.segmentIds.length,
+        });
+        list.appendChild(item);
+      });
+      body.appendChild(list);
+    });
+  }
+
+  /** Copy the current Source JSON to the clipboard. */
+  private async onCopyDebugJsonClick(): Promise<void> {
+    const src = this.sourceStore.getSource();
+    if (!src) {
+      this.setDebugFeedback(i18next.t("panel.matching.copyDebugJsonUnavailable"));
+      return;
+    }
+    const json = JSON.stringify(src, null, 2);
+    try {
+      await navigator.clipboard.writeText(json);
+      this.setDebugFeedback(i18next.t("panel.matching.copyDebugJsonSourceOk"));
+    } catch (err) {
+      logger.error("MatchingSubTab.onCopyDebugJsonClick: clipboard write failed", err);
+      this.setDebugFeedback(i18next.t("panel.matching.copyDebugJsonError"));
+    }
+  }
+
+  private setDebugFeedback(message: string): void {
+    if (this.guidedDebugFeedbackEl) {
+      this.guidedDebugFeedbackEl.textContent = message;
+    }
+  }
+
   private renderSourceState(): void {
+    if (this.guidedActiveTab === "debug") this.renderDebugPane();
     const src = this.sourceStore.getSource();
     if (!src) {
       this.trackLayer?.setHighlightedSlice(null);
@@ -2069,6 +2341,61 @@ export class MatchingSubTab {
         background: #ffffff;
         border-color: #c7d0d9;
         color: #344054;
+      }
+
+      .wmegj-guided-button--pause,
+      .wmegj-guided-button--resume {
+        background: #edf2fb;
+        border-color: transparent;
+        color: #3478f6;
+      }
+
+      .wmegj-guided-tabs {
+        display: flex;
+        gap: 4px;
+        margin-bottom: 10px;
+        border-bottom: 1px solid #e4e8ee;
+      }
+
+      .wmegj-guided-tab {
+        appearance: none;
+        border: 0;
+        background: transparent;
+        padding: 6px 10px;
+        font-size: 12px;
+        font-weight: 600;
+        color: #667085;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+      }
+
+      .wmegj-guided-tab.is-active {
+        color: #1f2937;
+        border-bottom-color: #3478f6;
+      }
+
+      .wmegj-guided-debug-title {
+        margin: 0 0 6px 0;
+        font-size: 12px;
+        font-weight: 700;
+        color: #1f2937;
+      }
+
+      .wmegj-guided-debug-body {
+        margin-bottom: 8px;
+      }
+
+      .wmegj-guided-steps {
+        margin: 0 0 8px 0;
+        padding-left: 18px;
+        font-size: 11px;
+        color: #475467;
+      }
+
+      .wmegj-guided-feedback {
+        margin: 6px 0 0 0;
+        font-size: 11px;
+        color: #475467;
       }
 
       .wmegj-guided-button--restart {
