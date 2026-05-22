@@ -40,6 +40,7 @@ export class LazyMatchingPipeline {
 
     const cursor = this.findOrCreateNextSubLineCursor();
     if (cursor === null) return;
+    this.opts.store.rewindCursor(cursor.lineIndex, cursor.subLineIndex);
     const { lineIndex, subLineIndex } = cursor;
     const sub = this.opts.store.getSource()!.lines[lineIndex].subLines[subLineIndex];
 
