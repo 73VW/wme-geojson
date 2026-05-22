@@ -1,4 +1,5 @@
 import type { Source, SubLine } from "../domain/types";
+import type { SourcePersistence } from "../domain/SourcePersistence";
 
 type Listener = () => void;
 
@@ -91,4 +92,11 @@ export class SourceStore {
     this.source = next;
     this.emit();
   }
+}
+
+export function attachPersistence(store: SourceStore, persistence: SourcePersistence): () => void {
+  return store.onChange(() => {
+    const src = store.getSource();
+    if (src) persistence.save(src);
+  });
 }

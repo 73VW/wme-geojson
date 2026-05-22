@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SourceStore } from "../state/SourceStore";
+import { attachPersistence } from "../state/SourceStore";
+import { SourcePersistence } from "../domain/SourcePersistence";
 import type { Source, SubLine } from "../domain/types";
 
 function srcWithOneLine(): Source {
@@ -90,5 +92,18 @@ describe("SourceStore", () => {
     store.addSubLine(0, makeSub(0, 0, 1), null);
     store.validateSubLine(0, 0, [1]);
     expect(seen.length).toBe(3);
+  });
+});
+
+describe("attachPersistence", () => {
+  it("saves to persistence after each mutation", () => {
+    localStorage.clear();
+    const persistence = new SourcePersistence({ debounceMs: 0 });
+    const store = new SourceStore();
+    const unsub = attachPersistence(store, persistence);
+    store.hydrate(srcWithOneLine());
+    persistence.flush();
+    expect(persistence.load("s1")?.sourceId).toBe("s1");
+    unsub();
   });
 });
