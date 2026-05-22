@@ -11,7 +11,8 @@ import type { CsvRow } from "../../csv/types";
 import { buildClosuresCsv } from "../../csv/buildClosuresCsv";
 import type { ClosureRowGroup, FinalFields, RowGeo } from "../../csv/buildClosuresCsv";
 import type { ClosureRange } from "../../csv/types";
-import { wzButton, wzTextInput, type WzButtonProps } from "../components/wz";
+import { wzButton, wzTextInput, fileInput, type WzButtonProps } from "../components/wz";
+import { parseSchedule } from "../../csv/parseSchedule";
 import { promptFinalFields } from "../promptFinalFields";
 import { confirmModal } from "../modal";
 import { MatchingHeaderView } from "../views/MatchingHeaderView";
@@ -76,6 +77,9 @@ export class MatchingSubTab {
   private startMatchingRow: HTMLElement | null = null;
   private guidedMatchingRow: HTMLElement | null = null;
   private downloadRow: HTMLElement | null = null;
+  private csvUploadRow: HTMLElement | null = null;
+  private csvRemoveBtn: HTMLElement | null = null;
+  private resumeBannerRow: HTMLElement | null = null;
 
   private urlInputEl: HTMLElement | null = null;
   private urlErrorEl: HTMLElement | null = null;
@@ -118,6 +122,24 @@ export class MatchingSubTab {
   private guidedRestartBtn: HTMLElement | null = null;
   private matchingPanelOpen = false;
   private guidedCollapsed = false;
+
+  // Burst mode: when running, sub-lines are auto-validated in a loop until the
+  // source is complete or the operator pauses.
+  private matchingMode: "interactive" | "burst" = "interactive";
+  private burstPaused = false;
+  private burstRunning = false;
+  private guidedStartBurstBtn: HTMLElement | null = null;
+  private guidedPauseBtn: HTMLElement | null = null;
+  private guidedResumeBtn: HTMLElement | null = null;
+
+  // Debug tab elements.
+  private guidedTabMatchEl: HTMLElement | null = null;
+  private guidedTabDebugEl: HTMLElement | null = null;
+  private guidedMatchPaneEl: HTMLElement | null = null;
+  private guidedDebugPaneEl: HTMLElement | null = null;
+  private guidedDebugBodyEl: HTMLElement | null = null;
+  private guidedDebugFeedbackEl: HTMLElement | null = null;
+  private guidedActiveTab: "match" | "debug" = "match";
 
   constructor(
     private readonly wmeSDK: WmeSDK,
@@ -249,6 +271,9 @@ export class MatchingSubTab {
     const existing = this.persistence.load(entry.id);
     const source = existing ?? this.buildSourceForEntry(entry);
     this.lazyPipeline = null;
+    this.matchingMode = "interactive";
+    this.burstRunning = false;
+    this.burstPaused = false;
     this.sourceStore.hydrate(source);
     this.detachPersistence?.();
     this.detachPersistence = attachPersistence(this.sourceStore, this.persistence);
@@ -256,6 +281,19 @@ export class MatchingSubTab {
     // Drive simple phase/length display off the legacy session store.
     this.store.setTrack(entry.id, multiLineLengthKm(selectedTrack.geometry));
     this.store.setPhase("csv-loaded");
+
+    // CSV upload + Remove-CSV only for non-slowup geojson lines.
+    const isGeojson = entry.slowupNumber === undefined;
+    this.setRowVisible(this.csvUploadRow, isGeojson);
+    this.setRemoveCsvVisible(isGeojson && (entry.csvRows?.length ?? 0) > 0);
+    this.clearCsvError();
+
+    // Resume banner only when a persisted Source with progress was loaded.
+    if (existing && existing.cursor !== null) {
+      this.renderResumeBanner(existing);
+    } else {
+      this.hideResumeBanner();
+    }
 
     this.resetGuidedSessionState({ closePanel: true });
     this.renderSourceState();
@@ -337,6 +375,9 @@ export class MatchingSubTab {
     this.startMatchingRow = null;
     this.attachedLineId = null;
     this.downloadRow = null;
+    this.csvUploadRow = null;
+    this.csvRemoveBtn = null;
+    this.resumeBannerRow = null;
     this.urlInputEl = null;
     this.urlErrorEl = null;
     this.headerView = null;
@@ -384,6 +425,12 @@ export class MatchingSubTab {
 
     this.trackLengthRow = this.buildTrackLengthRow();
     container.appendChild(this.trackLengthRow);
+
+    this.csvUploadRow = this.buildCsvUploadRow();
+    container.appendChild(this.csvUploadRow);
+
+    this.resumeBannerRow = this.buildResumeBannerRow();
+    container.appendChild(this.resumeBannerRow);
 
     this.rangeSliderRow = document.createElement("section");
     this.rangeSliderRow.appendChild(this.buildRangeSlider());
@@ -459,6 +506,193 @@ export class MatchingSubTab {
     section.appendChild(p);
     this.trackLengthValueEl = p;
     return section;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private — CSV upload (geojson lines only; never for slowups)
+  // ---------------------------------------------------------------------------
+
+  private buildCsvUploadRow(): HTMLElement {
+    const section = document.createElement("section");
+    section.className = "wmegj-section";
+    section.style.marginTop = "8px";
+
+    const label = document.createElement("p");
+    label.style.margin = "0 0 4px 0";
+    label.style.fontSize = "12px";
+    label.style.fontWeight = "600";
+    label.textContent = i18next.t("panel.csvInput.label");
+    section.appendChild(label);
+
+    const input = fileInput({
+      accept: ".csv",
+      buttonLabel: i18next.t("panel.csvInput.label"),
+      onFile: (file) => {
+        this.onCsvFileSelected(file);
+      },
+    });
+    section.appendChild(input);
+
+    const errorEl = document.createElement("p");
+    errorEl.className = "wmegj-csv-error";
+    errorEl.style.color = "#c0392b";
+    errorEl.style.fontSize = "11px";
+    errorEl.style.margin = "2px 0 0 0";
+    errorEl.style.display = "none";
+    section.appendChild(errorEl);
+
+    const removeBtn = wzButton({
+      text: i18next.t("panel.csvInput.remove"),
+      variant: "danger",
+      onClick: () => {
+        this.removeCsv();
+      },
+    });
+    removeBtn.style.display = "none";
+    removeBtn.style.marginTop = "4px";
+    section.appendChild(removeBtn);
+    this.csvRemoveBtn = removeBtn;
+
+    return section;
+  }
+
+  private setRemoveCsvVisible(visible: boolean): void {
+    if (this.csvRemoveBtn) {
+      this.csvRemoveBtn.style.display = visible ? "" : "none";
+    }
+  }
+
+  private showCsvError(message: string): void {
+    const errEl = this.csvUploadRow?.querySelector<HTMLElement>(".wmegj-csv-error");
+    if (!errEl) return;
+    errEl.textContent = message;
+    errEl.style.display = "";
+  }
+
+  private clearCsvError(): void {
+    const errEl = this.csvUploadRow?.querySelector<HTMLElement>(".wmegj-csv-error");
+    if (!errEl) return;
+    errEl.textContent = "";
+    errEl.style.display = "none";
+  }
+
+  private onCsvFileSelected(file: File): void {
+    this.clearCsvError();
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = reader.result;
+      if (typeof text !== "string") return;
+      this.processCsvText(text);
+    };
+    reader.onerror = () => {
+      const message =
+        reader.error instanceof DOMException
+          ? reader.error.message
+          : i18next.t("panel.csvInput.error");
+      this.showCsvError(message);
+    };
+    reader.readAsText(file);
+  }
+
+  /**
+   * Parse the uploaded CSV and rebuild the Source with the CSV-derived
+   * time windows. Slowup lines are excluded at the call site (the row is
+   * hidden for them), so this always rebuilds via buildGeojsonSource.
+   */
+  private processCsvText(text: string): void {
+    const entry = this.registry.getSelected();
+    if (!entry || entry.slowupNumber !== undefined) return;
+    let rows: CsvRow[];
+    try {
+      rows = parseSchedule(text);
+    } catch (err) {
+      logger.error("MatchingSubTab.processCsvText: parseSchedule failed", err);
+      this.showCsvError(i18next.t("panel.csvInput.error"));
+      return;
+    }
+
+    this.registry.updateEntry(entry.id, {
+      mode: "csv",
+      csvRows: rows,
+      csvText: text,
+    });
+
+    this.rebuildSourceWithCsv(entry.id, entry.track, rows);
+    this.setRemoveCsvVisible(true);
+  }
+
+  /** Drop the imported CSV and rebuild the Source without time windows. */
+  private removeCsv(): void {
+    const entry = this.registry.getSelected();
+    if (!entry || entry.slowupNumber !== undefined) return;
+    this.clearCsvError();
+    this.registry.updateEntry(entry.id, {
+      mode: "synthetic",
+      csvRows: undefined,
+      csvText: undefined,
+    });
+    this.rebuildSourceWithCsv(entry.id, entry.track, undefined);
+    this.setRemoveCsvVisible(false);
+  }
+
+  /** Rebuild + hydrate + persist a geojson Source, resetting matching state. */
+  private rebuildSourceWithCsv(
+    sourceId: string,
+    track: LineEntry["track"],
+    csvRows: CsvRow[] | undefined,
+  ): void {
+    this.persistence.clear(sourceId);
+    this.lazyPipeline = null;
+    this.matchingActive = false;
+    this.burstRunning = false;
+    this.burstPaused = false;
+    const source = buildGeojsonSource({ sourceId, track, csvRows });
+    this.sourceStore.hydrate(source);
+    this.store.setPhase("csv-loaded");
+    this.hideResumeBanner();
+    this.resetGuidedSessionState({ closePanel: true });
+    this.renderSourceState();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private — resume banner
+  // ---------------------------------------------------------------------------
+
+  private buildResumeBannerRow(): HTMLElement {
+    const section = document.createElement("section");
+    section.className = "wmegj-section wmegj-resume-panel";
+    section.style.marginTop = "8px";
+    section.style.display = "none";
+    section.style.padding = "8px";
+    section.style.border = "1px solid #f0c040";
+    section.style.background = "#fff8e1";
+    section.style.borderRadius = "4px";
+    return section;
+  }
+
+  /** Show the resume banner for a loaded Source whose cursor is non-null. */
+  private renderResumeBanner(source: Source): void {
+    const banner = this.resumeBannerRow;
+    if (!banner || !source.cursor) return;
+    while (banner.firstChild) banner.removeChild(banner.firstChild);
+
+    const p = document.createElement("p");
+    p.style.margin = "0";
+    p.style.fontWeight = "600";
+    p.textContent = i18next.t("panel.matching.resumeBanner", {
+      line: source.cursor.lineIndex + 1,
+      subLine: source.cursor.subLineIndex + 1,
+    });
+    banner.appendChild(p);
+    banner.style.display = "block";
+  }
+
+  private hideResumeBanner(): void {
+    if (!this.resumeBannerRow) return;
+    this.resumeBannerRow.style.display = "none";
+    while (this.resumeBannerRow.firstChild) {
+      this.resumeBannerRow.removeChild(this.resumeBannerRow.firstChild);
+    }
   }
 
   private buildStartMatchingRow(): HTMLElement {
@@ -1312,7 +1546,11 @@ export class MatchingSubTab {
     const atLeastTrackLoaded = this.phaseGte(phase, "track-loaded");
     const atLeastCsvLoaded = this.phaseGte(phase, "csv-loaded");
 
+    const entry = this.registry.getSelected();
+    const isGeojson = entry !== null && entry.slowupNumber === undefined;
+
     this.setRowVisible(this.trackLengthRow, atLeastTrackLoaded);
+    this.setRowVisible(this.csvUploadRow, atLeastTrackLoaded && isGeojson);
     this.setRowVisible(this.rangeSliderRow, atLeastTrackLoaded);
     this.setRowVisible(this.startMatchingRow, atLeastCsvLoaded);
     this.setRowVisible(this.guidedMatchingRow, this.matchingPanelOpen && atLeastCsvLoaded);
