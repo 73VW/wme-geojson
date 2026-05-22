@@ -1,54 +1,45 @@
-import type { WmeSDK } from "wme-sdk-typings";
+import type { WmeSDK, ZoomLevel } from "wme-sdk-typings";
 import { i18next } from "../../../locales/i18n";
 import { logger } from "../../utils/logger";
 import { TrackLayer } from "../../layers/TrackLayer";
 import { WalkController } from "../../controller/WalkController";
 import type { LineRegistry } from "../../lines/LineRegistry";
-import type { LineEntry, ChainMergeState, ChainMergeSnapshot } from "../../lines/types";
+import type { LineEntry } from "../../lines/types";
 import type { WalkState } from "../../controller/walkStates";
-import type {
-  SessionStore,
-  SessionPhase,
-  SessionState,
-  CsvRow,
-  ClosureRange,
-} from "../../state/SessionStore";
-import { parseSchedule } from "../../csv/parseSchedule";
-import { serializeSchedule } from "../../csv/serializeSchedule";
+import type { SessionStore, SessionPhase } from "../../state/SessionStore";
+import type { CsvRow } from "../../csv/types";
 import { buildClosuresCsv } from "../../csv/buildClosuresCsv";
-import type { ClosureRowGroup, FinalFields } from "../../csv/buildClosuresCsv";
-import { wzButton, wzTextInput, fileInput, type WzButtonProps } from "../components/wz";
-import { MatchingPipeline, type PipelineStepEvent } from "../../controller/MatchingPipeline";
+import type { ClosureRowGroup, FinalFields, RowGeo } from "../../csv/buildClosuresCsv";
+import type { ClosureRange } from "../../csv/types";
+import { wzButton, wzTextInput, type WzButtonProps } from "../components/wz";
 import { promptFinalFields } from "../promptFinalFields";
-import { load as persistenceLoad, clearForCurrent } from "../../persistence/sessionStorage";
 import { confirmModal } from "../modal";
 import { MatchingHeaderView } from "../views/MatchingHeaderView";
 import { bboxOfMultiLineString, sliceMultiLineByDistance } from "../../matching/trackPortions";
-import { computeMatchingWorkItems } from "../../matching/trackPortions";
 import { multiLineLengthKm } from "../../matching/trackPortions";
-import { buildSyntheticRow } from "../../csv/syntheticSchedule";
 import { promptClosureWindow } from "../components/promptClosureWindow";
+import type { Source } from "../../domain/types";
+import { SourceStore, attachPersistence } from "../../state/SourceStore";
+import { SourcePersistence } from "../../domain/SourcePersistence";
+import { buildSlowupSource } from "../../domain/buildSlowupSource";
+import { buildGeojsonSource } from "../../domain/buildGeojsonSource";
 import {
-  listTrackChains,
-  mergeTrackChainsByEndpoints,
-  type TrackChain,
-} from "../../matching/chainTracks";
-import { mergeChainClosures, mergeChainGroups } from "../../matching/chainMerge";
-import type { NormalizedTrack } from "../../geojson/types";
-import {
-  formatSubLineLabel,
-  mergeSubLineState,
-  subLineStateFromStep,
-  type SubLineState,
-} from "./sublineDebug";
+  LazyMatchingPipeline,
+  type MapDriver,
+  type MatchDriver,
+} from "../../controller/LazyMatchingPipeline";
+import { closuresFromSource } from "../../csv/closuresFromSource";
+import { waitForMapIdle } from "../../utils/waitForMapIdle";
+
+const TARGET_ZOOM = 16;
 
 /**
- * Sidebar panel for the CSV-driven closures pipeline.
+ * Sidebar panel for the lazy sub-line matching pipeline.
  *
- * Presentation-only: no business logic. All state is owned by SessionStore and
- * reflected here via the store's subscription mechanism. The panel renders
- * phase-appropriate rows and delegates to loadAndAttachTrack / the pipeline
- * controller for any action that changes state.
+ * The active Source (a loaded GeoJSON file or a selected slowup) is owned by
+ * SourceStore and persisted via SourcePersistence. Matching is driven one
+ * sub-line at a time by LazyMatchingPipeline. This panel is presentation-only:
+ * it reflects SourceStore state and delegates actions to the pipeline.
  *
  * DOM is created with createElement/textContent only — no innerHTML with
  * external data.
@@ -56,7 +47,6 @@ import {
 export class MatchingSubTab {
   private static readonly PANEL_POSITION_KEY = "wme-geojson.matchPanel.position";
   private static readonly PANEL_COLLAPSED_KEY = "wme-geojson.matchPanel.collapsed";
-  private static readonly SLOWUP_CHAIN_MERGE_MAX_GAP_KM = 0.05;
 
   private tabPane: HTMLElement | null = null;
 
@@ -65,22 +55,17 @@ export class MatchingSubTab {
   private unsubscribeState: (() => void) | null = null;
   private unsubscribeMapDataLoaded: (() => void) | null = null;
   private unsubscribeSelection: (() => void) | null = null;
+  private unsubscribeSourceStore: (() => void) | null = null;
 
-  // Controllers wired lazily by loadAndAttachTrack after mount
+  // Controllers wired lazily by onSelectedLineChanged
   private controller: WalkController | null;
   private trackLayer: TrackLayer | null;
 
   // Shell-level content toggling driven by the selected line.
   private contentWrapperEl: HTMLElement | null = null;
   private emptyStateEl: HTMLElement | null = null;
-  // Id of the line currently attached (controller/layer/store). Guards against
-  // re-attaching when updateEntry() re-fires onSelectedLineChanged for the
-  // same line.
   private attachedLineId: string | null = null;
 
-  // Injected by main.user.ts to avoid a circular module dependency:
-  // loadAndAttachTrack imports MatchPanel, so MatchPanel cannot import it back.
-  // main.user.ts imports both and passes the bound function via setLoadFn().
   private loadFn: ((url: string) => Promise<void>) | null = null;
 
   // ── Row container elements (toggled by renderPhase) ─────────────────────
@@ -88,96 +73,51 @@ export class MatchingSubTab {
   private trackLengthRow: HTMLElement | null = null;
   private trackLengthValueEl: HTMLElement | null = null;
   private rangeSliderRow: HTMLElement | null = null;
-  private csvUploadRow: HTMLElement | null = null;
-  private csvLoadingEl: HTMLElement | null = null;
-  private csvLoadingTextEl: HTMLElement | null = null;
   private startMatchingRow: HTMLElement | null = null;
-  private syntheticBannerRow: HTMLElement | null = null;
-  // "Remove CSV" button — shown only when a CSV is loaded, reverts to synthetic.
-  private csvRemoveBtn: HTMLElement | null = null;
   private guidedMatchingRow: HTMLElement | null = null;
   private downloadRow: HTMLElement | null = null;
-  private resumeBannerRow: HTMLElement | null = null;
 
-  // URL input — updated to show load error inline
   private urlInputEl: HTMLElement | null = null;
   private urlErrorEl: HTMLElement | null = null;
 
-  // Header view (title + state badge) — extracted as MatchingHeaderView
   private headerView: MatchingHeaderView | null = null;
 
-  // Pending slider frame (rAF coalescing — see buildRangeSlider)
   private _onRangeChanged: (() => void) | null = null;
 
-  // The tab label element returned by Sidebar.registerScriptTab().
   private tabLabel: HTMLElement | null = null;
 
-  // Active pipeline instance (created on Start matching, cleared on done/abort)
-  private pipeline: MatchingPipeline | null = null;
+  // ── New lazy-matching engine ────────────────────────────────────────────
+  private readonly sourceStore = new SourceStore();
+  private readonly persistence = new SourcePersistence();
+  private detachPersistence: (() => void) | null = null;
+  private lazyPipeline: LazyMatchingPipeline | null = null;
+  // True while the pipeline is mid-step (centering / matching) — disables the
+  // guided controls so the operator cannot fire overlapping steps.
+  private guidedBusy = false;
+  // True once a Source has been started (matching kicked off at least once).
+  private matchingActive = false;
 
-  // Cached CSV inputs — kept in memory so the "restart from scratch" path can
-  // re-load the same rows without asking the user to re-upload the file.
-  private lastCsvText: string | null = null;
-  private lastCsvRows: CsvRow[] = [];
-
-  // Guided sub-panel text elements updated by pipeline events
+  // Guided sub-panel text elements
   private guidedRowHeaderEl: HTMLElement | null = null;
   private guidedSegmentCountEl: HTMLElement | null = null;
   private guidedInstructionEl: HTMLElement | null = null;
   private guidedLoaderEl: HTMLElement | null = null;
   private guidedLoaderTextEl: HTMLElement | null = null;
   private guidedStatusEl: HTMLElement | null = null;
-  private guidedModeEl: HTMLElement | null = null;
   private guidedBodyEl: HTMLElement | null = null;
-  private guidedTabMatchEl: HTMLElement | null = null;
-  private guidedTabDebugEl: HTMLElement | null = null;
-  private guidedMatchPaneEl: HTMLElement | null = null;
-  private guidedDebugPaneEl: HTMLElement | null = null;
   private guidedManualActionsEl: HTMLElement | null = null;
-  private guidedSubLinesListEl: HTMLElement | null = null;
-  private guidedMergeSummaryEl: HTMLElement | null = null;
-  private guidedMergeChainsListEl: HTMLElement | null = null;
-  private guidedMergeGeoJsonEl: HTMLElement | null = null;
-  private guidedStepsListEl: HTMLElement | null = null;
   private guidedToggleBtn: HTMLElement | null = null;
   private guidedCloseBtn: HTMLElement | null = null;
-  private guidedStartManualBtn: HTMLElement | null = null;
-  private guidedStartBurstBtn: HTMLElement | null = null;
+  private guidedStartBtn: HTMLElement | null = null;
   private guidedValidateBtn: HTMLElement | null = null;
   private guidedSkipBtn: HTMLElement | null = null;
   private guidedBackBtn: HTMLElement | null = null;
   private guidedReselectBtn: HTMLElement | null = null;
   private guidedRerunBtn: HTMLElement | null = null;
-  private guidedPauseBtn: HTMLElement | null = null;
-  private guidedResumeBtn: HTMLElement | null = null;
   private guidedDoneCloseBtn: HTMLElement | null = null;
   private guidedRestartBtn: HTMLElement | null = null;
-  private guidedCopyDebugBtn: HTMLElement | null = null;
-  private guidedDownloadEnrichedBtn: HTMLElement | null = null;
-  private matchingMode: "interactive" | "burst" = "interactive";
   private matchingPanelOpen = false;
-  private pausePending = false;
   private guidedCollapsed = false;
-  private guidedActiveTab: "match" | "debug" = "match";
-  private guidedBusy = false;
-  private pendingManualRestartOffset: number | null = null;
-
-  // Captured per-row debug context — populated on onRowStarted/onRowMatched
-  // and consumed by the "Copy debug JSON" button.
-  private currentRowIndex: number | null = null;
-  private currentRowKmA: number | null = null;
-  private currentRowKmB: number | null = null;
-  private currentMatchedIds: number[] = [];
-  private currentSubLines: SubLineState[] = [];
-  private chainByChainEnabled = false;
-  private activeChains: TrackChain[] = [];
-  private activeChainIndex: number | null = null;
-  private chainSnapshots: ChainMergeSnapshot[] = [];
-  private mergedChainGroups: ClosureRowGroup[] = [];
-  private mergedChainClosuresBySegment: Record<number, ClosureRange[]> = {};
-  private mergedGeoJsonDebugCacheKey = "";
-  private mergedGeoJsonDebugText = "";
-  private guidedDebugFeedbackEl: HTMLElement | null = null;
 
   constructor(
     private readonly wmeSDK: WmeSDK,
@@ -192,11 +132,6 @@ export class MatchingSubTab {
   // Public API
   // ---------------------------------------------------------------------------
 
-  /**
-   * Build the matching sub-tab DOM and subscribe to the store and registry.
-   * The shell owns sidebar-tab registration; this returns the content root.
-   * Safe to call only once; a second call returns the existing root.
-   */
   buildRoot(): HTMLElement {
     if (this.tabPane) return this.tabPane;
 
@@ -205,9 +140,6 @@ export class MatchingSubTab {
     root.classList.add("wmegj-panel-root");
     this.injectStyles(root);
     this.buildDOM(root);
-    // buildDOM appends exactly one wrapper <div>; injectStyles already added a
-    // <style> as the first child, so the content wrapper is the last child here
-    // (the empty-state element is appended only after this line).
     this.contentWrapperEl = root.lastElementChild as HTMLElement | null;
 
     this.emptyStateEl = document.createElement("p");
@@ -246,6 +178,11 @@ export class MatchingSubTab {
       }
     });
 
+    // Header / overlay / segment-count updates are driven by the SourceStore.
+    this.unsubscribeSourceStore = this.sourceStore.onChange(() => {
+      this.renderSourceState();
+    });
+
     this.renderPhase(this.store.getState().phase);
 
     this.unsubscribeSelection = this.registry.onSelectedLineChanged((entry) => {
@@ -257,10 +194,6 @@ export class MatchingSubTab {
     return root;
   }
 
-  /**
-   * React to the selected line changing: toggle the empty-state vs. content,
-   * stop any running walk, redraw the track layer, and rebuild the controller.
-   */
   private onSelectedLineChanged(entry: LineEntry | null): void {
     void this.onSelectedLineChangedAsync(entry);
   }
@@ -274,211 +207,84 @@ export class MatchingSubTab {
       return;
     }
 
-    // updateEntry() on the selected line (e.g. processCsvText recording
-    // mode="csv") re-fires onSelectedLineChanged for the same line. Skip the
-    // full re-attach then — rebuilding the controller would clobber any
-    // in-progress matching state and mutate the store out of order.
+    // updateEntry() on the selected line re-fires onSelectedLineChanged for the
+    // same line. Skip the full re-attach then.
     if (entry.id === this.attachedLineId) return;
 
-    // Snapshot the outgoing line's matching state so returning to it restores
-    // the work in progress. structuredClone freezes the snapshot against any
-    // later in-place mutation of the (now shared) state object.
-    if (this.attachedLineId !== null) {
-      this.registry.updateEntry(this.attachedLineId, {
-        session: structuredClone(this.store.getState()) as SessionState,
-        sessionCsvText: this.registry.getEntryById(this.attachedLineId)?.csvText ?? "",
-        matchedGroups: this.pipeline ? [...this.pipeline.getMatchedGroups()] : undefined,
-        chainMergeState: this.buildChainMergeState(),
-      });
-    }
-    const shouldShowMergeSpinner = this.shouldUseChainByChain(entry);
-    if (shouldShowMergeSpinner) {
-      this.setGuidedLoading(true, i18next.t("panel.matching.steps.mergePreparingTrack"));
-      await waitForNextPaint();
+    // Flush any pending persistence for the outgoing source.
+    this.persistence.flush();
+
+    this.attachedLineId = entry.id;
+    this.headerView?.setTitle(entry.displayName);
+    this.matchingActive = false;
+    this.matchingPanelOpen = false;
+
+    try {
+      this.controller?.stop();
+    } catch (err) {
+      logger.warn("MatchingSubTab.onSelectedLineChanged: controller.stop threw", err);
     }
 
     try {
-      // The outgoing line's pipeline must not keep running against the store,
-      // which is about to be repointed to the new line. Its match groups are
-      // already snapshotted above; the new line builds its own pipeline on
-      // demand. Without this, getExportClosureGroups would read a stale pipeline
-      // belonging to a different line.
-      this.pipeline?.abort();
-      this.pipeline = null;
-
-      this.attachedLineId = entry.id;
-      this.headerView?.setTitle(entry.displayName);
-
-      // Stop any walk in progress before re-attaching to a different line.
-      try {
-        this.controller?.stop();
-      } catch (err) {
-        logger.warn("MatchingSubTab.onSelectedLineChanged: controller.stop threw", err);
-      }
-
-      try {
-        this.wmeSDK.Map.removeLayer({ layerName: TrackLayer.LAYER_NAME });
-      } catch {
-        // No previous layer is the common case.
-      }
-      const selectedTrack = this.resolveSelectedTrack(entry);
-
-      const layer = new TrackLayer(this.wmeSDK);
-      layer.draw(selectedTrack, {
-        colorMode:
-          entry.slowupNumber !== undefined && selectedTrack.geometry.coordinates.length > 1
-            ? "per-subline"
-            : "single",
-      });
-
-      const controller = new WalkController(this.wmeSDK, selectedTrack.geometry);
-      this.setController(controller);
-      this.setTrackLayer(layer);
-
-      if (entry.session) {
-        // Returning to a line worked on earlier — restore its full state.
-        // rehydrate replaces the whole SessionState (including geojsonUrl and
-        // trackLengthKm), so a setTrack call here would only be a redundant
-        // intermediate mutation.
-        this.store.rehydrate(entry.session, entry.sessionCsvText ?? "");
-        const isCsv = entry.mode === "csv";
-        this.setSyntheticBannerVisible(!isCsv);
-        this.setRemoveCsvVisible(isCsv);
-      } else if (entry.mode === "csv" && entry.csvRows) {
-        this.store.setTrack(entry.id, multiLineLengthKm(selectedTrack.geometry));
-        this.store.setCsvRows(entry.csvRows, entry.csvText ?? "");
-        this.store.setPhase("csv-loaded");
-        this.setSyntheticBannerVisible(false);
-        this.setRemoveCsvVisible(true);
-      } else {
-        this.store.setTrack(entry.id, multiLineLengthKm(selectedTrack.geometry));
-        this.store.setCsvRows([buildSyntheticRow()], "");
-        this.store.setPhase("csv-loaded");
-        this.setSyntheticBannerVisible(true);
-        this.setRemoveCsvVisible(false);
-      }
-
-      this.ensureMergeInitializedForSelectedSlowup(entry, layer);
-    } finally {
-      if (shouldShowMergeSpinner) {
-        this.setGuidedLoading(false);
-      }
-    }
-  }
-
-  private resolveSelectedTrack(entry: LineEntry): NormalizedTrack {
-    if (!this.shouldUseChainByChain(entry)) {
-      return entry.track;
+      this.wmeSDK.Map.removeLayer({ layerName: TrackLayer.LAYER_NAME });
+    } catch {
+      // No previous layer is the common case.
     }
 
-    const rawChains = listTrackChains(entry.track);
-    const mergedChains = mergeTrackChainsByEndpoints(
-      rawChains,
-      MatchingSubTab.SLOWUP_CHAIN_MERGE_MAX_GAP_KM,
-    );
-    logger.info("MatchingSubTab.merge: track merge for selected slowup", {
-      lineId: entry.id,
-      slowupNumber: entry.slowupNumber,
-      rawChainCount: rawChains.length,
-      mergedChainCount: mergedChains.length,
-      maxGapKm: MatchingSubTab.SLOWUP_CHAIN_MERGE_MAX_GAP_KM,
-    });
-    if (mergedChains.length === rawChains.length) {
-      return entry.track;
-    }
+    const selectedTrack = entry.track;
 
-    return {
-      trackId: entry.track.trackId,
-      geometry: {
-        type: "MultiLineString",
-        coordinates: mergedChains.map((chain) => chain.geometry.coordinates[0]),
-      },
-      rawProperties: entry.track.rawProperties,
-    };
-  }
-
-  private ensureMergeInitializedForSelectedSlowup(entry: LineEntry, layer: TrackLayer): void {
-    if (!this.shouldUseChainByChain(entry)) {
-      return;
-    }
-
-    const geometry = layer.getTrackGeometry();
-    if (!geometry) {
-      return;
-    }
-
-    const rawChains = listTrackChains({ trackId: null, geometry });
-    const chains = mergeTrackChainsByEndpoints(
-      rawChains,
-      MatchingSubTab.SLOWUP_CHAIN_MERGE_MAX_GAP_KM,
-    );
-    if (chains.length <= 1) {
-      return;
-    }
-
-    if (this.chainSnapshots.length === 0) {
-      this.chainByChainEnabled = true;
-      this.activeChains = chains;
-      this.activeChainIndex = 0;
-      this.chainSnapshots = chains.map((chain) => ({
-        chainId: chain.id,
-        status: "idle",
-        matchedGroups: [],
-        closuresBySegment: {},
-      }));
-    }
-
-    logger.info("MatchingSubTab.merge: initializing on slowup open", {
-      lineId: entry.id,
-      slowupNumber: entry.slowupNumber,
-      rawChainCount: rawChains.length,
-      chainCount: chains.length,
-      snapshotCount: this.chainSnapshots.length,
+    const layer = new TrackLayer(this.wmeSDK);
+    layer.draw(selectedTrack, {
+      colorMode:
+        entry.slowupNumber !== undefined && selectedTrack.geometry.coordinates.length > 1
+          ? "per-subline"
+          : "single",
     });
 
-    void this.recomputeMergedChainStateWithLoading().then(() => {
-      logger.info("MatchingSubTab.merge: initialized on slowup open", {
-        lineId: entry.id,
-        mergedGroups: this.mergedChainGroups.length,
-        mergedSegmentCount: this.mergedChainGroups.reduce(
-          (sum, group) => sum + group.segmentIds.length,
-          0,
-        ),
-      });
-      this.renderMergeDebugState();
-      this.persistChainMergeState();
-      this.appendGuidedStep(i18next.t("panel.matching.steps.mergeInitialized"));
+    const controller = new WalkController(this.wmeSDK, selectedTrack.geometry);
+    this.setController(controller);
+    this.setTrackLayer(layer);
+
+    // Build (or resume) the Source for this entry and hydrate the store.
+    const existing = this.persistence.load(entry.id);
+    const source = existing ?? this.buildSourceForEntry(entry);
+    this.lazyPipeline = null;
+    this.sourceStore.hydrate(source);
+    this.detachPersistence?.();
+    this.detachPersistence = attachPersistence(this.sourceStore, this.persistence);
+
+    // Drive simple phase/length display off the legacy session store.
+    this.store.setTrack(entry.id, multiLineLengthKm(selectedTrack.geometry));
+    this.store.setPhase("csv-loaded");
+
+    this.resetGuidedSessionState({ closePanel: true });
+    this.renderSourceState();
+  }
+
+  /** Build a fresh Source for the selected entry. */
+  private buildSourceForEntry(entry: LineEntry): Source {
+    if (entry.slowupNumber !== undefined) {
+      return buildSlowupSource({ sourceId: entry.id, track: entry.track });
+    }
+    return buildGeojsonSource({
+      sourceId: entry.id,
+      track: entry.track,
+      csvRows: entry.csvRows,
     });
   }
 
-  /**
-   * Attach the WalkController that was built by loadAndAttachTrack.
-   * Wires the state badge subscription lazily so the badge works even when
-   * no track was loaded at mount time.
-   */
   setController(c: WalkController): void {
-    // Dispose previous controller before replacing (e.g. a second loadAndAttachTrack call)
     this.controller?.dispose();
     this.controller = c;
-
-    // Detach any previous subscription (e.g. a second loadAndAttachTrack call)
     this.unsubscribeState?.();
-
     this.unsubscribeState = c.onStateChange((s) => {
       this.updateBadge(s);
     });
     this.updateBadge(c.state);
   }
 
-  /**
-   * Attach the TrackLayer built by loadAndAttachTrack.
-   * The range slider needs it to call setVisibleRange; we rebuild the slider
-   * after attachment so it reads the correct totalKm.
-   */
   setTrackLayer(layer: TrackLayer): void {
     this.trackLayer = layer;
-
-    // Rebuild the range slider now that we have a layer with a known totalKm.
     if (this.rangeSliderRow) {
       while (this.rangeSliderRow.firstChild) {
         this.rangeSliderRow.removeChild(this.rangeSliderRow.firstChild);
@@ -487,45 +293,36 @@ export class MatchingSubTab {
     }
   }
 
-  /**
-   * Inject the loadAndAttachTrack function. Must be called from main.user.ts
-   * before the user can click "Load" — the setter breaks the circular import
-   * that would arise if MatchPanel imported loadAndAttachTrack directly
-   * (loadAndAttachTrack imports MatchPanel for the panel parameter type).
-   */
   setLoadFn(fn: (url: string) => Promise<void>): void {
     this.loadFn = fn;
   }
 
-  /** Return the tab label element registered with WME's sidebar. */
   getTabLabel(): HTMLElement | null {
     return this.tabLabel;
   }
 
-  /**
-   * Surface a load error in the URL row (red message below the input).
-   * Called by loadAndAttachTrack when loadTrack throws.
-   */
   showLoadError(message: string): void {
     if (!this.urlErrorEl) return;
     this.urlErrorEl.textContent = message;
     this.urlErrorEl.style.display = "";
   }
 
-  /**
-   * Remove all DOM content and unsubscribe everything.
-   */
   unmount(): void {
     this.controller?.dispose();
     this.controller = null;
+    this.persistence.flush();
+    this.detachPersistence?.();
+    this.detachPersistence = null;
     this.unsubscribeStore?.();
     this.unsubscribeState?.();
     this.unsubscribeMapDataLoaded?.();
     this.unsubscribeSelection?.();
+    this.unsubscribeSourceStore?.();
     this.unsubscribeStore = null;
     this.unsubscribeState = null;
     this.unsubscribeMapDataLoaded = null;
     this.unsubscribeSelection = null;
+    this.unsubscribeSourceStore = null;
 
     if (this.tabPane) {
       while (this.tabPane.firstChild) {
@@ -537,15 +334,9 @@ export class MatchingSubTab {
     this.urlRow = null;
     this.trackLengthRow = null;
     this.rangeSliderRow = null;
-    this.csvUploadRow = null;
-    this.csvLoadingEl = null;
-    this.csvLoadingTextEl = null;
     this.startMatchingRow = null;
-    this.syntheticBannerRow = null;
-    this.csvRemoveBtn = null;
     this.attachedLineId = null;
     this.downloadRow = null;
-    this.resumeBannerRow = null;
     this.urlInputEl = null;
     this.urlErrorEl = null;
     this.headerView = null;
@@ -559,35 +350,19 @@ export class MatchingSubTab {
     this.guidedLoaderEl = null;
     this.guidedLoaderTextEl = null;
     this.guidedStatusEl = null;
-    this.guidedModeEl = null;
     this.guidedBodyEl = null;
-    this.guidedTabMatchEl = null;
-    this.guidedTabDebugEl = null;
-    this.guidedMatchPaneEl = null;
-    this.guidedDebugPaneEl = null;
     this.guidedManualActionsEl = null;
-    this.guidedSubLinesListEl = null;
-    this.guidedMergeSummaryEl = null;
-    this.guidedMergeChainsListEl = null;
-    this.guidedMergeGeoJsonEl = null;
-    this.guidedStepsListEl = null;
     this.guidedToggleBtn = null;
     this.guidedCloseBtn = null;
-    this.guidedStartManualBtn = null;
-    this.guidedStartBurstBtn = null;
+    this.guidedStartBtn = null;
     this.guidedValidateBtn = null;
     this.guidedSkipBtn = null;
     this.guidedBackBtn = null;
     this.guidedReselectBtn = null;
     this.guidedRerunBtn = null;
-    this.guidedPauseBtn = null;
-    this.guidedResumeBtn = null;
+    this.guidedDoneCloseBtn = null;
     this.guidedRestartBtn = null;
-    this.guidedCopyDebugBtn = null;
-    this.guidedDownloadEnrichedBtn = null;
     this.guidedMatchingRow = null;
-    this.mergedGeoJsonDebugCacheKey = "";
-    this.mergedGeoJsonDebugText = "";
 
     logger.info("MatchPanel unmounted");
   }
@@ -605,46 +380,22 @@ export class MatchingSubTab {
     this.headerView = new MatchingHeaderView();
     container.appendChild(this.headerView.root);
 
-    // Row 1 — GeoJSON URL input + Load button
-    // The URL row is built so its element fields stay non-null, but it is NOT
-    // appended: URL loading lives in the Lignes sub-tab now, and this row's
-    // Load button has no loadFn wired. (Re-exposing "Center on track" is a
-    // Phase 7b follow-up.)
     this.urlRow = this.buildUrlRow();
 
-    // Row 2 — Track length (hidden until track-loaded)
     this.trackLengthRow = this.buildTrackLengthRow();
     container.appendChild(this.trackLengthRow);
 
-    // Row 3 — Range slider (hidden until track-loaded)
     this.rangeSliderRow = document.createElement("section");
     this.rangeSliderRow.appendChild(this.buildRangeSlider());
     container.appendChild(this.rangeSliderRow);
 
-    // Row 4 — CSV upload (hidden until track-loaded)
-    this.csvUploadRow = this.buildCsvUploadRow();
-    container.appendChild(this.csvUploadRow);
-
-    // Synthetic-mode banner — shown when no CSV is imported (visibility mode-driven)
-    this.syntheticBannerRow = this.buildSyntheticBannerRow();
-    container.appendChild(this.syntheticBannerRow);
-
-    // Row 5 — Start matching button (hidden during matching, shown on csv-loaded / done)
     this.startMatchingRow = this.buildStartMatchingRow();
     container.appendChild(this.startMatchingRow);
 
-    // Row 5b — Guided matching controls live in a floating overlay appended
-    // to document.body so they remain usable even when WME switches the
-    // sidebar away from the userscripts tab after selection changes.
     this.guidedMatchingRow = this.buildGuidedMatchingRow();
 
-    // Row 6 — Download buttons (hidden until csv-loaded)
     this.downloadRow = this.buildDownloadRow();
     container.appendChild(this.downloadRow);
-
-    // Row 7 — Resume banner placeholder (populated by Lot 5)
-    this.resumeBannerRow = this.buildResumeBannerRow();
-    container.appendChild(this.resumeBannerRow);
   }
 
   private buildUrlRow(): HTMLElement {
@@ -663,7 +414,6 @@ export class MatchingSubTab {
     section.appendChild(inputEl);
     this.urlInputEl = inputEl;
 
-    // Error message element — hidden until showLoadError() is called
     const errorEl = document.createElement("p");
     errorEl.style.color = "#c0392b";
     errorEl.style.fontSize = "11px";
@@ -676,7 +426,6 @@ export class MatchingSubTab {
     buttonRow.className = "wmegj-button-stack";
     buttonRow.style.marginTop = "4px";
 
-    // Load button — reads the value from the wz-text-input or native input
     const loadBtn = wzButton({
       text: i18next.t("panel.urlInput.load"),
       variant: "primary",
@@ -706,118 +455,10 @@ export class MatchingSubTab {
     section.style.marginBottom = "4px";
     const p = document.createElement("p");
     p.style.margin = "0";
-    // Placeholder — updated via store subscription in mount()
     p.textContent = i18next.t("panel.trackLength", { km: "—" });
     section.appendChild(p);
     this.trackLengthValueEl = p;
     return section;
-  }
-
-  private buildCsvUploadRow(): HTMLElement {
-    const section = document.createElement("section");
-    section.className = "wmegj-section";
-    section.style.marginTop = "8px";
-
-    const label = document.createElement("p");
-    label.style.margin = "0 0 4px 0";
-    label.style.fontSize = "12px";
-    label.style.fontWeight = "600";
-    label.textContent = i18next.t("panel.csvInput.label");
-    section.appendChild(label);
-
-    const input = fileInput({
-      accept: ".csv",
-      buttonLabel: i18next.t("panel.csvInput.label"),
-      onFile: (file) => {
-        this.onCsvFileSelected(file);
-      },
-    });
-    section.appendChild(input);
-
-    const loadingEl = document.createElement("div");
-    loadingEl.className = "wmegj-csv-loader";
-    loadingEl.style.display = "none";
-    loadingEl.setAttribute("aria-live", "polite");
-
-    const spinnerEl = document.createElement("span");
-    spinnerEl.className = "wmegj-guided-spinner";
-    spinnerEl.setAttribute("aria-hidden", "true");
-    loadingEl.appendChild(spinnerEl);
-
-    const loadingTextEl = document.createElement("span");
-    loadingTextEl.textContent = i18next.t("panel.csvInput.loading");
-    loadingEl.appendChild(loadingTextEl);
-
-    section.appendChild(loadingEl);
-    this.csvLoadingEl = loadingEl;
-    this.csvLoadingTextEl = loadingTextEl;
-
-    // "Remove CSV" — hidden until a CSV is imported; reverts to synthetic mode
-    // so the user can match a whole line without a schedule.
-    const removeBtn = wzButton({
-      text: i18next.t("panel.csvInput.remove"),
-      variant: "danger",
-      onClick: () => {
-        this.revertToSyntheticMode();
-      },
-    });
-    removeBtn.style.display = "none";
-    removeBtn.style.marginTop = "4px";
-    section.appendChild(removeBtn);
-    this.csvRemoveBtn = removeBtn;
-
-    return section;
-  }
-
-  private setRemoveCsvVisible(visible: boolean): void {
-    if (this.csvRemoveBtn) {
-      this.csvRemoveBtn.style.display = visible ? "" : "none";
-    }
-  }
-
-  /**
-   * Drop the imported CSV for the selected line and fall back to a synthetic
-   * single-row schedule, so matching runs over the whole line again.
-   */
-  private revertToSyntheticMode(): void {
-    const entry = this.registry.getSelected();
-    if (!entry) return;
-
-    this.pipeline?.abort();
-    this.pipeline = null;
-    this.resetGuidedSessionState({ closePanel: true });
-    this.hideResumeBanner();
-
-    this.lastCsvText = null;
-    this.lastCsvRows = [];
-    this.registry.updateEntry(entry.id, {
-      mode: "synthetic",
-      csvRows: undefined,
-      csvText: undefined,
-    });
-
-    this.store.setCsvRows([buildSyntheticRow()], "");
-    this.store.setPhase("csv-loaded");
-    this.setSyntheticBannerVisible(true);
-    this.setRemoveCsvVisible(false);
-  }
-
-  private buildSyntheticBannerRow(): HTMLElement {
-    const section = document.createElement("section");
-    section.className = "wmegj-section";
-    section.style.display = "none";
-    const p = document.createElement("p");
-    p.style.margin = "0";
-    p.style.fontStyle = "italic";
-    p.textContent = i18next.t("panel.matching.syntheticBanner");
-    section.appendChild(p);
-    return section;
-  }
-
-  private setSyntheticBannerVisible(visible: boolean): void {
-    if (this.syntheticBannerRow) {
-      this.syntheticBannerRow.style.display = visible ? "" : "none";
-    }
   }
 
   private buildStartMatchingRow(): HTMLElement {
@@ -843,12 +484,7 @@ export class MatchingSubTab {
   }
 
   /**
-   * Guided matching sub-panel — shown while phase === "matching".
-   *
-   * Contains a header line (row N / M — km, time range), an instruction line,
-   * a segment count line, and Validate / Skip / Back / Pause buttons. Text
-   * elements are
-   * kept as private fields so pipeline events can update them live.
+   * Guided matching sub-panel — a floating overlay appended to document.body.
    */
   private buildGuidedMatchingRow(): HTMLElement {
     const section = document.createElement("section");
@@ -907,32 +543,9 @@ export class MatchingSubTab {
     section.appendChild(bodyEl);
     this.guidedBodyEl = bodyEl;
 
-    const tabRow = document.createElement("div");
-    tabRow.className = "wmegj-guided-tabs";
-    bodyEl.appendChild(tabRow);
-
-    const matchTab = this.buildGuidedTab("match", i18next.t("panel.matching.tabs.match"));
-    const debugTab = this.buildGuidedTab("debug", i18next.t("panel.matching.tabs.debug"));
-    tabRow.appendChild(matchTab);
-    tabRow.appendChild(debugTab);
-    this.guidedTabMatchEl = matchTab;
-    this.guidedTabDebugEl = debugTab;
-
     const matchPane = document.createElement("div");
     matchPane.className = "wmegj-guided-tabpane";
     bodyEl.appendChild(matchPane);
-    this.guidedMatchPaneEl = matchPane;
-
-    const debugPane = document.createElement("div");
-    debugPane.className = "wmegj-guided-tabpane";
-    bodyEl.appendChild(debugPane);
-    this.guidedDebugPaneEl = debugPane;
-
-    const modeEl = document.createElement("p");
-    modeEl.className = "wmegj-guided-meta";
-    modeEl.textContent = i18next.t("panel.matching.mode.idle");
-    matchPane.appendChild(modeEl);
-    this.guidedModeEl = modeEl;
 
     const headerEl = document.createElement("p");
     headerEl.className = "wmegj-guided-row";
@@ -975,27 +588,19 @@ export class MatchingSubTab {
     this.guidedManualActionsEl = matchActions;
     matchPane.appendChild(matchActions);
 
-    this.guidedStartManualBtn = this.appendGuidedButton(matchActions, {
+    this.guidedStartBtn = this.appendGuidedButton(matchActions, {
       text: i18next.t("panel.matching.startManual"),
       variant: "primary",
       onClick: () => {
-        this.onStartMatchingClick("interactive");
+        void this.onStartMatchingClick();
       },
     });
-    this.guidedStartManualBtn.classList.add("wmegj-guided-button--start");
-    this.guidedStartBurstBtn = this.appendGuidedButton(matchActions, {
-      text: i18next.t("panel.matching.startAutomatic"),
-      variant: "primary",
-      onClick: () => {
-        this.onStartMatchingClick("burst");
-      },
-    });
-    this.guidedStartBurstBtn.classList.add("wmegj-guided-button--start");
+    this.guidedStartBtn.classList.add("wmegj-guided-button--start");
     this.guidedValidateBtn = this.appendGuidedButton(matchActions, {
       text: i18next.t("panel.matching.validate"),
       variant: "primary",
       onClick: () => {
-        this.pipeline?.validateCurrentRow();
+        void this.onValidateClick();
       },
     });
     this.guidedValidateBtn.classList.add("wmegj-guided-button--validate");
@@ -1003,7 +608,7 @@ export class MatchingSubTab {
       text: i18next.t("panel.matching.skip"),
       variant: "secondary",
       onClick: () => {
-        this.onSkipMatchingClick();
+        void this.onSkipMatchingClick();
       },
     });
     this.guidedSkipBtn.classList.add("wmegj-guided-button--skip");
@@ -1011,32 +616,10 @@ export class MatchingSubTab {
       text: i18next.t("panel.matching.back"),
       variant: "secondary",
       onClick: () => {
-        this.onBackMatchingClick();
+        void this.onBackMatchingClick();
       },
     });
     this.guidedBackBtn.classList.add("wmegj-guided-button--back");
-    this.guidedPauseBtn = this.appendGuidedButton(matchActions, {
-      text: i18next.t("panel.matching.pause"),
-      variant: "secondary",
-      onClick: () => {
-        this.pausePending = true;
-        this.setGuidedLoading(true, i18next.t("panel.matching.steps.pauseFinalizingStep"));
-        this.appendGuidedStep(i18next.t("panel.matching.steps.pauseFinalizingStep"));
-        this.pipeline?.pause();
-        this.updateGuidedControls();
-      },
-    });
-    this.guidedPauseBtn.classList.add("wmegj-guided-button--pause");
-    this.guidedResumeBtn = this.appendGuidedButton(matchActions, {
-      text: i18next.t("panel.matching.resume"),
-      variant: "secondary",
-      onClick: () => {
-        this.store.setPhase("matching");
-        this.pipeline?.resume();
-        this.updateGuidedControls();
-      },
-    });
-    this.guidedResumeBtn.classList.add("wmegj-guided-button--resume");
     this.guidedDoneCloseBtn = this.appendGuidedButton(matchActions, {
       text: i18next.t("panel.matching.closePanel"),
       variant: "primary",
@@ -1064,7 +647,7 @@ export class MatchingSubTab {
       text: i18next.t("panel.matching.rerunCurrentRow"),
       variant: "secondary",
       onClick: () => {
-        this.onRerunCurrentRowClick();
+        void this.onRerunCurrentRowClick();
       },
     });
     this.guidedRerunBtn.classList.add("wmegj-guided-button--rerun");
@@ -1082,94 +665,10 @@ export class MatchingSubTab {
     });
     this.guidedRestartBtn.classList.add("wmegj-guided-button--restart");
 
-    const subLinesTitleEl = document.createElement("p");
-    subLinesTitleEl.className = "wmegj-guided-debug-title";
-    subLinesTitleEl.textContent = i18next.t("panel.matching.subLinesTitle");
-    debugPane.appendChild(subLinesTitleEl);
-
-    const subLinesListEl = document.createElement("ul");
-    subLinesListEl.className = "wmegj-guided-steps";
-    debugPane.appendChild(subLinesListEl);
-    this.guidedSubLinesListEl = subLinesListEl;
-    this.renderCurrentSubLines();
-
-    const mergeTitleEl = document.createElement("p");
-    mergeTitleEl.className = "wmegj-guided-debug-title";
-    mergeTitleEl.textContent = i18next.t("panel.matching.mergeTitle");
-    debugPane.appendChild(mergeTitleEl);
-
-    const mergeSummaryEl = document.createElement("p");
-    mergeSummaryEl.className = "wmegj-guided-meta";
-    debugPane.appendChild(mergeSummaryEl);
-    this.guidedMergeSummaryEl = mergeSummaryEl;
-
-    const mergeChainsListEl = document.createElement("ul");
-    mergeChainsListEl.className = "wmegj-guided-steps";
-    debugPane.appendChild(mergeChainsListEl);
-    this.guidedMergeChainsListEl = mergeChainsListEl;
-
-    const mergeGeoJsonTitleEl = document.createElement("p");
-    mergeGeoJsonTitleEl.className = "wmegj-guided-debug-title";
-    mergeGeoJsonTitleEl.textContent = i18next.t("panel.matching.mergeGeoJsonTitle");
-    debugPane.appendChild(mergeGeoJsonTitleEl);
-
-    const mergeGeoJsonEl = document.createElement("pre");
-    mergeGeoJsonEl.className = "wmegj-guided-json";
-    debugPane.appendChild(mergeGeoJsonEl);
-    this.guidedMergeGeoJsonEl = mergeGeoJsonEl;
-
-    this.renderMergeDebugState();
-
-    const stepsTitleEl = document.createElement("p");
-    stepsTitleEl.className = "wmegj-guided-debug-title";
-    stepsTitleEl.textContent = i18next.t("panel.matching.stepsTitle");
-    debugPane.appendChild(stepsTitleEl);
-
-    const stepsListEl = document.createElement("ul");
-    stepsListEl.className = "wmegj-guided-steps";
-    debugPane.appendChild(stepsListEl);
-    this.guidedStepsListEl = stepsListEl;
-
-    const debugActions = document.createElement("div");
-    debugActions.className = "wmegj-guided-actions";
-    debugPane.appendChild(debugActions);
-
-    this.guidedCopyDebugBtn = this.appendGuidedButton(debugActions, {
-      text: i18next.t("panel.matching.copyDebugJson"),
-      variant: "secondary",
-      onClick: () => {
-        void this.onCopyDebugJsonClick();
-      },
-    });
-    this.guidedDownloadEnrichedBtn = this.appendGuidedButton(debugActions, {
-      text: i18next.t("panel.downloadEnriched"),
-      variant: "secondary",
-      onClick: () => {
-        this.onDownloadEnrichedClick();
-      },
-    });
-
-    const feedbackEl = document.createElement("p");
-    feedbackEl.className = "wmegj-guided-feedback";
-    debugPane.appendChild(feedbackEl);
-    this.guidedDebugFeedbackEl = feedbackEl;
-
     this.setGuidedCollapsed(this.guidedCollapsed);
-    this.setGuidedActiveTab(this.guidedActiveTab);
     this.updateGuidedControls();
 
     return section;
-  }
-
-  private buildGuidedTab(tab: "match" | "debug", label: string): HTMLElement {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "wmegj-guided-tab";
-    button.textContent = label;
-    button.addEventListener("click", () => {
-      this.setGuidedActiveTab(tab);
-    });
-    return button;
   }
 
   private appendGuidedButton(container: HTMLElement, props: WzButtonProps): HTMLElement {
@@ -1214,20 +713,7 @@ export class MatchingSubTab {
   private openMatchingPanel(): void {
     this.matchingPanelOpen = true;
     this.setGuidedCollapsed(false);
-    this.setGuidedActiveTab("match");
     this.renderPhase(this.store.getState().phase);
-  }
-
-  private setGuidedActiveTab(tab: "match" | "debug"): void {
-    this.guidedActiveTab = tab;
-    this.guidedTabMatchEl?.classList.toggle("is-active", tab === "match");
-    this.guidedTabDebugEl?.classList.toggle("is-active", tab === "debug");
-    if (this.guidedMatchPaneEl) {
-      this.guidedMatchPaneEl.style.display = tab === "match" ? "" : "none";
-    }
-    if (this.guidedDebugPaneEl) {
-      this.guidedDebugPaneEl.style.display = tab === "debug" ? "" : "none";
-    }
   }
 
   private setGuidedCollapsed(collapsed: boolean): void {
@@ -1316,119 +802,6 @@ export class MatchingSubTab {
     });
   }
 
-  private async onCopyDebugJsonClick(): Promise<void> {
-    const trackGeometry = this.trackLayer?.getTrackGeometry() ?? null;
-    if (
-      trackGeometry === null ||
-      this.currentRowIndex === null ||
-      this.currentRowKmA === null ||
-      this.currentRowKmB === null
-    ) {
-      this.setDebugFeedback(i18next.t("panel.matching.copyDebugJsonUnavailable"));
-      return;
-    }
-
-    const trackSlice = sliceMultiLineByDistance(
-      trackGeometry,
-      this.currentRowKmA,
-      this.currentRowKmB,
-    );
-
-    const segmentsById = new Map(
-      this.wmeSDK.DataModel.Segments.getAll().map((segment) => [segment.id, segment]),
-    );
-
-    const matchedSegments = this.currentMatchedIds.map((id) => {
-      const segment = segmentsById.get(id);
-      return {
-        id,
-        loaded: segment !== undefined,
-        geometry: segment?.geometry ?? null,
-      };
-    });
-
-    let selectionIds: number[] = [];
-    try {
-      const selection = this.wmeSDK.Editing.getSelection();
-      if (selection && selection.objectType === "segment") {
-        selectionIds = selection.ids as number[];
-      }
-    } catch (err) {
-      logger.warn("MatchPanel.onCopyDebugJsonClick: getSelection failed", err);
-    }
-
-    // Include geometries for every selected segment, even those NOT in
-    // matchedSegments — this lets the user report false-negatives by
-    // manually selecting the missed segment before copying.
-    const selectionSegments = selectionIds.map((id) => {
-      const segment = segmentsById.get(id);
-      return {
-        id,
-        loaded: segment !== undefined,
-        geometry: segment?.geometry ?? null,
-      };
-    });
-
-    const row = this.store.getState().csvRows[this.currentRowIndex];
-
-    const payload = {
-      rowIndex: this.currentRowIndex,
-      kmA: this.currentRowKmA,
-      kmB: this.currentRowKmB,
-      row: row
-        ? {
-            distance: row.distance,
-            startTime: row.startTime,
-            endTime: row.endTime,
-            date: row.date,
-          }
-        : null,
-      subLines: this.currentSubLines.map((line) => ({
-        index: line.index,
-        total: line.total,
-        kmA: line.kmA ?? null,
-        kmB: line.kmB ?? null,
-        status: line.status,
-      })),
-      trackSlice: {
-        type: "Feature" as const,
-        geometry: trackSlice,
-        properties: { kmA: this.currentRowKmA, kmB: this.currentRowKmB },
-      },
-      matchedSegments,
-      currentSelectionIds: selectionIds,
-      currentSelectionSegments: selectionSegments,
-      mergedTrackGeoJson: this.buildMergedTrackGeoJsonDebug(),
-    };
-
-    const json = JSON.stringify(payload, null, 2);
-
-    try {
-      await navigator.clipboard.writeText(json);
-      this.setDebugFeedback(
-        i18next.t("panel.matching.copyDebugJsonOk", {
-          count: matchedSegments.length,
-        }),
-      );
-      logger.info("MatchPanel.onCopyDebugJsonClick: copied debug JSON", {
-        rowIndex: this.currentRowIndex,
-        kmA: this.currentRowKmA,
-        kmB: this.currentRowKmB,
-        matchedCount: matchedSegments.length,
-        bytes: json.length,
-      });
-    } catch (err) {
-      logger.error("MatchPanel.onCopyDebugJsonClick: clipboard write failed", err);
-      this.setDebugFeedback(i18next.t("panel.matching.copyDebugJsonError"));
-    }
-  }
-
-  private setDebugFeedback(message: string): void {
-    if (this.guidedDebugFeedbackEl) {
-      this.guidedDebugFeedbackEl.textContent = message;
-    }
-  }
-
   private setGuidedLoading(isLoading: boolean, message?: string): void {
     this.guidedBusy = isLoading;
     if (!this.guidedLoaderEl) return;
@@ -1439,45 +812,12 @@ export class MatchingSubTab {
     this.updateGuidedControls();
   }
 
-  private setCsvLoading(isLoading: boolean, message?: string): void {
-    if (message && this.csvLoadingTextEl) {
-      this.csvLoadingTextEl.textContent = message;
-    }
-    if (this.csvLoadingEl) {
-      this.csvLoadingEl.style.display = isLoading ? "flex" : "none";
-    }
-  }
-
-  private onSkipMatchingClick(): void {
-    if (this.matchingMode === "burst" && this.pipeline?.isRunning()) {
-      this.pipeline.pause();
-      return;
-    }
-    this.pipeline?.skipCurrentRow();
-  }
-
   private resetGuidedSessionState(options: { closePanel?: boolean } = {}): void {
     if (options.closePanel) {
       this.matchingPanelOpen = false;
     }
-
     this.guidedBusy = false;
-    this.pendingManualRestartOffset = null;
-    this.currentRowIndex = null;
-    this.currentRowKmA = null;
-    this.currentRowKmB = null;
-    this.currentMatchedIds = [];
-    this.currentSubLines = [];
-    this.chainByChainEnabled = false;
-    this.activeChains = [];
-    this.activeChainIndex = null;
-    this.chainSnapshots = [];
-    this.mergedChainGroups = [];
-    this.mergedChainClosuresBySegment = {};
     this.trackLayer?.setHighlightedSlice(null);
-    this.resetGuidedSteps();
-    this.renderMergeDebugState();
-    this.setDebugFeedback("");
     this.setGuidedLoading(false);
 
     if (this.guidedRowHeaderEl) {
@@ -1497,117 +837,264 @@ export class MatchingSubTab {
     this.updateGuidedControls();
   }
 
-  private onBackMatchingClick(): void {
-    if (this.matchingMode === "burst" && this.pipeline?.isRunning()) {
-      this.pendingManualRestartOffset = -1;
-      this.pipeline.pause();
-      return;
+  // ---------------------------------------------------------------------------
+  // Private — guided control wiring (lazy pipeline)
+  // ---------------------------------------------------------------------------
+
+  private buildMapDriver(): MapDriver {
+    return {
+      zoomToExtent: (bbox) => {
+        this.wmeSDK.Map.zoomToExtent({ bbox });
+      },
+      setMapCenter: (lon, lat, zoom) => {
+        this.wmeSDK.Map.setMapCenter({ lonLat: { lon, lat }, zoomLevel: zoom as ZoomLevel });
+      },
+      getZoomLevel: () => this.wmeSDK.Map.getZoomLevel(),
+      setSelection: (segmentIds) => {
+        try {
+          this.wmeSDK.Editing.setSelection({
+            selection: { ids: segmentIds, objectType: "segment" },
+          });
+        } catch (err) {
+          logger.warn("MatchingSubTab.MapDriver.setSelection failed", err);
+        }
+      },
+      waitIdle: () => waitForMapIdle(this.wmeSDK, { settleDelayMs: 650 }),
+    };
+  }
+
+  private buildMatchDriver(): MatchDriver {
+    return {
+      runMatch: async () => {
+        const controller = this.controller;
+        const src = this.sourceStore.getSource();
+        if (!controller || !src || !src.cursor) return [];
+        const { lineIndex, subLineIndex } = src.cursor;
+        const sub = src.lines[lineIndex]?.subLines[subLineIndex];
+        if (!sub) return [];
+
+        const set = new Set<number>();
+        const unsubscribe = controller.onMatchFound((id) => set.add(id));
+        try {
+          await controller.matchInCurrentViewport(sub.kmA, sub.kmB);
+        } finally {
+          unsubscribe();
+        }
+        return [...set];
+      },
+    };
+  }
+
+  private ensurePipeline(): LazyMatchingPipeline | null {
+    if (this.lazyPipeline) return this.lazyPipeline;
+    this.lazyPipeline = new LazyMatchingPipeline({
+      store: this.sourceStore,
+      map: this.buildMapDriver(),
+      match: this.buildMatchDriver(),
+      targetZoom: TARGET_ZOOM,
+    });
+    return this.lazyPipeline;
+  }
+
+  private async onStartMatchingClick(): Promise<void> {
+    if (this.guidedBusy) return;
+    const pipeline = this.ensurePipeline();
+    if (!pipeline) return;
+    this.matchingActive = true;
+    this.matchingPanelOpen = true;
+    this.store.setPhase("matching");
+    if (this.guidedInstructionEl) {
+      this.guidedInstructionEl.textContent = i18next.t("panel.matching.validateOrCorrect");
     }
-    // Back during burst pause: the pipeline is suspended on its burst gate;
-    // restore the matching phase so the panel renders running state again
-    // once the gate resumes the loop.
-    if (this.matchingMode === "burst" && this.pipeline?.isPaused()) {
-      this.store.setPhase("matching");
+    await this.runStep(() => pipeline.stepUntilValidation());
+  }
+
+  private async onValidateClick(): Promise<void> {
+    if (this.guidedBusy) return;
+    const pipeline = this.lazyPipeline;
+    if (!pipeline) return;
+    const ids = this.readSelectionSegmentIds();
+    pipeline.validate(ids);
+    await this.runStep(() => pipeline.stepUntilValidation());
+  }
+
+  private async onSkipMatchingClick(): Promise<void> {
+    if (this.guidedBusy) return;
+    const pipeline = this.lazyPipeline;
+    if (!pipeline) return;
+    pipeline.validate([]);
+    await this.runStep(() => pipeline.stepUntilValidation());
+  }
+
+  private async onBackMatchingClick(): Promise<void> {
+    if (this.guidedBusy) return;
+    const pipeline = this.lazyPipeline;
+    if (!pipeline) return;
+    pipeline.back();
+    await this.runStep(() => pipeline.stepUntilValidation());
+  }
+
+  private async onRerunCurrentRowClick(): Promise<void> {
+    if (this.guidedBusy) return;
+    const pipeline = this.lazyPipeline;
+    if (!pipeline) return;
+    pipeline.rerunCurrent();
+    await this.runStep(() => pipeline.stepUntilValidation());
+  }
+
+  /** Run a pipeline step, surfacing the spinner and completion state. */
+  private async runStep(step: () => Promise<void>): Promise<void> {
+    this.setGuidedLoading(true, i18next.t("panel.matching.steps.unknown"));
+    try {
+      await step();
+    } catch (err) {
+      logger.error("MatchingSubTab.runStep: pipeline step failed", err);
+    } finally {
+      this.setGuidedLoading(false);
     }
-    this.pipeline?.goBackOneRow();
+    if (this.isSourceComplete()) {
+      this.matchingActive = false;
+      this.store.setPhase("done");
+      const segments = this.countMatchedSegments();
+      if (this.guidedSegmentCountEl) {
+        this.guidedSegmentCountEl.textContent = i18next.t(
+          "panel.matching.steps.completedSummary",
+          { rowsValidated: this.countValidatedSubLines(), totalSegments: segments },
+        );
+      }
+      this.trackLayer?.setHighlightedSlice(null);
+    }
     this.updateGuidedControls();
   }
 
-  private onReselectMatchedClick(): void {
-    if (this.currentMatchedIds.length === 0) {
-      logger.warn("MatchPanel.onReselectMatchedClick: no matched segment ids for current row");
-      return;
+  /** Read the live WME segment selection. */
+  private readSelectionSegmentIds(): number[] {
+    try {
+      const selection = this.wmeSDK.Editing.getSelection();
+      if (selection && selection.objectType === "segment") {
+        return selection.ids as number[];
+      }
+    } catch (err) {
+      logger.warn("MatchingSubTab.readSelectionSegmentIds: getSelection failed", err);
     }
+    return [];
+  }
+
+  /** Every line's every sub-line validated and no pendingTail left. */
+  private isSourceComplete(): boolean {
+    const src = this.sourceStore.getSource();
+    if (!src || src.lines.length === 0) return false;
+    return src.lines.every(
+      (line) =>
+        line.pendingTail.length === 0 &&
+        line.subLines.length > 0 &&
+        line.subLines.every((sub) => sub.validated),
+    );
+  }
+
+  private countValidatedSubLines(): number {
+    const src = this.sourceStore.getSource();
+    if (!src) return 0;
+    return src.lines.reduce(
+      (sum, line) => sum + line.subLines.filter((s) => s.validated).length,
+      0,
+    );
+  }
+
+  private countMatchedSegments(): number {
+    const src = this.sourceStore.getSource();
+    if (!src) return 0;
+    const ids = new Set<number>();
+    for (const line of src.lines) {
+      for (const sub of line.subLines) {
+        if (sub.validated) sub.segmentIds.forEach((id) => ids.add(id));
+      }
+    }
+    return ids.size;
+  }
+
+  private onReselectMatchedClick(): void {
+    const src = this.sourceStore.getSource();
+    const cursor = src?.cursor;
+    if (!src || !cursor) return;
+    const sub = src.lines[cursor.lineIndex]?.subLines[cursor.subLineIndex];
+    if (!sub) return;
 
     const loadedSegmentIds = new Set(
       this.wmeSDK.DataModel.Segments.getAll().map((segment) => segment.id),
     );
-    const selectableIds = this.currentMatchedIds.filter((id) => loadedSegmentIds.has(id));
-    const skippedIds = this.currentMatchedIds.filter((id) => !loadedSegmentIds.has(id));
-
+    const selectableIds = sub.segmentIds.filter((id) => loadedSegmentIds.has(id));
     if (selectableIds.length === 0) {
-      logger.warn("MatchPanel.onReselectMatchedClick: no matched ids are currently loaded", {
-        currentMatchedCount: this.currentMatchedIds.length,
-      });
+      logger.warn("MatchingSubTab.onReselectMatchedClick: no matched ids currently loaded");
       return;
     }
-
     try {
       this.wmeSDK.Editing.setSelection({
         selection: { ids: selectableIds, objectType: "segment" },
       });
-      logger.info("MatchPanel.onReselectMatchedClick: reselected matched ids", {
-        selectedCount: selectableIds.length,
-        skippedCount: skippedIds.length,
-        skippedSample: skippedIds.slice(0, 10),
-      });
     } catch (err) {
-      logger.warn("MatchPanel.onReselectMatchedClick: setSelection failed", err);
+      logger.warn("MatchingSubTab.onReselectMatchedClick: setSelection failed", err);
     }
   }
 
-  private onRerunCurrentRowClick(): void {
-    if (!this.pipeline?.isRunning() || this.matchingMode !== "interactive") {
-      logger.warn("MatchPanel.onRerunCurrentRowClick: no interactive row waiting to rerun");
-      return;
-    }
-    this.setGuidedLoading(true, i18next.t("panel.matching.steps.unknown"));
-    this.pipeline.rerunCurrentRow();
+  private onRestartFromScratchClick(): void {
+    confirmModal({
+      message: i18next.t("panel.matching.restartConfirm"),
+      confirmLabel: i18next.t("panel.matching.restartFromScratch"),
+      cancelLabel: i18next.t("panel.finalFields.cancel"),
+    })
+      .then((confirmed) => {
+        if (!confirmed) return;
+        const entry = this.registry.getSelected();
+        if (!entry) return;
+        this.persistence.clear(entry.id);
+        this.lazyPipeline = null;
+        this.matchingActive = false;
+        const fresh = this.buildSourceForEntry(entry);
+        this.sourceStore.hydrate(fresh);
+        this.store.setPhase("csv-loaded");
+        this.resetGuidedSessionState();
+        this.renderSourceState();
+      })
+      .catch((err: unknown) => {
+        logger.error("MatchPanel: restart confirm modal rejected", err);
+      });
   }
 
   private updateGuidedControls(): void {
     const phase = this.store.getState().phase;
-    const hasCsv = this.phaseGte(phase, "csv-loaded");
-    const isRunning = this.pipeline?.isRunning() ?? false;
-    const isPaused = this.pipeline?.isPaused() ?? false;
-    const isInteractive = this.matchingMode === "interactive";
-    const isWaitingForUser = isRunning && isInteractive && !this.guidedBusy;
+    const hasSource = this.sourceStore.getSource() !== null;
     const isDone = phase === "done";
-    const canStart = hasCsv && !isRunning && !isPaused && !isDone;
-    const disableForBusy = this.guidedBusy && isRunning;
+    const isMatching = this.matchingActive && !isDone;
+    const isWaiting = isMatching && !this.guidedBusy;
+    const canStart = hasSource && !this.matchingActive && !isDone && !this.guidedBusy;
 
-    this.setButtonDisabled(this.guidedStartManualBtn, !canStart);
-    this.setButtonDisabled(this.guidedStartBurstBtn, !canStart);
-    this.setButtonDisabled(this.guidedValidateBtn, !isWaitingForUser || disableForBusy);
-    this.setButtonDisabled(this.guidedSkipBtn, !isWaitingForUser || disableForBusy);
-    this.setButtonDisabled(this.guidedBackBtn, !(isWaitingForUser || isPaused));
-    this.setButtonDisabled(this.guidedReselectBtn, !isWaitingForUser || disableForBusy);
-    this.setButtonDisabled(this.guidedRerunBtn, !isWaitingForUser || disableForBusy);
-    this.setButtonDisabled(this.guidedPauseBtn, !isRunning || this.pausePending);
-    this.setButtonDisabled(this.guidedResumeBtn, !isPaused);
-    this.setButtonDisabled(this.guidedRestartBtn, !hasCsv);
-    this.setButtonDisabled(this.guidedCopyDebugBtn, disableForBusy);
-    this.setButtonDisabled(this.guidedDownloadEnrichedBtn, isRunning);
+    this.setButtonDisabled(this.guidedStartBtn, !canStart);
+    this.setButtonDisabled(this.guidedValidateBtn, !isWaiting);
+    this.setButtonDisabled(this.guidedSkipBtn, !isWaiting);
+    this.setButtonDisabled(this.guidedBackBtn, !isWaiting);
+    this.setButtonDisabled(this.guidedReselectBtn, !isWaiting);
+    this.setButtonDisabled(this.guidedRerunBtn, !isWaiting);
+    this.setButtonDisabled(this.guidedRestartBtn, !hasSource);
 
-    this.setButtonVisible(this.guidedStartManualBtn, canStart);
-    this.setButtonVisible(this.guidedStartBurstBtn, canStart);
-    this.setButtonVisible(this.guidedValidateBtn, isRunning && isInteractive && !isDone);
-    this.setButtonVisible(this.guidedSkipBtn, isRunning && isInteractive && !isDone);
-    this.setButtonVisible(this.guidedBackBtn, (isWaitingForUser || isPaused) && !isDone);
-    this.setButtonVisible(this.guidedReselectBtn, isWaitingForUser && !isDone);
-    this.setButtonVisible(this.guidedRerunBtn, isWaitingForUser && !isDone);
-    this.setButtonVisible(this.guidedPauseBtn, isRunning && !isInteractive && !isDone);
-    this.setButtonVisible(this.guidedResumeBtn, isPaused && !isDone);
+    this.setButtonVisible(this.guidedStartBtn, canStart);
+    this.setButtonVisible(this.guidedValidateBtn, isMatching);
+    this.setButtonVisible(this.guidedSkipBtn, isMatching);
+    this.setButtonVisible(this.guidedBackBtn, isMatching);
+    this.setButtonVisible(this.guidedReselectBtn, isMatching);
+    this.setButtonVisible(this.guidedRerunBtn, isMatching);
     this.setButtonVisible(this.guidedDoneCloseBtn, isDone);
-    this.setButtonVisible(this.guidedRestartBtn, hasCsv && !isDone);
+    this.setButtonVisible(this.guidedRestartBtn, hasSource && !isDone);
 
     if (this.guidedStatusEl) {
-      const key = isRunning
-        ? this.guidedBusy
-          ? "running"
-          : "waiting"
-        : isPaused
-          ? "paused"
-          : phase === "done"
+      const key = this.guidedBusy
+        ? "running"
+        : isMatching
+          ? "waiting"
+          : isDone
             ? "done"
             : "ready";
       this.guidedStatusEl.textContent = i18next.t(`panel.matching.panelStatus.${key}`);
-    }
-
-    if (this.guidedModeEl) {
-      this.guidedModeEl.textContent = i18next.t(
-        `panel.matching.mode.${isRunning || isPaused ? this.matchingMode : "idle"}`,
-      );
     }
   }
 
@@ -1626,33 +1113,81 @@ export class MatchingSubTab {
     button.style.display = visible ? "" : "none";
   }
 
-  private onRestartFromScratchClick(): void {
-    confirmModal({
-      message: i18next.t("panel.matching.restartConfirm"),
-      confirmLabel: i18next.t("panel.matching.restartFromScratch"),
-      cancelLabel: i18next.t("panel.finalFields.cancel"),
-    })
-      .then((confirmed) => {
-        if (!confirmed) return;
-        this.pipeline?.abort();
-        this.pipeline = null;
-        const url = this.store.getState().geojsonUrl;
-        if (url && this.lastCsvText) {
-          clearForCurrent(url, this.lastCsvText);
-        }
-        this.resetGuidedSessionState();
-        // Re-load the same CSV (cached) to land back at csv-loaded with a
-        // fresh state — saves the user from re-uploading the file.
-        if (this.lastCsvText && this.lastCsvRows.length > 0) {
-          this.store.setCsvRows(this.lastCsvRows, this.lastCsvText);
-          this.store.setPhase("csv-loaded");
-        } else {
-          this.store.reset();
-        }
-      })
-      .catch((err: unknown) => {
-        logger.error("MatchPanel: restart confirm modal rejected", err);
+  // ---------------------------------------------------------------------------
+  // Private — SourceStore-driven view updates (header / overlay / counts)
+  // ---------------------------------------------------------------------------
+
+  private renderSourceState(): void {
+    const src = this.sourceStore.getSource();
+    if (!src) {
+      this.trackLayer?.setHighlightedSlice(null);
+      return;
+    }
+    const cursor = src.cursor;
+    if (!cursor) {
+      this.trackLayer?.setHighlightedSlice(null);
+      if (this.guidedRowHeaderEl) this.guidedRowHeaderEl.textContent = "—";
+      return;
+    }
+
+    const line = src.lines[cursor.lineIndex];
+    if (!line) return;
+    const sub = line.subLines[cursor.subLineIndex];
+
+    // Header text — no chaîne suffix.
+    if (this.guidedRowHeaderEl) {
+      this.guidedRowHeaderEl.textContent = this.formatHeader(src, cursor.lineIndex, cursor.subLineIndex);
+    }
+
+    // Segment count for the current sub-line.
+    if (this.guidedSegmentCountEl && sub) {
+      this.guidedSegmentCountEl.textContent = i18next.t("panel.matching.segmentsMatched", {
+        count: sub.segmentIds.length,
       });
+    }
+
+    // Sub-line overlay highlights only the current sub-line geometry.
+    if (sub) {
+      this.trackLayer?.setHighlightedSlice(
+        sliceMultiLineByDistance(line.geometry, sub.kmA, sub.kmB),
+      );
+    } else {
+      this.trackLayer?.setHighlightedSlice(null);
+    }
+  }
+
+  private formatHeader(src: Source, lineIndex: number, subLineIndex: number): string {
+    const line = src.lines[lineIndex];
+    const hasTime = Boolean(line.startISO && line.endISO);
+    // A line with exactly one sub-line covering the whole line omits the suffix.
+    const singleWholeSubLine =
+      line.subLines.length === 1 &&
+      line.pendingTail.length === 0 &&
+      line.subLines[0].kmA <= 1e-9 &&
+      Math.abs(line.subLines[0].kmB - line.lengthKm) < 1e-6;
+
+    const base = {
+      index: lineIndex + 1,
+      total: src.lines.length,
+      km: line.lengthKm.toFixed(1),
+      startTime: line.startISO ? line.startISO.slice(11, 16) : "",
+      endTime: line.endISO ? line.endISO.slice(11, 16) : "",
+    };
+
+    if (singleWholeSubLine) {
+      return hasTime
+        ? i18next.t("panel.matching.rowHeader", base)
+        : i18next.t("panel.matching.rowHeaderNoTime", base);
+    }
+
+    const withSub = {
+      ...base,
+      subIndex: subLineIndex + 1,
+      subTotal: line.subLines.length,
+    };
+    return hasTime
+      ? i18next.t("panel.matching.rowHeaderWithSubLine", withSub)
+      : i18next.t("panel.matching.rowHeaderWithSubLineNoTime", withSub);
   }
 
   private buildDownloadRow(): HTMLElement {
@@ -1675,124 +1210,21 @@ export class MatchingSubTab {
     return section;
   }
 
-  private buildResumeBannerRow(): HTMLElement {
-    const section = document.createElement("section");
-    section.className = "wmegj-section wmegj-resume-panel";
-    section.style.marginTop = "8px";
-    section.style.display = "none";
-    section.style.padding = "8px";
-    section.style.border = "1px solid #f0c040";
-    section.style.background = "#fff8e1";
-    section.style.borderRadius = "4px";
-    return section;
-  }
-
-  /**
-   * Populate the resume banner with two buttons. Called from
-   * onCsvFileSelected when a non-empty saved state was found for the current
-   * (geojsonUrl, csvText) pair. Both buttons hide the banner before mutating
-   * the store so the panel transitions cleanly to csv-loaded or matching.
-   */
-  private renderResumeBanner(saved: SessionState, rows: CsvRow[], csvText: string): void {
-    const banner = this.resumeBannerRow;
-    if (!banner) return;
-
-    // Clear any previous content (the same banner element is reused across
-    // CSV uploads).
-    while (banner.firstChild) banner.removeChild(banner.firstChild);
-
-    const headerEl = document.createElement("p");
-    headerEl.style.margin = "0 0 4px 0";
-    headerEl.style.fontWeight = "600";
-
-    const totalKm = saved.trackLengthKm ?? this.store.getState().trackLengthKm ?? 0;
-    const totalWorkItems = computeMatchingWorkItems(rows, totalKm).length;
-    const isCompletedSession =
-      saved.phase === "done" || (totalWorkItems > 0 && saved.currentIndex >= totalWorkItems);
-
-    headerEl.textContent = i18next.t(
-      isCompletedSession ? "panel.resumeCompleted" : "panel.resumeDetected",
-    );
-    banner.appendChild(headerEl);
-
-    const indexEl = document.createElement("p");
-    indexEl.style.margin = "0 0 8px 0";
-    indexEl.style.fontSize = "12px";
-    if (isCompletedSession) {
-      indexEl.textContent = i18next.t("panel.resumeCompletedDetails", {
-        total: totalWorkItems,
-      });
-    } else {
-      const nextIndex = Math.min(saved.currentIndex + 1, Math.max(totalWorkItems, 1));
-      indexEl.textContent = i18next.t("panel.resumeIndex", {
-        index: nextIndex,
-        total: totalWorkItems,
-      });
-    }
-    banner.appendChild(indexEl);
-
-    const btnRow = document.createElement("div");
-    btnRow.className = "wmegj-button-stack";
-    btnRow.style.display = "flex";
-    btnRow.style.gap = "6px";
-
-    const resumeBtn = wzButton({
-      text: i18next.t("panel.resume"),
-      variant: "primary",
-      onClick: () => {
-        banner.style.display = "none";
-        this.pipeline?.abort();
-        this.pipeline = null;
-        this.resetGuidedSessionState({ closePanel: true });
-        this.store.rehydrate(saved, csvText);
-      },
-    });
-    btnRow.appendChild(resumeBtn);
-
-    const freshBtn = wzButton({
-      text: i18next.t("panel.startFresh"),
-      variant: "secondary",
-      onClick: () => {
-        const url = this.store.getState().geojsonUrl;
-        if (url) clearForCurrent(url, csvText);
-        banner.style.display = "none";
-        this.pipeline?.abort();
-        this.pipeline = null;
-        this.resetGuidedSessionState({ closePanel: true });
-        this.store.setCsvRows(rows, csvText);
-        this.store.setPhase("csv-loaded");
-      },
-    });
-    btnRow.appendChild(freshBtn);
-
-    banner.appendChild(btnRow);
-    banner.style.display = "block";
-  }
-
   // ---------------------------------------------------------------------------
-  // Private — range slider (kept from the pre-refactor panel)
+  // Private — range slider
   // ---------------------------------------------------------------------------
 
-  /**
-   * Two-handle range slider that controls which kilometre window of the track
-   * is rendered on the map. Implemented as two stacked native range inputs
-   * since HTML lacks a built-in dual slider; the handlers enforce that the
-   * lower handle stays ≤ the upper one.
-   */
   private buildRangeSlider(): HTMLElement {
     const section = document.createElement("section");
     section.className = "wmegj-section";
     section.style.marginTop = "8px";
 
     if (!this.trackLayer) {
-      // Layer not yet attached (pre-track-loaded phase) — render an empty
-      // placeholder; setTrackLayer() will rebuild this section with real bounds.
       return section;
     }
 
     const totalKm = this.trackLayer.getTotalKm();
     if (totalKm <= 0) {
-      // Degenerate track (single point or zero-length) — slider is meaningless.
       return section;
     }
 
@@ -1830,9 +1262,6 @@ export class MatchingSubTab {
     maxInput.value = String(totalKm);
     maxInput.style.width = "100%";
 
-    // requestAnimationFrame coalesces rapid input events: dragging the slider
-    // fires `input` ~60×/s, but each redraw can take 50–200 ms on a long
-    // track, so without coalescing the queue grows unbounded and the UI freezes.
     let pendingFrame = 0;
     let pendingLo = 0;
     let pendingHi = totalKm;
@@ -1842,7 +1271,6 @@ export class MatchingSubTab {
     const apply = () => {
       let lo = Number(minInput.value);
       let hi = Number(maxInput.value);
-      // Keep handles ordered: the one the user just dragged wins.
       if (lo > hi) {
         if (document.activeElement === minInput) {
           hi = lo;
@@ -1880,34 +1308,18 @@ export class MatchingSubTab {
   // Private — phase-driven visibility
   // ---------------------------------------------------------------------------
 
-  /**
-   * Toggle row visibility based on current session phase.
-   * Called on every store state change so it is the single source of truth
-   * for what is shown at each stage.
-   */
   private renderPhase(phase: SessionPhase): void {
     const atLeastTrackLoaded = this.phaseGte(phase, "track-loaded");
     const atLeastCsvLoaded = this.phaseGte(phase, "csv-loaded");
-    const isMatching = phase === "matching";
 
     this.setRowVisible(this.trackLengthRow, atLeastTrackLoaded);
     this.setRowVisible(this.rangeSliderRow, atLeastTrackLoaded);
-    this.setRowVisible(this.csvUploadRow, atLeastTrackLoaded);
     this.setRowVisible(this.startMatchingRow, atLeastCsvLoaded);
     this.setRowVisible(this.guidedMatchingRow, this.matchingPanelOpen && atLeastCsvLoaded);
     this.setRowVisible(this.downloadRow, atLeastCsvLoaded);
-    if (!isMatching) {
-      this.setGuidedLoading(false);
-    }
     this.updateGuidedControls();
-    // Resume banner visibility is managed by maybeShowResumeBanner() (Lot 5)
   }
 
-  /**
-   * Ordered phase list — later phases are "greater than" earlier ones.
-   * Changing order here changes what is shown/hidden; keep in sync with
-   * SessionPhase type definition in SessionStore.
-   */
   private readonly PHASE_ORDER: SessionPhase[] = [
     "no-track",
     "track-loaded",
@@ -1926,23 +1338,18 @@ export class MatchingSubTab {
   }
 
   // ---------------------------------------------------------------------------
-  // Private — event handlers
+  // Private — URL event handlers
   // ---------------------------------------------------------------------------
 
   private onLoadUrlClick(): void {
-    // Extract the current value from whatever element wzTextInput produced.
-    // In WME context: (el as wz-text-input).value; in fallback: inner <input>.
     const url = this.getUrlInputValue();
     if (!url) return;
 
-    // Hide any previous error before re-attempting
     if (this.urlErrorEl) {
       this.urlErrorEl.style.display = "none";
       this.urlErrorEl.textContent = "";
     }
 
-    // loadFn is injected by main.user.ts via setLoadFn() to avoid a circular
-    // module dependency (loadAndAttachTrack imports MatchPanel for its type).
     if (!this.loadFn) {
       logger.warn("MatchPanel: loadFn not injected yet — call setLoadFn() before mounting");
       return;
@@ -1962,19 +1369,13 @@ export class MatchingSubTab {
       this.urlErrorEl.textContent = "";
     }
 
-    const currentUrl = this.store.getState().geojsonUrl;
-    const needsLoad = currentUrl !== url || this.trackLayer?.getTrackGeometry() === null;
-
-    if (needsLoad) {
-      if (!this.loadFn) {
-        logger.warn("MatchPanel: loadFn not injected yet — call setLoadFn() before mounting");
-        return;
-      }
+    const geometry = this.trackLayer?.getTrackGeometry() ?? null;
+    if (!geometry && this.loadFn) {
       await this.loadFn(url);
     }
 
-    const geometry = this.trackLayer?.getTrackGeometry() ?? null;
-    const bbox = geometry ? bboxOfMultiLineString(geometry) : null;
+    const geom = this.trackLayer?.getTrackGeometry() ?? null;
+    const bbox = geom ? bboxOfMultiLineString(geom) : null;
     if (!bbox) {
       logger.warn("MatchPanel.onCenterUrlClick: no track geometry available to center");
       return;
@@ -1986,184 +1387,48 @@ export class MatchingSubTab {
 
   private getUrlInputValue(): string {
     if (!this.urlInputEl) return "";
-
-    // wz-text-input exposes .value on the host element; the fallback div wraps
-    // a native <input> as its first child.
     const asWz = this.urlInputEl as unknown as { value?: string };
     if (typeof asWz.value === "string") {
       return asWz.value.trim();
     }
-
-    // Fallback: the wrapper div contains a native <input>
     const nativeInput = this.urlInputEl.querySelector("input");
     return nativeInput ? nativeInput.value.trim() : "";
   }
 
-  private onCsvFileSelected(file: File): void {
-    this.pipeline?.abort();
-    this.pipeline = null;
-    this.resetGuidedSessionState({ closePanel: true });
-    this.hideResumeBanner();
-    this.setCsvLoading(true, i18next.t("panel.csvInput.reading"));
-    this.clearCsvError();
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const text = reader.result;
-      if (typeof text !== "string") {
-        this.setCsvLoading(false);
-        return;
-      }
-      void this.processCsvText(text);
-    };
-    reader.onerror = () => {
-      const message =
-        reader.error instanceof DOMException
-          ? reader.error.message
-          : i18next.t("panel.csvInput.error");
-      this.setCsvLoading(false);
-      this.showCsvError(message);
-    };
-    reader.readAsText(file);
-  }
-
-  private async processCsvText(text: string): Promise<void> {
-    try {
-      this.setCsvLoading(true, i18next.t("panel.csvInput.processing"));
-      await waitForNextPaint();
-
-      const rows = parseSchedule(text);
-      // Cache so the restart-from-scratch button can re-load without asking
-      // the user to re-upload the file.
-      this.lastCsvText = text;
-      this.lastCsvRows = rows;
-
-      const selectedLineId = this.registry.getSelected()?.id;
-      if (selectedLineId) {
-        this.registry.updateEntry(selectedLineId, {
-          mode: "csv",
-          csvRows: rows,
-          csvText: text,
-        });
-      }
-      this.setSyntheticBannerVisible(false);
-      this.setRemoveCsvVisible(true);
-
-      // Show only the labels whose distances appear in the CSV so the track
-      // decorations match the pipeline waypoints from the start.
-      if (this.trackLayer) {
-        this.setCsvLoading(true, i18next.t("panel.csvInput.labels"));
-        await waitForNextPaint();
-        const distanceKeys = rows.map((r) => r.distance);
-        this.trackLayer.setVisibleDistances(distanceKeys);
-      }
-
-      const url = this.store.getState().geojsonUrl;
-      const saved = url ? persistenceLoad(url, text) : null;
-      if (saved && saved.currentIndex > 0) {
-        // Defer the actual store mutation until the user picks Resume or
-        // Start fresh — see renderResumeBanner().
-        this.renderResumeBanner(saved, rows, text);
-      } else {
-        this.store.setCsvRows(rows, text);
-        this.store.setPhase("csv-loaded");
-      }
-
-      logger.info(`MatchPanel: loaded ${rows.length} CSV rows`);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error("MatchPanel: CSV parse failed", err);
-      this.showCsvError(message);
-    } finally {
-      this.setCsvLoading(false);
-    }
-  }
-
-  private hideResumeBanner(): void {
-    if (!this.resumeBannerRow) return;
-    this.resumeBannerRow.style.display = "none";
-    while (this.resumeBannerRow.firstChild) {
-      this.resumeBannerRow.removeChild(this.resumeBannerRow.firstChild);
-    }
-  }
-
-  private clearCsvError(): void {
-    const errEl = this.csvUploadRow?.querySelector<HTMLElement>(".wmegj-csv-error");
-    if (errEl) {
-      errEl.textContent = "";
-      errEl.style.display = "none";
-    }
-  }
-
-  private showCsvError(message: string): void {
-    if (!this.csvUploadRow) return;
-
-    let errEl = this.csvUploadRow.querySelector<HTMLElement>(".wmegj-csv-error");
-    if (!errEl) {
-      errEl = document.createElement("p");
-      errEl.className = "wmegj-csv-error";
-      this.csvUploadRow.appendChild(errEl);
-    }
-    errEl.textContent = message;
-    errEl.style.display = "";
-  }
-
-  private onDownloadEnrichedClick(): void {
-    const rows = this.store.getState().csvRows;
-    const csv = serializeSchedule(rows);
-    this.triggerDownload(csv, "schedule-enriched.csv", "text/csv");
-  }
+  // ---------------------------------------------------------------------------
+  // Private — export
+  // ---------------------------------------------------------------------------
 
   private onDownloadClosuresClick(): void {
-    const { csvRows } = this.store.getState();
-    const closuresBySegment = this.getExportClosuresBySegment();
+    const src = this.sourceStore.getSource();
+    if (!src) {
+      const message = i18next.t("panel.matching.noPipelineRun");
+      logger.warn("MatchPanel: " + message);
+      alert(message);
+      return;
+    }
 
-    if (!this.hasValidatedProgress(csvRows)) {
+    const closures = closuresFromSource(src);
+    const hasAny =
+      closures.mode === "global-times"
+        ? closures.segmentIds.length > 0
+        : closures.bySegment.length > 0;
+    if (!hasAny) {
       const message = i18next.t("panel.matching.mustValidateFirst");
       logger.warn("MatchPanel: " + message);
       alert(message);
       return;
     }
 
-    const closureGroups = this.getExportClosureGroups(csvRows);
-    if (!closureGroups) {
+    if (closures.mode === "global-times") {
+      void this.downloadClosuresGlobalTimes(closures.segmentIds);
       return;
     }
-
-    const selected = this.registry.getSelected();
-    const isSynthetic = selected?.mode !== "csv";
-
-    if (isSynthetic) {
-      void this.downloadClosuresSynthetic(closureGroups);
-      return;
-    }
-
-    // --- CSV mode: existing flow, unchanged ---
-    promptFinalFields()
-      .then((fields: FinalFields | null) => {
-        if (!fields) return;
-
-        try {
-          const csv = buildClosuresCsv(csvRows, closureGroups, closuresBySegment, fields);
-          this.triggerDownload(csv, "closures.csv", "text/csv");
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          logger.error("MatchPanel: buildClosuresCsv failed", err);
-          // Surface error inline without a full modal — a console error is
-          // visible in DevTools; a future lot can add a proper toast.
-          alert(message);
-        }
-      })
-      .catch((err: unknown) => {
-        logger.error("MatchPanel: promptFinalFields rejected", err);
-      });
+    void this.downloadClosuresPerLine(closures.bySegment);
   }
 
-  /**
-   * Synthetic (CSV-less) download path: prompt for the closure time window,
-   * apply it to the synthetic row (index 0), then build and download the CSV.
-   */
-  private async downloadClosuresSynthetic(closureGroups: ClosureRowGroup[]): Promise<void> {
+  /** No CSV — collect a single global window then apply to all segments. */
+  private async downloadClosuresGlobalTimes(segmentIds: number[]): Promise<void> {
     const today = new Date().toISOString().slice(0, 10);
     const slowupDate = this.registry.getSelected()?.slowupDetails?.date;
     const window = await promptClosureWindow({
@@ -2176,713 +1441,91 @@ export class MatchingSubTab {
     const fields = await promptFinalFields();
     if (!fields) return;
 
-    const rows = this.store.getState().csvRows;
-    const csvRows = rows.map((row, index) =>
-      index === 0
-        ? {
-            ...row,
-            date: window.startISO.slice(0, 10),
-            startTime: window.startISO.slice(11, 16),
-            endTime: window.endISO.slice(11, 16),
-          }
-        : row,
-    );
-    const closuresBySegment = this.buildSyntheticClosuresBySegment(
-      closureGroups,
-      window.startISO,
-      window.endISO,
-    );
+    const geo = this.exportGeo();
+    const rows: CsvRow[] = [
+      {
+        distance: 0,
+        date: window.startISO.slice(0, 10),
+        startTime: window.startISO.slice(11, 16),
+        endTime: window.endISO.slice(11, 16),
+        segments: segmentIds.slice(),
+      },
+    ];
+    const groups: ClosureRowGroup[] = [{ rowIndex: 0, segmentIds: segmentIds.slice(), geo }];
+    const closuresBySegment: Record<number, ClosureRange[]> = {};
+    for (const id of segmentIds) {
+      closuresBySegment[id] = [
+        { startISO: window.startISO, endISO: window.endISO, rowIndex: 0 },
+      ];
+    }
 
+    this.emitClosuresCsv(rows, groups, closuresBySegment, fields);
+  }
+
+  /** CSV-derived per-line windows — no global window popup. */
+  private async downloadClosuresPerLine(
+    bySegment: ReadonlyArray<{ segmentId: number; windows: { startISO: string; endISO: string }[] }>,
+  ): Promise<void> {
+    const fields = await promptFinalFields();
+    if (!fields) return;
+
+    const geo = this.exportGeo();
+    // Synthesize the legacy ClosureRowGroup/ClosureRange/CsvRow shapes:
+    // one synthetic row per (segment, window).
+    const rows: CsvRow[] = [];
+    const groups: ClosureRowGroup[] = [];
+    const closuresBySegment: Record<number, ClosureRange[]> = {};
+
+    bySegment.forEach((entry) => {
+      entry.windows.forEach((win) => {
+        const rowIndex = rows.length;
+        rows.push({
+          distance: 0,
+          date: win.startISO.slice(0, 10),
+          startTime: win.startISO.slice(11, 16),
+          endTime: win.endISO.slice(11, 16),
+          segments: [entry.segmentId],
+        });
+        groups.push({ rowIndex, segmentIds: [entry.segmentId], geo });
+        const existing = closuresBySegment[entry.segmentId] ?? [];
+        existing.push({ startISO: win.startISO, endISO: win.endISO, rowIndex });
+        closuresBySegment[entry.segmentId] = existing;
+      });
+    });
+
+    this.emitClosuresCsv(rows, groups, closuresBySegment, fields);
+  }
+
+  /** RowGeo derived from the current map view — used as the closure anchor. */
+  private exportGeo(): RowGeo {
+    let lon = 0;
+    let lat = 0;
+    let zoom = 16;
     try {
-      const csv = buildClosuresCsv(csvRows, closureGroups, closuresBySegment, fields);
+      const center = this.wmeSDK.Map.getMapCenter();
+      lon = center.lon;
+      lat = center.lat;
+      zoom = this.wmeSDK.Map.getZoomLevel();
+    } catch (err) {
+      logger.warn("MatchingSubTab.exportGeo: failed to read map view", err);
+    }
+    return { lon, lat, zoom };
+  }
+
+  private emitClosuresCsv(
+    rows: CsvRow[],
+    groups: ClosureRowGroup[],
+    closuresBySegment: Record<number, ClosureRange[]>,
+    fields: FinalFields,
+  ): void {
+    try {
+      const csv = buildClosuresCsv(rows, groups, closuresBySegment, fields);
       this.triggerDownload(csv, "closures.csv", "text/csv");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      logger.error("MatchingSubTab: buildClosuresCsv (synthetic) failed", err);
+      logger.error("MatchingSubTab: buildClosuresCsv failed", err);
       alert(message);
     }
-  }
-
-  private hasValidatedProgress(rows: readonly CsvRow[]): boolean {
-    if (this.isChainMergeModeActive()) {
-      return this.chainSnapshots.some((snapshot) => snapshot.status === "done");
-    }
-    return rows.some((row) => row.segments !== null);
-  }
-
-  private getExportClosureGroups(rows: readonly CsvRow[]): ClosureRowGroup[] | null {
-    if (this.isChainMergeModeActive()) {
-      if (this.mergedChainGroups.length === 0) {
-        const message = i18next.t("panel.matching.noPipelineRun");
-        logger.warn("MatchPanel: " + message);
-        alert(message);
-        return null;
-      }
-      return this.mergedChainGroups;
-    }
-
-    // After a line switch the live pipeline belongs to a different line; fall
-    // back to the match groups snapshotted on the selected entry (Task 5).
-    const snapshotGroups = this.registry.getSelected()?.matchedGroups ?? [];
-    const closureGroups = (this.pipeline?.getMatchedGroups() ??
-      snapshotGroups) as ClosureRowGroup[];
-    const missingGeoIndex = rows.findIndex(
-      (row, index) =>
-        row.segments !== null &&
-        row.segments.some(
-          (segmentId) =>
-            !closureGroups.some(
-              (group) => group.rowIndex === index && group.segmentIds.includes(segmentId),
-            ),
-        ),
-    );
-
-    if (missingGeoIndex === -1) {
-      return closureGroups;
-    }
-
-    const message = i18next.t("panel.matching.missingRowGeo", {
-      index: missingGeoIndex + 1,
-    });
-    logger.warn("MatchPanel: " + message);
-    alert(message);
-    return null;
-  }
-
-  private getExportClosuresBySegment(): Record<number, ClosureRange[]> {
-    if (this.isChainMergeModeActive()) {
-      return this.mergedChainClosuresBySegment;
-    }
-
-    return this.store.getState().closuresBySegment;
-  }
-
-  private isChainMergeModeActive(): boolean {
-    if (this.chainByChainEnabled) {
-      return true;
-    }
-
-    return this.registry.getSelected()?.chainMergeState?.mode === "chain-by-chain";
-  }
-
-  private onStartMatchingClick(mode: "interactive" | "burst"): void {
-    const { csvRows, geojsonUrl, phase } = this.store.getState();
-    if (this.pipeline?.isRunning()) {
-      logger.warn("MatchPanel.onStartMatchingClick: pipeline already running");
-      return;
-    }
-
-    this.matchingMode = mode;
-    this.matchingPanelOpen = true;
-    this.guidedActiveTab = "match";
-    this.setGuidedActiveTab("match");
-
-    logger.info("MatchPanel.onStartMatchingClick: clicked", {
-      rowCount: csvRows.length,
-      geojsonUrl,
-      mode,
-      hasController: this.controller !== null,
-      hasTrackLayer: this.trackLayer !== null,
-    });
-
-    if (csvRows.length === 0) {
-      logger.warn("MatchPanel.onStartMatchingClick: no CSV rows, cannot start");
-      return;
-    }
-
-    if (!this.controller) {
-      logger.warn("MatchPanel.onStartMatchingClick: no controller, track not loaded");
-      return;
-    }
-
-    if (!this.trackLayer) {
-      logger.warn("MatchPanel.onStartMatchingClick: no trackLayer, track not loaded");
-      return;
-    }
-
-    if (!geojsonUrl) {
-      logger.warn("MatchPanel.onStartMatchingClick: no geojsonUrl in store");
-      return;
-    }
-
-    // Build NormalizedTrack from the layer's geometry. The TrackLayer already
-    // holds the loaded track; expose it via getTrack() or reconstruct the
-    // NormalizedTrack inline from what the controller holds.
-    // WalkController.track is private, so we read from TrackLayer instead.
-    const trackGeometry = this.trackLayer.getTrackGeometry();
-    if (!trackGeometry) {
-      logger.warn("MatchPanel.onStartMatchingClick: trackLayer has no geometry yet");
-      return;
-    }
-
-    const track = { trackId: null, geometry: trackGeometry };
-    const selectedEntry = this.registry.getSelected();
-    const chainByChain = this.shouldUseChainByChain(selectedEntry);
-    const chains = chainByChain
-      ? mergeTrackChainsByEndpoints(
-          listTrackChains(track),
-          MatchingSubTab.SLOWUP_CHAIN_MERGE_MAX_GAP_KM,
-        )
-      : [];
-
-    this.chainByChainEnabled = chainByChain && chains.length > 0;
-    this.activeChains = this.chainByChainEnabled ? chains : [];
-    this.activeChainIndex = this.chainByChainEnabled ? 0 : null;
-    if (this.chainByChainEnabled) {
-      this.chainSnapshots = this.activeChains.map((chain) => ({
-        chainId: chain.id,
-        status: "idle",
-        matchedGroups: [],
-        closuresBySegment: {},
-      }));
-      this.mergedChainGroups = [];
-      this.mergedChainClosuresBySegment = {};
-      this.renderMergeDebugState();
-    }
-
-    if (phase === "done") {
-      logger.info("MatchPanel.onStartMatchingClick: restarting completed run from row 0");
-      this.store.rewindToRow(0);
-    }
-
-    if (this.chainByChainEnabled) {
-      this.store.rewindToRow(0);
-      this.appendGuidedStep(
-        i18next.t("panel.matching.chainStart", {
-          chainIndex: 1,
-          chainTotal: this.activeChains.length,
-        }),
-      );
-    }
-
-    logger.info("MatchPanel.onStartMatchingClick: switching store phase to matching");
-    this.store.setPhase("matching");
-    this.setGuidedLoading(true, i18next.t("panel.matching.steps.unknown"));
-    this.updateGuidedControls();
-    if (this.guidedInstructionEl) {
-      this.guidedInstructionEl.textContent = i18next.t(
-        mode === "burst" ? "panel.matching.burstRunning" : "panel.matching.validateOrCorrect",
-      );
-    }
-    if (this.guidedManualActionsEl) {
-      // Keep the actions row visible in both modes — per-button visibility
-      // (handled by updateGuidedControls) hides the manual-only buttons in
-      // burst mode while Pause/Resume need to remain reachable.
-      this.guidedManualActionsEl.style.display = "flex";
-    }
-
-    const initialTrack = this.chainByChainEnabled ? this.activeChains[0].geometry : track.geometry;
-    this.startPipeline(initialTrack, mode);
-  }
-
-  private shouldUseChainByChain(entry: LineEntry | null): boolean {
-    return entry !== null && entry.slowupNumber !== undefined && entry.mode === "synthetic";
-  }
-
-  private appendChainSuffix(baseText: string): string {
-    if (
-      !this.chainByChainEnabled ||
-      this.activeChainIndex === null ||
-      this.activeChains.length < 2
-    ) {
-      return baseText;
-    }
-
-    return i18next.t("panel.matching.chainSuffix", {
-      base: baseText,
-      chainIndex: this.activeChainIndex + 1,
-      chainTotal: this.activeChains.length,
-    });
-  }
-
-  private startPipeline(
-    trackGeometry: ReturnType<TrackLayer["getTrackGeometry"]> extends infer T
-      ? Exclude<T, null>
-      : never,
-    mode: "interactive" | "burst",
-  ): void {
-    if (!this.controller || !this.trackLayer) {
-      logger.warn("MatchPanel.startPipeline: missing controller or trackLayer");
-      return;
-    }
-
-    const track = { trackId: null, geometry: trackGeometry };
-    this.markActiveChainStatus("matching");
-
-    logger.info("MatchPanel.startPipeline: creating MatchingPipeline", {
-      rowCount: this.store.getState().csvRows.length,
-      currentIndex: this.store.getState().currentIndex,
-      mode,
-      chainByChain: this.chainByChainEnabled,
-      activeChainIndex: this.activeChainIndex,
-      activeChainCount: this.activeChains.length,
-    });
-
-    this.pipeline = new MatchingPipeline(
-      this.wmeSDK,
-      this.store,
-      this.controller,
-      track,
-      this.trackLayer,
-      {
-        onRowStarted: (index, total) => {
-          this.setGuidedLoading(true, i18next.t("panel.matching.steps.unknown"));
-          const rows = this.store.getState().csvRows;
-          const row = rows[index];
-          if (row && this.guidedRowHeaderEl) {
-            const baseHeader = i18next.t("panel.matching.rowHeader", {
-              index: index + 1,
-              total,
-              km: row.distance.toFixed(1),
-              startTime: row.startTime,
-              endTime: row.endTime,
-            });
-            this.guidedRowHeaderEl.textContent = this.appendChainSuffix(baseHeader);
-          }
-          if (this.guidedSegmentCountEl) {
-            this.guidedSegmentCountEl.textContent = i18next.t("panel.matching.segmentsMatched", {
-              count: 0,
-            });
-          }
-          const totalKm = this.store.getState().trackLengthKm ?? 0;
-          const workItem = computeMatchingWorkItems(rows, totalKm).find(
-            (item) => item.rowIndex === index,
-          );
-          this.currentRowIndex = index;
-          this.currentRowKmA = workItem?.kmA ?? null;
-          this.currentRowKmB = workItem?.kmB ?? null;
-          this.currentMatchedIds = [];
-          this.resetCurrentSubLines();
-          this.setDebugFeedback("");
-          this.resetGuidedSteps();
-        },
-        onRowMatched: (_index, segments) => {
-          this.setGuidedLoading(this.matchingMode === "burst");
-          if (this.guidedSegmentCountEl) {
-            this.guidedSegmentCountEl.textContent = i18next.t("panel.matching.segmentsMatched", {
-              count: segments.length,
-            });
-          }
-          this.currentMatchedIds = segments.slice();
-          this.updateGuidedControls();
-        },
-        onStep: (event) => {
-          this.applySubLineStep(event);
-          const message = this.formatPipelineStep(event);
-          this.setGuidedLoading(event.key !== "waitingLeafValidation", message);
-          this.appendGuidedStep(message);
-          this.updateGuidedControls();
-        },
-        onError: (message) => {
-          this.setGuidedLoading(false);
-          logger.error("MatchingPipeline error:", message);
-        },
-        onDone: async () => {
-          logger.info("MatchPanel.startPipeline: pipeline reported done", {
-            chainByChain: this.chainByChainEnabled,
-            activeChainIndex: this.activeChainIndex,
-            activeChainCount: this.activeChains.length,
-          });
-          this.pausePending = false;
-          this.setGuidedLoading(false);
-          this.currentMatchedIds = [];
-
-          if (
-            this.chainByChainEnabled &&
-            this.activeChainIndex !== null &&
-            this.activeChainIndex + 1 < this.activeChains.length
-          ) {
-            await this.captureActiveChainSnapshot("done");
-            this.activeChainIndex += 1;
-            this.store.rewindToRow(0);
-            this.currentSubLines = [];
-            const message = i18next.t("panel.matching.chainSwitching", {
-              chainIndex: this.activeChainIndex + 1,
-              chainTotal: this.activeChains.length,
-            });
-            this.appendGuidedStep(message);
-            this.setGuidedLoading(true, message);
-            this.updateGuidedControls();
-            const nextChain = this.activeChains[this.activeChainIndex];
-            this.startPipeline(nextChain.geometry, this.matchingMode);
-            return;
-          }
-
-          if (this.chainByChainEnabled) {
-            await this.captureActiveChainSnapshot("done");
-          }
-
-          const rowsValidated = this.store
-            .getState()
-            .csvRows.filter((row) => row.segments !== null).length;
-          const totalSegments =
-            this.pipeline
-              ?.getMatchedGroups()
-              .reduce((sum, group) => sum + group.segmentIds.length, 0) ?? 0;
-          const summaryText = i18next.t("panel.matching.steps.completedSummary", {
-            rowsValidated,
-            totalSegments,
-          });
-          if (this.guidedSegmentCountEl) {
-            this.guidedSegmentCountEl.textContent = summaryText;
-          }
-          this.appendGuidedStep(summaryText);
-          this.store.setPhase("done");
-          this.updateGuidedControls();
-        },
-        onAborted: () => {
-          logger.info("MatchPanel.startPipeline: pipeline reported aborted");
-          this.pausePending = false;
-          this.setGuidedLoading(false);
-          this.store.setPhase("csv-loaded");
-          this.updateGuidedControls();
-        },
-        onPaused: () => {
-          logger.info("MatchPanel.startPipeline: pipeline reported paused");
-          this.pausePending = false;
-          this.setGuidedLoading(false);
-          this.store.setPhase("csv-loaded");
-          this.updateGuidedControls();
-
-          if (this.pendingManualRestartOffset !== null) {
-            const restartIndex = Math.max(
-              0,
-              this.store.getState().currentIndex + this.pendingManualRestartOffset,
-            );
-            this.pendingManualRestartOffset = null;
-            this.store.rewindToRow(restartIndex);
-            this.onStartMatchingClick("interactive");
-          }
-        },
-      },
-      { burstMode: mode === "burst" },
-    );
-
-    logger.info("MatchPanel.startPipeline: starting pipeline");
-    this.pipeline.start();
-  }
-
-  private buildSyntheticClosuresBySegment(
-    groups: readonly ClosureRowGroup[],
-    startISO: string,
-    endISO: string,
-  ): Record<number, ClosureRange[]> {
-    const closuresBySegment: Record<number, ClosureRange[]> = {};
-
-    groups.forEach((group) => {
-      group.segmentIds.forEach((segmentId) => {
-        const existing = closuresBySegment[segmentId] ?? [];
-        closuresBySegment[segmentId] = [
-          ...existing,
-          {
-            rowIndex: group.rowIndex,
-            startISO,
-            endISO,
-          },
-        ];
-      });
-    });
-
-    return closuresBySegment;
-  }
-
-  private async captureActiveChainSnapshot(status: ChainMergeSnapshot["status"]): Promise<void> {
-    if (!this.chainByChainEnabled || this.activeChainIndex === null) {
-      return;
-    }
-
-    const activeChain = this.activeChains[this.activeChainIndex];
-    const pipelineGroups = this.pipeline?.getMatchedGroups() ?? [];
-    const closuresBySegment = structuredClone(this.store.getState().closuresBySegment) as Record<
-      number,
-      ClosureRange[]
-    >;
-
-    this.chainSnapshots = this.chainSnapshots.map((snapshot, index) => {
-      if (index !== this.activeChainIndex || snapshot.chainId !== activeChain.id) {
-        return snapshot;
-      }
-
-      return {
-        chainId: snapshot.chainId,
-        status,
-        matchedGroups: pipelineGroups.map((group) => ({
-          rowIndex: group.rowIndex,
-          segmentIds: [...group.segmentIds],
-          geo: group.geo,
-        })),
-        closuresBySegment,
-      };
-    });
-
-    await this.recomputeMergedChainStateWithLoading();
-    this.persistChainMergeState();
-    this.renderMergeDebugState();
-  }
-
-  private async recomputeMergedChainStateWithLoading(): Promise<void> {
-    const message = i18next.t("panel.matching.steps.mergeRecomputing");
-    logger.info("MatchingSubTab.merge: recompute start", {
-      chainSnapshotCount: this.chainSnapshots.length,
-      doneChains: this.chainSnapshots.filter((snapshot) => snapshot.status === "done").length,
-    });
-    this.setGuidedLoading(true, message);
-    await waitForNextPaint();
-    this.recomputeMergedChainState();
-    this.setGuidedLoading(false);
-    logger.info("MatchingSubTab.merge: recompute done", {
-      mergedGroups: this.mergedChainGroups.length,
-      mergedClosureSegments: Object.keys(this.mergedChainClosuresBySegment).length,
-    });
-  }
-
-  private recomputeMergedChainState(): void {
-    const inputs = this.chainSnapshots
-      .filter((snapshot) => snapshot.status === "done" || snapshot.status === "skipped")
-      .map((snapshot) => ({
-        chainId: snapshot.chainId,
-        matchedGroups: snapshot.matchedGroups,
-        closuresBySegment: snapshot.closuresBySegment,
-      }));
-
-    this.mergedChainGroups = mergeChainGroups(inputs);
-    this.mergedChainClosuresBySegment = mergeChainClosures(inputs);
-  }
-
-  private buildChainMergeState(): ChainMergeState | undefined {
-    if (!this.chainByChainEnabled) {
-      return undefined;
-    }
-
-    return {
-      mode: "chain-by-chain",
-      chains: this.chainSnapshots.map((snapshot) => ({
-        chainId: snapshot.chainId,
-        status: snapshot.status,
-        matchedGroups: snapshot.matchedGroups.map((group) => ({
-          rowIndex: group.rowIndex,
-          segmentIds: [...group.segmentIds],
-          geo: group.geo,
-        })),
-        closuresBySegment: structuredClone(snapshot.closuresBySegment) as Record<
-          number,
-          ClosureRange[]
-        >,
-      })),
-      mergedGroups: this.mergedChainGroups.map((group) => ({
-        rowIndex: group.rowIndex,
-        segmentIds: [...group.segmentIds],
-        geo: group.geo,
-      })),
-      mergedClosuresBySegment: structuredClone(this.mergedChainClosuresBySegment) as Record<
-        number,
-        ClosureRange[]
-      >,
-    };
-  }
-
-  private persistChainMergeState(): void {
-    const selected = this.registry.getSelected();
-    if (!selected || !this.chainByChainEnabled) {
-      return;
-    }
-
-    this.registry.updateEntry(selected.id, {
-      chainMergeState: this.buildChainMergeState(),
-    });
-  }
-
-  private restoreChainMergeState(state: ChainMergeState | undefined): void {
-    if (!state || state.mode !== "chain-by-chain") {
-      this.chainByChainEnabled = false;
-      this.chainSnapshots = [];
-      this.mergedChainGroups = [];
-      this.mergedChainClosuresBySegment = {};
-      this.renderMergeDebugState();
-      return;
-    }
-
-    this.chainByChainEnabled = true;
-    this.chainSnapshots = state.chains.map((snapshot) => ({
-      chainId: snapshot.chainId,
-      status: snapshot.status,
-      matchedGroups: snapshot.matchedGroups.map((group) => ({
-        rowIndex: group.rowIndex,
-        segmentIds: [...group.segmentIds],
-        geo: group.geo,
-      })),
-      closuresBySegment: structuredClone(snapshot.closuresBySegment) as Record<
-        number,
-        ClosureRange[]
-      >,
-    }));
-    // Always recompute from per-chain snapshots when opening the slowup,
-    // so the merge state is refreshed even if a persisted merged snapshot is stale.
-    void this.recomputeMergedChainStateWithLoading().then(() => {
-      this.renderMergeDebugState();
-    });
-  }
-
-  private renderMergeDebugState(): void {
-    if (!this.guidedMergeSummaryEl || !this.guidedMergeChainsListEl || !this.guidedMergeGeoJsonEl) {
-      return;
-    }
-
-    const isActive = this.isChainMergeModeActive();
-    if (!isActive) {
-      this.guidedMergeSummaryEl.textContent = this.formatMergeInactiveMessage();
-      while (this.guidedMergeChainsListEl.firstChild) {
-        this.guidedMergeChainsListEl.removeChild(this.guidedMergeChainsListEl.firstChild);
-      }
-      this.guidedMergeGeoJsonEl.textContent = i18next.t("panel.matching.mergeGeoJsonInactive");
-      this.mergedGeoJsonDebugCacheKey = "";
-      this.mergedGeoJsonDebugText = "";
-      return;
-    }
-
-    const doneCount = this.chainSnapshots.filter((snapshot) => snapshot.status === "done").length;
-    const chainCount = this.chainSnapshots.length;
-    const rawSegments = this.chainSnapshots.reduce(
-      (sum, snapshot) =>
-        sum + snapshot.matchedGroups.reduce((acc, g) => acc + g.segmentIds.length, 0),
-      0,
-    );
-    const dedupedSegments = this.mergedChainGroups.reduce(
-      (sum, group) => sum + group.segmentIds.length,
-      0,
-    );
-
-    if (rawSegments === 0 && dedupedSegments === 0) {
-      this.guidedMergeSummaryEl.textContent = i18next.t("panel.matching.mergeSummaryEmpty", {
-        total: chainCount,
-      });
-    } else {
-      this.guidedMergeSummaryEl.textContent = i18next.t("panel.matching.mergeSummary", {
-        done: doneCount,
-        total: chainCount,
-        raw: rawSegments,
-        deduped: dedupedSegments,
-      });
-    }
-
-    while (this.guidedMergeChainsListEl.firstChild) {
-      this.guidedMergeChainsListEl.removeChild(this.guidedMergeChainsListEl.firstChild);
-    }
-
-    this.chainSnapshots.forEach((snapshot, index) => {
-      const item = document.createElement("li");
-      const isActive = this.activeChainIndex === index;
-      const statusLabel = i18next.t(`panel.matching.mergeStatus.${snapshot.status}`);
-      const baseText = i18next.t("panel.matching.mergeChainItem", {
-        index: index + 1,
-        chainId: snapshot.chainId,
-        status: statusLabel,
-        groups: snapshot.matchedGroups.length,
-      });
-      item.textContent = isActive
-        ? `${baseText} ${i18next.t("panel.matching.mergeActiveMarker")}`
-        : baseText;
-      this.guidedMergeChainsListEl?.appendChild(item);
-    });
-
-    this.updateMergedTrackGeoJsonDebugText();
-  }
-
-  private buildMergedTrackGeoJsonDebug(): {
-    type: "FeatureCollection";
-    features: Array<{
-      type: "Feature";
-      id: string;
-      geometry: TrackChain["geometry"];
-      properties: {
-        chainIndex: number;
-        chainId: string;
-        lengthKm: number;
-      };
-    }>;
-  } | null {
-    if (!this.isChainMergeModeActive()) {
-      return null;
-    }
-
-    return {
-      type: "FeatureCollection",
-      features: this.activeChains.map((chain, index) => ({
-        type: "Feature",
-        id: chain.id,
-        geometry: chain.geometry,
-        properties: {
-          chainIndex: index + 1,
-          chainId: chain.id,
-          lengthKm: chain.lengthKm,
-        },
-      })),
-    };
-  }
-
-  private updateMergedTrackGeoJsonDebugText(): void {
-    if (!this.guidedMergeGeoJsonEl) {
-      return;
-    }
-
-    const mergedGeoJson = this.buildMergedTrackGeoJsonDebug();
-    if (mergedGeoJson === null) {
-      this.guidedMergeGeoJsonEl.textContent = i18next.t("panel.matching.mergeGeoJsonInactive");
-      this.mergedGeoJsonDebugCacheKey = "";
-      this.mergedGeoJsonDebugText = "";
-      return;
-    }
-
-    if (mergedGeoJson.features.length === 0) {
-      this.guidedMergeGeoJsonEl.textContent = i18next.t("panel.matching.mergeGeoJsonEmpty");
-      this.mergedGeoJsonDebugCacheKey = "";
-      this.mergedGeoJsonDebugText = "";
-      return;
-    }
-
-    const key = mergedGeoJson.features
-      .map((feature) => `${feature.id}:${feature.geometry.coordinates[0]?.length ?? 0}`)
-      .join("|");
-
-    if (key !== this.mergedGeoJsonDebugCacheKey) {
-      this.mergedGeoJsonDebugText = JSON.stringify(mergedGeoJson, null, 2);
-      this.mergedGeoJsonDebugCacheKey = key;
-    }
-
-    this.guidedMergeGeoJsonEl.textContent = this.mergedGeoJsonDebugText;
-  }
-
-  private markActiveChainStatus(status: ChainMergeSnapshot["status"]): void {
-    if (!this.chainByChainEnabled || this.activeChainIndex === null) {
-      return;
-    }
-
-    this.chainSnapshots = this.chainSnapshots.map((snapshot, index) =>
-      index === this.activeChainIndex ? { ...snapshot, status } : snapshot,
-    );
-    this.renderMergeDebugState();
-  }
-
-  private formatMergeInactiveMessage(): string {
-    const selected = this.registry.getSelected();
-    const geometry = this.trackLayer?.getTrackGeometry();
-    const chainCount = geometry
-      ? mergeTrackChainsByEndpoints(
-          listTrackChains({ trackId: null, geometry }),
-          MatchingSubTab.SLOWUP_CHAIN_MERGE_MAX_GAP_KM,
-        ).length
-      : 0;
-    const isEligible =
-      selected !== null &&
-      selected.slowupNumber !== undefined &&
-      selected.mode === "synthetic" &&
-      chainCount > 1;
-
-    if (isEligible) {
-      return i18next.t("panel.matching.mergeEligible", { chainCount });
-    }
-
-    return i18next.t("panel.matching.mergeInactive");
   }
 
   private triggerDownload(content: string, filename: string, mimeType: string): void {
@@ -2896,110 +1539,6 @@ export class MatchingSubTab {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }
-
-  private resetGuidedSteps(): void {
-    const list = this.guidedStepsListEl;
-    if (!list) return;
-    while (list.firstChild) {
-      list.removeChild(list.firstChild);
-    }
-  }
-
-  private resetCurrentSubLines(): void {
-    this.currentSubLines = [];
-    this.renderCurrentSubLines();
-  }
-
-  private renderCurrentSubLines(): void {
-    const list = this.guidedSubLinesListEl;
-    if (!list) return;
-
-    while (list.firstChild) {
-      list.removeChild(list.firstChild);
-    }
-
-    if (this.currentSubLines.length === 0) {
-      const item = document.createElement("li");
-      item.textContent = i18next.t("panel.matching.subLinesEmpty");
-      list.appendChild(item);
-      return;
-    }
-
-    for (const subLine of this.currentSubLines) {
-      const item = document.createElement("li");
-      const statusTag =
-        subLine.status === "matched" ? "[ok]" : subLine.status === "waiting" ? "[wait]" : "[run]";
-      item.textContent = `${statusTag} ${formatSubLineLabel(subLine)}`;
-      list.appendChild(item);
-    }
-  }
-
-  private updateRowHeaderWithSubLine(subLine: SubLineState): void {
-    if (this.currentRowIndex === null || !this.guidedRowHeaderEl) return;
-
-    const rows = this.store.getState().csvRows;
-    const row = rows[this.currentRowIndex];
-    if (!row) return;
-
-    const baseHeader = i18next.t("panel.matching.rowHeaderWithSubLine", {
-      index: this.currentRowIndex + 1,
-      total: rows.length,
-      km: row.distance.toFixed(1),
-      startTime: row.startTime,
-      endTime: row.endTime,
-      subIndex: subLine.index,
-      subTotal: subLine.total,
-    });
-    this.guidedRowHeaderEl.textContent = this.appendChainSuffix(baseHeader);
-  }
-
-  private applySubLineStep(event: PipelineStepEvent): void {
-    const subLine = subLineStateFromStep(event);
-    if (!subLine) return;
-
-    this.currentSubLines = mergeSubLineState(this.currentSubLines, subLine);
-    this.renderCurrentSubLines();
-    this.updateRowHeaderWithSubLine(subLine);
-  }
-
-  private appendGuidedStep(message: string): void {
-    const list = this.guidedStepsListEl;
-    if (!list) return;
-    const item = document.createElement("li");
-    item.textContent = message;
-    list.appendChild(item);
-
-    const MAX_STEPS = 12;
-    while (list.childElementCount > MAX_STEPS) {
-      list.removeChild(list.firstElementChild as ChildNode);
-    }
-
-    list.scrollTop = list.scrollHeight;
-  }
-
-  private formatPipelineStep(event: PipelineStepEvent): string {
-    const values = event.values ?? {};
-    switch (event.key) {
-      case "planningStart":
-        return i18next.t("panel.matching.steps.planningStart", values);
-      case "splitTail":
-        return i18next.t("panel.matching.steps.splitTail", values);
-      case "sliceAccepted":
-        return i18next.t("panel.matching.steps.sliceAccepted", values);
-      case "sliceDropped":
-        return i18next.t("panel.matching.steps.sliceDropped", values);
-      case "planningDone":
-        return i18next.t("panel.matching.steps.planningDone", values);
-      case "processingLeaf":
-        return i18next.t("panel.matching.steps.processingLeaf", values);
-      case "leafMatched":
-        return i18next.t("panel.matching.steps.leafMatched", values);
-      case "waitingLeafValidation":
-        return i18next.t("panel.matching.steps.waitingLeafValidation", values);
-      default:
-        return i18next.t("panel.matching.steps.unknown");
-    }
   }
 
   // ---------------------------------------------------------------------------
@@ -3114,33 +1653,6 @@ export class MatchingSubTab {
         color: #b42318;
       }
 
-      .wmegj-file-input {
-        display: block;
-        margin-top: 4px;
-        font-size: 12px;
-        cursor: pointer;
-      }
-
-      .wmegj-csv-loader {
-        align-items: center;
-        gap: 8px;
-        margin: 6px 0 0 0;
-        padding: 6px 8px;
-        border: 1px solid #d6dbe3;
-        border-radius: 4px;
-        background: #f6f8fb;
-        color: #344054;
-        font-size: 11px;
-        line-height: 1.3;
-      }
-
-      .wmegj-csv-error {
-        margin: 4px 0 0 0;
-        color: #c0392b;
-        font-size: 11px;
-        line-height: 1.3;
-      }
-
       .wmegj-button-stack {
         display: flex;
         flex-wrap: wrap;
@@ -3227,45 +1739,16 @@ export class MatchingSubTab {
       .wmegj-guided-body {
         flex: 1 1 auto;
         min-height: 0;
-        padding: 0 12px 12px;
+        padding: 12px;
         overflow-y: auto;
-      }
-
-      .wmegj-guided-tabs {
-        display: flex;
-        margin: 0 -12px 10px;
-        border-bottom: 1px solid #e4e8ee;
-      }
-
-      .wmegj-guided-tab {
-        flex: 1 1 0;
-        min-height: 40px;
-        border: 0;
-        border-bottom: 3px solid transparent;
-        background: #ffffff;
-        color: #667085;
-        font-size: 13px;
-        font-weight: 700;
-        cursor: pointer;
-      }
-
-      .wmegj-guided-tab.is-active {
-        border-bottom-color: #3478f6;
-        color: #2563eb;
       }
 
       .wmegj-guided-meta,
       .wmegj-guided-row,
       .wmegj-guided-count,
-      .wmegj-guided-instruction,
-      .wmegj-guided-feedback {
+      .wmegj-guided-instruction {
         margin: 0 0 8px 0;
         font-size: 12px;
-      }
-
-      .wmegj-guided-meta {
-        color: #667085;
-        font-weight: 600;
       }
 
       .wmegj-guided-row {
@@ -3277,8 +1760,7 @@ export class MatchingSubTab {
         color: #344054;
       }
 
-      .wmegj-guided-instruction,
-      .wmegj-guided-feedback {
+      .wmegj-guided-instruction {
         color: #667085;
       }
 
@@ -3310,24 +1792,15 @@ export class MatchingSubTab {
         padding: 9px 14px;
       }
 
-      .wmegj-guided-button--validate {
-        background: #3478f6;
-        border-color: #3478f6;
-        color: #ffffff;
-      }
-
+      .wmegj-guided-button--validate,
       .wmegj-guided-button--start {
         background: #3478f6;
         border-color: #3478f6;
         color: #ffffff;
       }
 
+      .wmegj-guided-button--validate:hover,
       .wmegj-guided-button--start:hover {
-        background: #2563eb;
-        border-color: #2563eb;
-      }
-
-      .wmegj-guided-button--validate:hover {
         background: #2563eb;
         border-color: #2563eb;
       }
@@ -3353,8 +1826,6 @@ export class MatchingSubTab {
         color: #344054;
       }
 
-      .wmegj-guided-button--pause,
-      .wmegj-guided-button--resume,
       .wmegj-guided-button--reselect,
       .wmegj-guided-button--rerun {
         background: #ffffff;
@@ -3371,38 +1842,6 @@ export class MatchingSubTab {
 
       .wmegj-guided-button:hover:not(:disabled) {
         filter: brightness(0.98);
-      }
-
-      .wmegj-guided-debug-title {
-        margin: 0 0 6px 0;
-        font-size: 12px;
-        font-weight: 700;
-        color: #344054;
-      }
-
-      .wmegj-guided-steps {
-        margin: 0 0 10px 18px;
-        padding: 0;
-        max-height: 150px;
-        overflow-y: auto;
-        color: #475467;
-        font-size: 11px;
-      }
-
-      .wmegj-guided-json {
-        margin: 0 0 10px 0;
-        padding: 8px;
-        max-height: 220px;
-        overflow: auto;
-        border: 1px solid #e4e8ee;
-        border-radius: 4px;
-        background: #f8fafc;
-        color: #334155;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-          "Courier New", monospace;
-        font-size: 11px;
-        line-height: 1.35;
-        white-space: pre;
       }
 
       .wmegj-guided-loader {
@@ -3448,23 +1887,10 @@ export class MatchingSubTab {
         }
       }
 
-      .wmegj-resume-panel {
-        border-color: #f0c040;
-        background: #fff8e1;
-      }
-
       .wmegj-file-input {
         padding: 6px 8px;
       }
     `;
     container.appendChild(style);
   }
-}
-
-function waitForNextPaint(): Promise<void> {
-  return new Promise((resolve) => {
-    requestAnimationFrame(() => {
-      setTimeout(resolve, 0);
-    });
-  });
 }

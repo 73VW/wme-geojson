@@ -3,7 +3,7 @@
 // sub-slices it exactly as it does for a real CSV row.
 // Pure — no SDK, no DOM.
 
-import type { CsvRow } from "../state/SessionStore";
+import type { CsvRow } from "./types";
 
 /**
  * Build the one synthetic CsvRow covering an entire track.

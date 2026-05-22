@@ -4,21 +4,10 @@
 import { save as persistenceSave } from "../persistence/sessionStorage";
 import { logger } from "../utils/logger";
 
+import type { CsvRow, ClosureRange } from "../csv/types";
+export type { CsvRow, ClosureRange } from "../csv/types";
+
 export type SessionPhase = "no-track" | "track-loaded" | "csv-loaded" | "matching" | "done";
-
-export interface CsvRow {
-  distance: number; // km
-  startTime: string; // "HH:MM"
-  endTime: string; // "HH:MM"
-  date: string; // "YYYY-MM-DD"
-  segments: number[] | null; // null = not yet validated
-}
-
-export interface ClosureRange {
-  startISO: string; // "YYYY-MM-DDTHH:MM"
-  endISO: string;
-  rowIndex: number;
-}
 
 export interface SessionState {
   phase: SessionPhase;

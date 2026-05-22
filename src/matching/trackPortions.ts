@@ -13,7 +13,7 @@
 
 import type { BBox, MultiLineString, Position } from "geojson";
 import { bbox as turfBbox } from "@turf/turf";
-import type { CsvRow } from "../state/SessionStore";
+import type { CsvRow } from "../csv/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

@@ -1,5 +1,5 @@
 import type { NormalizedTrack } from "../geojson/types";
-import type { CsvRow } from "../state/SessionStore";
+import type { CsvRow } from "../csv/types";
 import {
   bboxOfMultiLineString,
   computeMatchingWorkItems,

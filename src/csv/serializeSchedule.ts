@@ -1,7 +1,7 @@
 // Inverse of parseSchedule: converts CsvRow[] back to the canonical CSV text.
 // Designed for exact round-trips: parse → serialize → parse yields identical rows.
 
-import type { CsvRow } from "../state/SessionStore";
+import type { CsvRow } from "./types";
 
 const HEADER = "distance,start_time,end_time,date,segments";
 
