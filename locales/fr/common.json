@@ -230,7 +230,8 @@
       "badgeNone": "aucun MTE lié",
       "candidatesHeader": "Candidats (sans URL match) :",
       "noCandidates": "Aucun MTE candidat à proximité.",
-      "blocked": "La fenêtre a été bloquée par le navigateur. Autorise les popups pour ce site."
+      "blocked": "La fenêtre a été bloquée par le navigateur. Autorise les popups pour ce site.",
+      "polygonLabel": "Polygon GeoJSON (track + 500m)"
     },
     "finalFields": {
       "title": "Exporter les fermetures — détails finaux",

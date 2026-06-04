@@ -230,7 +230,8 @@
       "badgeNone": "no linked MTE",
       "candidatesHeader": "Candidates (no URL match):",
       "noCandidates": "No MTE candidates nearby.",
-      "blocked": "The window was blocked by the browser. Allow popups for this site."
+      "blocked": "The window was blocked by the browser. Allow popups for this site.",
+      "polygonLabel": "GeoJSON polygon (track + 500m)"
     },
     "finalFields": {
       "title": "Export closures — final details",

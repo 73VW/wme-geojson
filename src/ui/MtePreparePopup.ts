@@ -9,6 +9,7 @@
 // nœuds DOM ciblent le `document` de la fenêtre popup.
 
 import i18next from "i18next";
+import type { Feature, MultiPolygon, Polygon } from "geojson";
 import { fetchSlowupFullDetails } from "../lines/slowupClient";
 import type { SlowupFullDetails } from "../lines/types";
 import {
@@ -22,6 +23,9 @@ import {
 export interface MtePreparePopupDeps {
   refid: number;
   slowupBbox: [number, number, number, number];
+  /** Track buffered by 500m (or null if geometry empty). Used as the polygon
+   * GeoJSON the user pastes into the MTE creation form. */
+  slowupPolygon: Feature<Polygon | MultiPolygon> | null;
   mteSdk: MteSdk;
 }
 
@@ -175,10 +179,18 @@ function renderContent(
   bodyEl.appendChild(divider(doc));
 
   for (const lang of ["fr", "en", "de", "it"] as const) {
-    bodyEl.appendChild(abstractBlock(doc, popup, lang.toUpperCase(), details.abstracts[lang]));
+    bodyEl.appendChild(textBlock(doc, popup, `Abstract ${lang.toUpperCase()}`, details.abstracts[lang]));
   }
 
   bodyEl.appendChild(divider(doc));
+
+  if (deps.slowupPolygon) {
+    const polygonGeoJson = JSON.stringify(deps.slowupPolygon.geometry, null, 2);
+    bodyEl.appendChild(
+      textBlock(doc, popup, i18next.t("panel.mtePopup.polygonLabel"), polygonGeoJson),
+    );
+    bodyEl.appendChild(divider(doc));
+  }
 
   // MTE ID section
   const mteSection = doc.createElement("div");
@@ -282,14 +294,14 @@ function copyRow(doc: Document, popup: Window, label: string, value: string): HT
   return row;
 }
 
-function abstractBlock(doc: Document, popup: Window, langLabel: string, text: string): HTMLElement {
+function textBlock(doc: Document, popup: Window, fullLabel: string, text: string): HTMLElement {
   const wrap = doc.createElement("div");
   wrap.className = "block";
   const header = doc.createElement("div");
   header.className = "block-header";
   const label = doc.createElement("span");
   label.className = "label";
-  label.textContent = `Abstract ${langLabel}`;
+  label.textContent = fullLabel;
   header.appendChild(label);
   header.appendChild(copyButton(doc, popup, text));
   const box = doc.createElement("textarea");

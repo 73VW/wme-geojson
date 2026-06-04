@@ -18,7 +18,11 @@ import { parseSchedule } from "../../csv/parseSchedule";
 import { promptFinalFields } from "../promptFinalFields";
 import { confirmModal } from "../modal";
 import { MatchingHeaderView } from "../views/MatchingHeaderView";
-import { bboxOfMultiLineString, sliceMultiLineByDistance } from "../../matching/trackPortions";
+import {
+  bboxOfMultiLineString,
+  inflatedTrackPolygon,
+  sliceMultiLineByDistance,
+} from "../../matching/trackPortions";
 import { multiLineLengthKm } from "../../matching/trackPortions";
 import { promptClosureWindow } from "../components/promptClosureWindow";
 import type { Source } from "../../domain/types";
@@ -1780,9 +1784,12 @@ export class MatchingSubTab {
     const slowupBbox = this.computeSlowupBbox(entry.track);
     if (!slowupBbox) return;
 
+    const slowupPolygon = inflatedTrackPolygon(entry.track.geometry, 500);
+
     await openMtePreparePopup({
       refid,
       slowupBbox,
+      slowupPolygon,
       mteSdk: createMteSdk(this.wmeSDK),
     });
   }
