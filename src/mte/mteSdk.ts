@@ -28,22 +28,26 @@ interface MajorTrafficEventsApi {
   getAll?: () => SdkMajorTrafficEvent[];
 }
 
-type WmeSdkWithMajorTrafficEvents = WmeSDK & {
-  MajorTrafficEvents?: MajorTrafficEventsApi;
+type WmeSdkWithDataModel = WmeSDK & {
+  DataModel?: { MajorTrafficEvents?: MajorTrafficEventsApi };
 };
 
 export function createMteSdk(sdk: WmeSDK): MteSdk {
-  const sdkWithMte = sdk as WmeSdkWithMajorTrafficEvents;
+  const sdkWithDataModel = sdk as WmeSdkWithDataModel;
   return {
     listMtes(): MteRef[] {
       // Logs volontairement verbeux pour le diagnostic du refresh.
-      const mteModule = sdkWithMte.MajorTrafficEvents;
+      const mteModule = sdkWithDataModel.DataModel?.MajorTrafficEvents;
       console.log("[mteSdk] ── refresh ──────────────────");
-      console.log("[mteSdk] sdk.MajorTrafficEvents present?", !!mteModule);
-      console.log("[mteSdk] sdk.MajorTrafficEvents.getAll present?", typeof mteModule?.getAll === "function");
+      console.log("[mteSdk] sdk.DataModel present?", !!sdkWithDataModel.DataModel);
+      console.log("[mteSdk] sdk.DataModel.MajorTrafficEvents present?", !!mteModule);
+      console.log(
+        "[mteSdk] sdk.DataModel.MajorTrafficEvents.getAll present?",
+        typeof mteModule?.getAll === "function",
+      );
 
       if (!mteModule || typeof mteModule.getAll !== "function") {
-        console.warn("[mteSdk] MajorTrafficEvents.getAll() unavailable on the SDK instance.");
+        console.warn("[mteSdk] DataModel.MajorTrafficEvents.getAll() unavailable on the SDK instance.");
         return [];
       }
 
