@@ -13,13 +13,14 @@ import type { Feature, MultiPolygon, Polygon } from "geojson";
 import { fetchSlowupFullDetails } from "../lines/slowupClient";
 import type { SlowupFullDetails } from "../lines/types";
 import {
-  byName,
   byUrl,
-  candidatesByBbox,
+  candidatesByName,
   mteStore,
-  type MteCandidate,
+  type MteRef,
   type MteSdk,
 } from "../mte";
+
+const NAME_FILTER_NEEDLE = "slowup";
 
 export interface MtePreparePopupDeps {
   refid: number;
@@ -244,7 +245,6 @@ function renderContent(
     );
     const stored = mteStore.get(deps.refid);
     const autoUrl = byUrl(mtes, details.urlLink);
-    const autoName = autoUrl ? null : byName(mtes, details.title);
     candidatesContainer.replaceChildren();
 
     if (stored) {
@@ -254,33 +254,34 @@ function renderContent(
       mteInput.value = autoUrl.id;
       mteStore.set(deps.refid, autoUrl.id);
       badge.textContent = i18next.t("panel.mtePopup.badgeAutoUrl");
-    } else if (autoName) {
-      mteInput.value = autoName.id;
-      mteStore.set(deps.refid, autoName.id);
-      badge.textContent = i18next.t("panel.mtePopup.badgeAutoName");
     } else {
       mteInput.value = "";
       badge.textContent = i18next.t("panel.mtePopup.badgeNone");
-      const candidates = candidatesByBbox(mtes, deps.slowupBbox, details.date);
-      if (candidates.length === 0) {
-        const empty = doc.createElement("p");
-        empty.className = "empty";
-        empty.textContent = i18next.t("panel.mtePopup.noCandidates");
-        candidatesContainer.appendChild(empty);
-      } else {
-        const header = doc.createElement("p");
-        header.className = "candidates-header";
-        header.textContent = i18next.t("panel.mtePopup.candidatesHeader");
-        candidatesContainer.appendChild(header);
-        for (const c of candidates) {
-          candidatesContainer.appendChild(
-            candidateRow(doc, c, () => {
-              mteInput.value = c.mte.id;
-              mteStore.set(deps.refid, c.mte.id);
-              badge.textContent = i18next.t("panel.mtePopup.badgeManual");
-            }),
-          );
-        }
+    }
+
+    // Toujours afficher la liste pré-filtrée des MTE dont le nom contient
+    // « slowup » (insensible à la casse). L'utilisateur clique pour
+    // sélectionner manuellement. Quand le SDK exposera un urlLink, l'auto
+    // détection ci-dessus prendra le relais sans changement supplémentaire.
+    const candidates = candidatesByName(mtes, NAME_FILTER_NEEDLE);
+    if (candidates.length === 0) {
+      const empty = doc.createElement("p");
+      empty.className = "empty";
+      empty.textContent = i18next.t("panel.mtePopup.noCandidates");
+      candidatesContainer.appendChild(empty);
+    } else {
+      const header = doc.createElement("p");
+      header.className = "candidates-header";
+      header.textContent = i18next.t("panel.mtePopup.candidatesHeader");
+      candidatesContainer.appendChild(header);
+      for (const m of candidates) {
+        candidatesContainer.appendChild(
+          candidateRow(doc, m, () => {
+            mteInput.value = m.id;
+            mteStore.set(deps.refid, m.id);
+            badge.textContent = i18next.t("panel.mtePopup.badgeManual");
+          }),
+        );
       }
     }
   }
@@ -392,11 +393,12 @@ function divider(doc: Document): HTMLElement {
   return hr;
 }
 
-function candidateRow(doc: Document, c: MteCandidate, onPick: () => void): HTMLElement {
+function candidateRow(doc: Document, m: MteRef, onPick: () => void): HTMLElement {
   const row = doc.createElement("button");
   row.type = "button";
   row.className = "candidate";
-  row.textContent = `[#${c.mte.id}] ${c.mte.name || "(sans nom)"} — overlap ${c.overlap.toFixed(4)}°²`;
+  const dates = m.startDate && m.endDate ? ` — ${m.startDate} → ${m.endDate}` : "";
+  row.textContent = `[#${m.id}] ${m.name || "(sans nom)"}${dates}`;
   row.addEventListener("click", onPick);
   return row;
 }

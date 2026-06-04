@@ -229,8 +229,8 @@
       "badgeAutoName": "auto-detected (name)",
       "badgeManual": "manual override",
       "badgeNone": "no linked MTE",
-      "candidatesHeader": "Candidates (no URL match):",
-      "noCandidates": "No MTE candidates nearby.",
+      "candidatesHeader": "Candidates (MTE containing \"slowup\") — click to select:",
+      "noCandidates": "No MTE with \"slowup\" in its name.",
       "blocked": "The window was blocked by the browser. Allow popups for this site.",
       "polygonLabel": "GeoJSON polygon (track + 500m)"
     },

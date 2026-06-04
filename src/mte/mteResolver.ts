@@ -27,19 +27,18 @@ export function byUrl(mtes: ReadonlyArray<MteRef>, urlLink: string): MteRef | nu
 }
 
 /**
- * Match approximatif par nom : retourne le premier MTE dont au moins un
- * `name` contient (insensible à la casse) le titre du slowup, ou inversement.
- * Utilisé comme fallback quand le SDK n'expose pas d'URL pour matcher.
+ * Pré-filtre les MTE dont le nom contient `needle` (insensible à la casse).
+ * Utilisé pour proposer une liste manuelle de candidats quand l'URL match
+ * échoue : par convention dans WME, les MTE de slowup contiennent « slowup »
+ * dans leur nom.
  */
-export function byName(mtes: ReadonlyArray<MteRef>, slowupTitle: string): MteRef | null {
-  const needle = slowupTitle.trim().toLowerCase();
-  if (!needle) return null;
-  for (const m of mtes) {
-    const hay = (m.name ?? "").trim().toLowerCase();
-    if (!hay) continue;
-    if (hay.includes(needle) || needle.includes(hay)) return m;
-  }
-  return null;
+export function candidatesByName(
+  mtes: ReadonlyArray<MteRef>,
+  needle: string,
+): MteRef[] {
+  const lower = needle.trim().toLowerCase();
+  if (!lower) return [];
+  return mtes.filter((m) => (m.name ?? "").toLowerCase().includes(lower));
 }
 
 export function candidatesByBbox(
