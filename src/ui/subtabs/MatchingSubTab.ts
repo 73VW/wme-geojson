@@ -2130,7 +2130,9 @@ export class MatchingSubTab {
   ): void {
     try {
       const csv = buildClosuresCsv(rows, groups, closuresBySegment, fields);
-      this.triggerDownload(csv, "closures.csv", "text/csv");
+      const slug = slugifyFilename(this.registry.getSelected()?.displayName);
+      const filename = `${slug || "closures"}.csv`;
+      this.triggerDownload(csv, filename, "text/csv");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.error("MatchingSubTab: buildClosuresCsv failed", err);
@@ -2558,4 +2560,17 @@ export class MatchingSubTab {
     `;
     container.appendChild(style);
   }
+}
+
+/** Slugify a track display name into a filesystem-safe filename stem.
+ * Lowercases, strips diacritics, replaces non-alphanum runs with "-",
+ * trims leading/trailing hyphens. Returns "" for empty/whitespace input. */
+function slugifyFilename(name: string | undefined | null): string {
+  if (!name) return "";
+  return name
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
