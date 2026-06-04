@@ -36,15 +36,36 @@ export function createMteSdk(sdk: WmeSDK): MteSdk {
   const sdkWithMte = sdk as WmeSdkWithMajorTrafficEvents;
   return {
     listMtes(): MteRef[] {
-      try {
-        const raw = sdkWithMte.MajorTrafficEvents?.getAll?.() ?? [];
-        // Log volontaire pour diagnostic : ce que le SDK renvoie réellement.
-        console.info("[mteSdk] getAll() returned", raw.length, "MTE(s):", raw);
-        return raw.map(normalize).filter((m): m is MteRef => m !== null);
-      } catch (err) {
-        console.warn("[mteSdk] listMtes failed:", err);
+      // Logs volontairement verbeux pour le diagnostic du refresh.
+      const mteModule = sdkWithMte.MajorTrafficEvents;
+      console.log("[mteSdk] ── refresh ──────────────────");
+      console.log("[mteSdk] sdk.MajorTrafficEvents present?", !!mteModule);
+      console.log("[mteSdk] sdk.MajorTrafficEvents.getAll present?", typeof mteModule?.getAll === "function");
+
+      if (!mteModule || typeof mteModule.getAll !== "function") {
+        console.warn("[mteSdk] MajorTrafficEvents.getAll() unavailable on the SDK instance.");
         return [];
       }
+
+      let raw: SdkMajorTrafficEvent[];
+      try {
+        raw = mteModule.getAll() ?? [];
+      } catch (err) {
+        console.warn("[mteSdk] getAll() threw:", err);
+        return [];
+      }
+
+      console.log(`[mteSdk] getAll() returned ${raw.length} MTE(s):`, raw);
+      // Dump détaillé : utile si la console affiche [object Object] pour `raw`.
+      for (const m of raw) {
+        console.log(
+          `[mteSdk]   • id=${m?.id} names=${JSON.stringify(m?.names)} start=${m?.startDate} end=${m?.endDate}`,
+        );
+      }
+
+      const normalized = raw.map(normalize).filter((m): m is MteRef => m !== null);
+      console.log(`[mteSdk] normalized → ${normalized.length} MTE(s):`, normalized);
+      return normalized;
     },
   };
 }
