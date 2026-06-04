@@ -176,7 +176,23 @@ export function inflatedTrackPolygon(
   if (geometry.coordinates.flat().length === 0) return null;
   const feature: Feature<MultiLineString> = { type: "Feature", geometry, properties: {} };
   const buffered = turfBuffer(feature, meters, { units: "meters" });
-  return buffered ?? null;
+  if (!buffered) return null;
+  // Drop any inner rings so a donut-shaped buffer becomes a filled outline —
+  // the MTE form wants a single solid envelope, not an annulus.
+  return {
+    ...buffered,
+    geometry: stripPolygonHoles(buffered.geometry),
+  };
+}
+
+function stripPolygonHoles(geometry: Polygon | MultiPolygon): Polygon | MultiPolygon {
+  if (geometry.type === "Polygon") {
+    return { type: "Polygon", coordinates: [geometry.coordinates[0]] };
+  }
+  return {
+    type: "MultiPolygon",
+    coordinates: geometry.coordinates.map((rings) => [rings[0]]),
+  };
 }
 
 /**

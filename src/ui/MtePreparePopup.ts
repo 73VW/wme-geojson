@@ -173,7 +173,7 @@ function renderContent(
   bodyEl.replaceChildren();
 
   bodyEl.appendChild(copyRow(doc, popup, i18next.t("panel.mtePopup.titleLabel"), `SlowUP ${details.title}`));
-  bodyEl.appendChild(copyRow(doc, popup, i18next.t("panel.mtePopup.dateLabel"), details.date));
+  bodyEl.appendChild(copyRow(doc, popup, i18next.t("panel.mtePopup.dateLabel"), formatDateForEditor(details.date)));
   bodyEl.appendChild(copyRow(doc, popup, i18next.t("panel.mtePopup.urlLabel"), details.urlLink));
 
   bodyEl.appendChild(divider(doc));
@@ -278,6 +278,15 @@ function renderContent(
 // ---------------------------------------------------------------------------
 // DOM helpers (parameterized by popup document)
 // ---------------------------------------------------------------------------
+
+// Slowup API renvoie "YYYY-MM-DD" ; l'éditeur MTE attend "DD/MM/YYYY".
+// Si l'entrée ne matche pas le format ISO court attendu, on la renvoie telle quelle.
+function formatDateForEditor(isoDate: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!match) return isoDate;
+  const [, yyyy, mm, dd] = match;
+  return `${dd}/${mm}/${yyyy}`;
+}
 
 function copyRow(doc: Document, popup: Window, label: string, value: string): HTMLElement {
   const row = doc.createElement("div");
