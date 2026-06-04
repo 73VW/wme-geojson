@@ -226,6 +226,7 @@
       "mteIdLabel": "MTE ID",
       "badgeStored": "depuis localStorage",
       "badgeAutoUrl": "auto-détecté (URL)",
+      "badgeAutoName": "auto-détecté (nom)",
       "badgeManual": "override manuel",
       "badgeNone": "aucun MTE lié",
       "candidatesHeader": "Candidats (sans URL match) :",

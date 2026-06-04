@@ -1,4 +1,10 @@
 // src/mte/mteSdk.ts
+//
+// Adapter Waze SDK pour la liste des Major Traffic Events.
+// Le SDK ne fournit que : id, names[] (localisés), startDate, endDate
+// (+ flags isPublished/isReady, category, etc.). Aucun urlLink ni
+// géométrie, donc le matching popup repose sur le nom + les dates.
+
 import type { WmeSDK } from "wme-sdk-typings";
 import type { MteRef } from "./mteResolver";
 
@@ -6,8 +12,20 @@ export interface MteSdk {
   listMtes(): MteRef[];
 }
 
+interface LocalizedString {
+  locale: string;
+  value: string;
+}
+
+interface SdkMajorTrafficEvent {
+  id: string;
+  names: LocalizedString[];
+  startDate: string | null;
+  endDate: string | null;
+}
+
 interface MajorTrafficEventsApi {
-  getMajorTrafficEvents?: () => unknown[];
+  getAll?: () => SdkMajorTrafficEvent[];
 }
 
 type WmeSdkWithMajorTrafficEvents = WmeSDK & {
@@ -19,7 +37,9 @@ export function createMteSdk(sdk: WmeSDK): MteSdk {
   return {
     listMtes(): MteRef[] {
       try {
-        const raw = sdkWithMte.MajorTrafficEvents?.getMajorTrafficEvents?.() ?? [];
+        const raw = sdkWithMte.MajorTrafficEvents?.getAll?.() ?? [];
+        // Log volontaire pour diagnostic : ce que le SDK renvoie réellement.
+        console.info("[mteSdk] getAll() returned", raw.length, "MTE(s):", raw);
         return raw.map(normalize).filter((m): m is MteRef => m !== null);
       } catch (err) {
         console.warn("[mteSdk] listMtes failed:", err);
@@ -29,48 +49,24 @@ export function createMteSdk(sdk: WmeSDK): MteSdk {
   };
 }
 
-// Forme attendue (à ajuster Step 1 si le SDK diffère) :
-//   { id, name, url, geometry: { coordinates: [[[lon,lat], ...]] }, startDate, endDate }
-interface RawMte {
-  id: number | string;
-  name?: string;
-  url?: string | null;
-  urlLink?: string | null;
-  geometry?: { coordinates?: number[][][] };
-  startDate?: string;
-  endDate?: string;
+function pickName(names: LocalizedString[]): string {
+  if (!Array.isArray(names) || names.length === 0) return "";
+  // Préférer FR, puis EN, sinon premier nom dispo.
+  const fr = names.find((n) => n?.locale?.startsWith("fr"));
+  if (fr?.value) return fr.value;
+  const en = names.find((n) => n?.locale?.startsWith("en"));
+  if (en?.value) return en.value;
+  return names[0]?.value ?? "";
 }
 
-function normalize(raw: unknown): MteRef | null {
-  if (!raw || typeof raw !== "object") return null;
-  const r = raw as RawMte;
-  if (r.id === undefined || r.id === null) return null;
-
-  const bbox = bboxFromGeometry(r.geometry);
-  if (!bbox) return null;
-
+function normalize(raw: SdkMajorTrafficEvent): MteRef | null {
+  if (!raw || typeof raw.id !== "string") return null;
   return {
-    id: String(r.id),
-    name: typeof r.name === "string" ? r.name : "",
-    urlLink: typeof r.urlLink === "string" ? r.urlLink : typeof r.url === "string" ? r.url : null,
-    bbox,
-    startDate: typeof r.startDate === "string" ? r.startDate.slice(0, 10) : "",
-    endDate: typeof r.endDate === "string" ? r.endDate.slice(0, 10) : "",
+    id: raw.id,
+    name: pickName(raw.names),
+    urlLink: null, // SDK ne l'expose pas.
+    bbox: null, // SDK ne l'expose pas.
+    startDate: typeof raw.startDate === "string" ? raw.startDate.slice(0, 10) : "",
+    endDate: typeof raw.endDate === "string" ? raw.endDate.slice(0, 10) : "",
   };
-}
-
-function bboxFromGeometry(geom: RawMte["geometry"]): [number, number, number, number] | null {
-  const ring = geom?.coordinates?.[0];
-  if (!ring || ring.length === 0) return null;
-  let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
-  for (const pt of ring) {
-    const [lon, lat] = pt;
-    if (typeof lon !== "number" || typeof lat !== "number") continue;
-    if (lon < minLon) minLon = lon;
-    if (lat < minLat) minLat = lat;
-    if (lon > maxLon) maxLon = lon;
-    if (lat > maxLat) maxLat = lat;
-  }
-  if (!Number.isFinite(minLon)) return null;
-  return [minLon, minLat, maxLon, maxLat];
 }

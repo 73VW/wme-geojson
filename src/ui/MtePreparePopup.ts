@@ -13,6 +13,7 @@ import type { Feature, MultiPolygon, Polygon } from "geojson";
 import { fetchSlowupFullDetails } from "../lines/slowupClient";
 import type { SlowupFullDetails } from "../lines/types";
 import {
+  byName,
   byUrl,
   candidatesByBbox,
   mteStore,
@@ -231,17 +232,32 @@ function renderContent(
 
   function runResolution(): void {
     const mtes = deps.mteSdk.listMtes();
+    console.info(
+      "[mtePopup] resolving for refid",
+      deps.refid,
+      "/ title:",
+      details.title,
+      "/ slowup urlLink:",
+      details.urlLink,
+      "/ normalized MTEs:",
+      mtes,
+    );
     const stored = mteStore.get(deps.refid);
-    const auto = byUrl(mtes, details.urlLink);
+    const autoUrl = byUrl(mtes, details.urlLink);
+    const autoName = autoUrl ? null : byName(mtes, details.title);
     candidatesContainer.replaceChildren();
 
     if (stored) {
       mteInput.value = stored;
       badge.textContent = i18next.t("panel.mtePopup.badgeStored");
-    } else if (auto) {
-      mteInput.value = auto.id;
-      mteStore.set(deps.refid, auto.id);
+    } else if (autoUrl) {
+      mteInput.value = autoUrl.id;
+      mteStore.set(deps.refid, autoUrl.id);
       badge.textContent = i18next.t("panel.mtePopup.badgeAutoUrl");
+    } else if (autoName) {
+      mteInput.value = autoName.id;
+      mteStore.set(deps.refid, autoName.id);
+      badge.textContent = i18next.t("panel.mtePopup.badgeAutoName");
     } else {
       mteInput.value = "";
       badge.textContent = i18next.t("panel.mtePopup.badgeNone");
