@@ -31,10 +31,13 @@ import {
   type MapDriver,
   type MatchDriver,
 } from "../../controller/LazyMatchingPipeline";
-import { closuresFromSource } from "../../csv/closuresFromSource";
+import { closuresFromSource, type GlobalClosureGroup } from "../../csv/closuresFromSource";
 import { waitForMapIdle } from "../../utils/waitForMapIdle";
+import { openMtePreparePopup } from "../MtePreparePopup";
+import { createMteSdk } from "../../mte";
 
 const TARGET_ZOOM = 16;
+const MAX_CLOSURE_SEGMENTS_PER_ROW = 10;
 
 /**
  * Sidebar panel for the lazy sub-line matching pipeline.
@@ -79,6 +82,7 @@ export class MatchingSubTab {
   private startMatchingRow: HTMLElement | null = null;
   private guidedMatchingRow: HTMLElement | null = null;
   private downloadRow: HTMLElement | null = null;
+  private prepareMteBtn?: HTMLButtonElement;
   private csvUploadRow: HTMLElement | null = null;
   private csvRemoveBtn: HTMLElement | null = null;
   private resumeBannerRow: HTMLElement | null = null;
@@ -226,6 +230,7 @@ export class MatchingSubTab {
     const hasLine = entry !== null;
     if (this.contentWrapperEl) this.contentWrapperEl.style.display = hasLine ? "" : "none";
     if (this.emptyStateEl) this.emptyStateEl.style.display = hasLine ? "none" : "";
+    this.updatePrepareMteBtn(entry);
     if (!entry) {
       this.attachedLineId = null;
       return;
@@ -388,6 +393,7 @@ export class MatchingSubTab {
     this.startMatchingRow = null;
     this.attachedLineId = null;
     this.downloadRow = null;
+    this.prepareMteBtn = undefined;
     this.csvUploadRow = null;
     this.csvRemoveBtn = null;
     this.resumeBannerRow = null;
@@ -1372,10 +1378,10 @@ export class MatchingSubTab {
       this.store.setPhase("done");
       const segments = this.countMatchedSegments();
       if (this.guidedSegmentCountEl) {
-        this.guidedSegmentCountEl.textContent = i18next.t(
-          "panel.matching.steps.completedSummary",
-          { rowsValidated: this.countValidatedSubLines(), totalSegments: segments },
-        );
+        this.guidedSegmentCountEl.textContent = i18next.t("panel.matching.steps.completedSummary", {
+          rowsValidated: this.countValidatedSubLines(),
+          totalSegments: segments,
+        });
       }
       this.trackLayer?.setHighlightedSlice(null);
     } else {
@@ -1523,13 +1529,7 @@ export class MatchingSubTab {
     this.setButtonVisible(this.guidedRestartBtn, hasSource && !isDone);
 
     if (this.guidedStatusEl) {
-      const key = this.guidedBusy
-        ? "running"
-        : isMatching
-          ? "waiting"
-          : isDone
-            ? "done"
-            : "ready";
+      const key = this.guidedBusy ? "running" : isMatching ? "waiting" : isDone ? "done" : "ready";
       this.guidedStatusEl.textContent = i18next.t(`panel.matching.panelStatus.${key}`);
     }
   }
@@ -1665,7 +1665,11 @@ export class MatchingSubTab {
 
     // Header text — no chaîne suffix.
     if (this.guidedRowHeaderEl) {
-      this.guidedRowHeaderEl.textContent = this.formatHeader(src, cursor.lineIndex, cursor.subLineIndex);
+      this.guidedRowHeaderEl.textContent = this.formatHeader(
+        src,
+        cursor.lineIndex,
+        cursor.subLineIndex,
+      );
     }
 
     // Segment count for the current sub-line. Before validation the matched
@@ -1741,7 +1745,53 @@ export class MatchingSubTab {
     });
     section.appendChild(closuresBtn);
 
+    const prepareMteBtn = wzButton({
+      text: i18next.t("panel.matching.prepareMteBtn"),
+      variant: "secondary",
+    }) as HTMLButtonElement;
+    prepareMteBtn.addEventListener("click", () => void this.openMtePopup());
+    section.appendChild(prepareMteBtn);
+    this.prepareMteBtn = prepareMteBtn;
+    this.updatePrepareMteBtn(this.registry.getSelected());
+
     return section;
+  }
+
+  private updatePrepareMteBtn(entry: LineEntry | null): void {
+    const btn = this.prepareMteBtn;
+    if (!btn) return;
+
+    const refid = entry?.slowupDetails?.refid;
+    btn.disabled = !refid;
+    if (refid) {
+      btn.title = "";
+      btn.removeAttribute("disabled");
+    } else {
+      btn.title = i18next.t("panel.matching.prepareMteDisabled");
+      btn.setAttribute("disabled", "");
+    }
+  }
+
+  private async openMtePopup(): Promise<void> {
+    const entry = this.registry.getSelected();
+    const refid = entry?.slowupDetails?.refid;
+    if (!entry || !refid) return;
+
+    const slowupBbox = this.computeSlowupBbox(entry.track);
+    if (!slowupBbox) return;
+
+    await openMtePreparePopup({
+      refid,
+      slowupBbox,
+      mteSdk: createMteSdk(this.wmeSDK),
+    });
+  }
+
+  private computeSlowupBbox(track: NormalizedTrack): [number, number, number, number] | null {
+    const bbox = bboxOfMultiLineString(track.geometry);
+    if (!bbox) return null;
+    const [minLon, minLat, maxLon, maxLat] = bbox;
+    return [minLon, minLat, maxLon, maxLat];
   }
 
   // ---------------------------------------------------------------------------
@@ -1949,7 +1999,7 @@ export class MatchingSubTab {
     const closures = closuresFromSource(src);
     const hasAny =
       closures.mode === "global-times"
-        ? closures.segmentIds.length > 0
+        ? closures.groups.some((group) => group.segmentIds.length > 0)
         : closures.bySegment.length > 0;
     if (!hasAny) {
       const message = i18next.t("panel.matching.mustValidateFirst");
@@ -1959,14 +2009,14 @@ export class MatchingSubTab {
     }
 
     if (closures.mode === "global-times") {
-      void this.downloadClosuresGlobalTimes(closures.segmentIds);
+      void this.downloadClosuresGlobalTimes(closures.groups);
       return;
     }
     void this.downloadClosuresPerLine(closures.bySegment);
   }
 
   /** No CSV — collect a single global window then apply to all segments. */
-  private async downloadClosuresGlobalTimes(segmentIds: number[]): Promise<void> {
+  private async downloadClosuresGlobalTimes(groupsBySubLine: GlobalClosureGroup[]): Promise<void> {
     const today = new Date().toISOString().slice(0, 10);
     const slowupDate = this.registry.getSelected()?.slowupDetails?.date;
     const window = await promptClosureWindow({
@@ -1976,25 +2026,36 @@ export class MatchingSubTab {
     });
     if (!window) return;
 
-    const fields = await promptFinalFields({});
+    const fields = await promptFinalFields({
+      refid: this.registry.getSelected()?.slowupDetails?.refid,
+    });
     if (!fields) return;
 
-    const geo = this.exportGeo();
-    const rows: CsvRow[] = [
-      {
-        distance: 0,
-        date: window.startISO.slice(0, 10),
-        startTime: window.startISO.slice(11, 16),
-        endTime: window.endISO.slice(11, 16),
-        segments: segmentIds.slice(),
-      },
-    ];
-    const groups: ClosureRowGroup[] = [{ rowIndex: 0, segmentIds: segmentIds.slice(), geo }];
+    const rows: CsvRow[] = [];
+    const groups: ClosureRowGroup[] = [];
     const closuresBySegment: Record<number, ClosureRange[]> = {};
-    for (const id of segmentIds) {
-      closuresBySegment[id] = [
-        { startISO: window.startISO, endISO: window.endISO, rowIndex: 0 },
-      ];
+
+    for (const group of groupsBySubLine) {
+      for (let start = 0; start < group.segmentIds.length; start += MAX_CLOSURE_SEGMENTS_PER_ROW) {
+        const segmentIds = group.segmentIds.slice(start, start + MAX_CLOSURE_SEGMENTS_PER_ROW);
+        if (segmentIds.length === 0) continue;
+
+        const rowIndex = rows.length;
+        rows.push({
+          distance: 0,
+          date: window.startISO.slice(0, 10),
+          startTime: window.startISO.slice(11, 16),
+          endTime: window.endISO.slice(11, 16),
+          segments: segmentIds,
+        });
+        groups.push({ rowIndex, segmentIds, geo: group.geo });
+
+        for (const id of segmentIds) {
+          const existing = closuresBySegment[id] ?? [];
+          existing.push({ startISO: window.startISO, endISO: window.endISO, rowIndex });
+          closuresBySegment[id] = existing;
+        }
+      }
     }
 
     this.emitClosuresCsv(rows, groups, closuresBySegment, fields);
@@ -2002,12 +2063,16 @@ export class MatchingSubTab {
 
   /** CSV-derived per-line windows — no global window popup. */
   private async downloadClosuresPerLine(
-    bySegment: ReadonlyArray<{ segmentId: number; windows: { startISO: string; endISO: string }[] }>,
+    bySegment: ReadonlyArray<{
+      segmentId: number;
+      windows: { startISO: string; endISO: string; geo: RowGeo }[];
+    }>,
   ): Promise<void> {
-    const fields = await promptFinalFields({});
+    const fields = await promptFinalFields({
+      refid: this.registry.getSelected()?.slowupDetails?.refid,
+    });
     if (!fields) return;
 
-    const geo = this.exportGeo();
     // Synthesize the legacy ClosureRowGroup/ClosureRange/CsvRow shapes:
     // one synthetic row per (segment, window).
     const rows: CsvRow[] = [];
@@ -2024,7 +2089,7 @@ export class MatchingSubTab {
           endTime: win.endISO.slice(11, 16),
           segments: [entry.segmentId],
         });
-        groups.push({ rowIndex, segmentIds: [entry.segmentId], geo });
+        groups.push({ rowIndex, segmentIds: [entry.segmentId], geo: win.geo });
         const existing = closuresBySegment[entry.segmentId] ?? [];
         existing.push({ startISO: win.startISO, endISO: win.endISO, rowIndex });
         closuresBySegment[entry.segmentId] = existing;

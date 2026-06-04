@@ -178,6 +178,8 @@
       "back": "Retour",
       "syntheticBanner": "Pas de CSV — la ligne entière sera fermée sur une seule fenêtre temporelle (saisie au téléchargement).",
       "noSelection": "Sélectionne une ligne dans l'onglet Lignes.",
+      "prepareMteBtn": "Préparer MTE",
+      "prepareMteDisabled": "Détails du slowup non chargés",
       "reselectMatched": "Resélectionner",
       "rerunCurrentRow": "Relancer la ligne",
       "burstRunning": "Mode burst : les segments trouvés sont validés automatiquement.",
@@ -211,6 +213,23 @@
         "unknown": "Étape du pipeline"
       },
       "backToLines": "← Lignes"
+    },
+    "mtePopup": {
+      "loading": "Chargement…",
+      "error": "Erreur",
+      "close": "Fermer",
+      "copy": "Copier",
+      "refresh": "Rafraîchir",
+      "titleLabel": "Titre",
+      "dateLabel": "Date",
+      "urlLabel": "URL",
+      "mteIdLabel": "MTE ID",
+      "badgeStored": "depuis localStorage",
+      "badgeAutoUrl": "auto-détecté (URL)",
+      "badgeManual": "override manuel",
+      "badgeNone": "aucun MTE lié",
+      "candidatesHeader": "Candidats (sans URL match) :",
+      "noCandidates": "Aucun MTE candidat à proximité."
     },
     "finalFields": {
       "title": "Exporter les fermetures — détails finaux",

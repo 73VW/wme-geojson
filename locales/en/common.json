@@ -178,6 +178,8 @@
       "back": "Back",
       "syntheticBanner": "No CSV — the whole line will be closed over a single time window (entered at download).",
       "noSelection": "Select a line in the Lines tab.",
+      "prepareMteBtn": "Prepare MTE",
+      "prepareMteDisabled": "SlowUp details not loaded",
       "reselectMatched": "Reselect matched",
       "rerunCurrentRow": "Rerun row",
       "burstRunning": "Burst mode: matched segments are auto-validated.",
@@ -211,6 +213,23 @@
         "unknown": "Pipeline step"
       },
       "backToLines": "← Lines"
+    },
+    "mtePopup": {
+      "loading": "Loading…",
+      "error": "Error",
+      "close": "Close",
+      "copy": "Copy",
+      "refresh": "Refresh",
+      "titleLabel": "Title",
+      "dateLabel": "Date",
+      "urlLabel": "URL",
+      "mteIdLabel": "MTE ID",
+      "badgeStored": "from localStorage",
+      "badgeAutoUrl": "auto-detected (URL)",
+      "badgeManual": "manual override",
+      "badgeNone": "no linked MTE",
+      "candidatesHeader": "Candidates (no URL match):",
+      "noCandidates": "No MTE candidates nearby."
     },
     "finalFields": {
       "title": "Export closures — final details",
