@@ -140,3 +140,75 @@ describe("fetchSlowupDetails", () => {
     );
   });
 });
+
+import { fetchSlowupFullDetails } from "../lines/slowupClient";
+
+describe("fetchSlowupFullDetails", () => {
+  function stubAllLangs(byLang: Record<string, { abstract: string; urlLink: string }>) {
+    return mockXmlHttpRequest((options) => {
+      const match = options.url.match(/\?lang=(\w\w)$/);
+      const lang = match ? match[1] : "fr";
+      const payload = byLang[lang];
+      options.onload({
+        status: 200,
+        response: [
+          {
+            refid: 19,
+            title: "Hochrhein",
+            date: "2026-06-21",
+            abstract: payload.abstract,
+            urlLink: payload.urlLink,
+          },
+        ],
+      });
+    });
+  }
+
+  it("fetches the 4 langs in parallel and returns aggregated details", async () => {
+    stubAllLangs({
+      fr: { abstract: "FR", urlLink: "https://a" },
+      en: { abstract: "EN", urlLink: "https://a" },
+      de: { abstract: "DE", urlLink: "https://a" },
+      it: { abstract: "IT", urlLink: "https://a" },
+    });
+
+    const result = await fetchSlowupFullDetails(19);
+    expect(result).toEqual({
+      refid: 19,
+      title: "Hochrhein",
+      date: "2026-06-21",
+      urlLink: "https://a",
+      abstracts: { fr: "FR", en: "EN", de: "DE", it: "IT" },
+    });
+  });
+
+  it("warns and uses FR when urlLinks diverge", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    stubAllLangs({
+      fr: { abstract: "FR", urlLink: "https://fr-url" },
+      en: { abstract: "EN", urlLink: "https://other" },
+      de: { abstract: "DE", urlLink: "https://other" },
+      it: { abstract: "IT", urlLink: "https://other" },
+    });
+
+    const result = await fetchSlowupFullDetails(19);
+    expect(result.urlLink).toBe("https://fr-url");
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("rejects when any lang fetch fails", async () => {
+    mockXmlHttpRequest((options) => {
+      if (options.url.includes("lang=de")) {
+        options.onerror({ statusText: "boom" });
+        return;
+      }
+      options.onload({
+        status: 200,
+        response: [{ refid: 19, title: "T", date: "2026-06-21", abstract: "x", urlLink: "https://a" }],
+      });
+    });
+
+    await expect(fetchSlowupFullDetails(19)).rejects.toThrow();
+  });
+});

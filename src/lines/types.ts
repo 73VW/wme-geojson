@@ -17,6 +17,24 @@ export interface SlowupDetails {
   date: string; // "YYYY-MM-DD"
 }
 
+/**
+ * Full slowUp event detail used by the "Prepare MTE" popup. Includes the
+ * per-language abstract and the urlLink the user pastes into the MTE form.
+ * Fetched lazily on popup open — NOT cached on the LineEntry.
+ */
+export interface SlowupFullDetails {
+  refid: number;
+  title: string;
+  date: string;          // "YYYY-MM-DD"
+  urlLink: string;
+  abstracts: {
+    fr: string;
+    en: string;
+    de: string;
+    it: string;
+  };
+}
+
 /** Coarse matching progress for one line, mirrored from the pipeline. */
 export type LineMatchPhase = "idle" | "matching" | "matched";
 
