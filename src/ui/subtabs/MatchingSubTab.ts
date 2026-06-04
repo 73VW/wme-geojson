@@ -1976,7 +1976,7 @@ export class MatchingSubTab {
     });
     if (!window) return;
 
-    const fields = await promptFinalFields();
+    const fields = await promptFinalFields({});
     if (!fields) return;
 
     const geo = this.exportGeo();
@@ -2004,7 +2004,7 @@ export class MatchingSubTab {
   private async downloadClosuresPerLine(
     bySegment: ReadonlyArray<{ segmentId: number; windows: { startISO: string; endISO: string }[] }>,
   ): Promise<void> {
-    const fields = await promptFinalFields();
+    const fields = await promptFinalFields({});
     if (!fields) return;
 
     const geo = this.exportGeo();

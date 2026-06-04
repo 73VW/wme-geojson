@@ -5,6 +5,7 @@
 
 import i18next from "i18next";
 import type { FinalFields } from "../csv/buildClosuresCsv";
+import { mteStore } from "../mte/mteStore";
 
 // ---------------------------------------------------------------------------
 // DOM helpers — thin wrappers to avoid repetition without adding a framework
@@ -50,9 +51,25 @@ function labeledInput(labelText: string, inputEl: HTMLInputElement, id: string):
  *
  * Wires all i18n keys under the "panel.finalFields" namespace.
  */
+export function resolveDefaultMteId(
+  explicit: string | undefined,
+  refid: number | undefined,
+): string {
+  if (explicit !== undefined && explicit.length > 0) return explicit;
+  if (refid !== undefined) return mteStore.get(refid) ?? "";
+  return "";
+}
+
+export interface PromptFinalFieldsOptions {
+  defaults?: Partial<FinalFields>;
+  refid?: number;
+}
+
 export async function promptFinalFields(
-  defaults?: Partial<FinalFields>,
+  options: PromptFinalFieldsOptions = {},
 ): Promise<FinalFields | null> {
+  const { defaults, refid } = options;
+
   return new Promise<FinalFields | null>((resolve) => {
     let settled = false;
 
@@ -79,7 +96,7 @@ export async function promptFinalFields(
 
     const mteIdInput = el("input");
     mteIdInput.type = "text";
-    mteIdInput.value = defaults?.mteId ?? "";
+    mteIdInput.value = resolveDefaultMteId(defaults?.mteId, refid);
 
     const commentInput = el("input");
     commentInput.type = "text";
