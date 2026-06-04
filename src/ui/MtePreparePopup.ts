@@ -172,25 +172,29 @@ function renderContent(
   titleEl.textContent = `SlowUP ${details.title}`;
   bodyEl.replaceChildren();
 
-  bodyEl.appendChild(copyRow(doc, popup, i18next.t("panel.mtePopup.titleLabel"), `SlowUP ${details.title}`));
-  bodyEl.appendChild(copyRow(doc, popup, i18next.t("panel.mtePopup.dateLabel"), formatDateForEditor(details.date)));
-  bodyEl.appendChild(copyRow(doc, popup, i18next.t("panel.mtePopup.urlLabel"), details.urlLink));
-
-  bodyEl.appendChild(divider(doc));
-
-  for (const lang of ["fr", "en", "de", "it"] as const) {
-    bodyEl.appendChild(textBlock(doc, popup, `Abstract ${lang.toUpperCase()}`, details.abstracts[lang]));
-  }
-
-  bodyEl.appendChild(divider(doc));
-
+  // Order matches the MTE editor form: geojson, date, title, abstracts
+  // (EN/FR/DE/IT), URL, then MTE ID (rendered below).
   if (deps.slowupPolygon) {
     const polygonGeoJson = JSON.stringify(deps.slowupPolygon.geometry, null, 2);
     bodyEl.appendChild(
       textBlock(doc, popup, i18next.t("panel.mtePopup.polygonLabel"), polygonGeoJson),
     );
-    bodyEl.appendChild(divider(doc));
   }
+
+  bodyEl.appendChild(copyRow(doc, popup, i18next.t("panel.mtePopup.dateLabel"), formatDateForEditor(details.date)));
+  bodyEl.appendChild(copyRow(doc, popup, i18next.t("panel.mtePopup.titleLabel"), `SlowUP ${details.title}`));
+
+  bodyEl.appendChild(divider(doc));
+
+  for (const lang of ["en", "fr", "de", "it"] as const) {
+    bodyEl.appendChild(textBlock(doc, popup, `Abstract ${lang.toUpperCase()}`, details.abstracts[lang]));
+  }
+
+  bodyEl.appendChild(divider(doc));
+
+  bodyEl.appendChild(copyRow(doc, popup, i18next.t("panel.mtePopup.urlLabel"), details.urlLink));
+
+  bodyEl.appendChild(divider(doc));
 
   // MTE ID section
   const mteSection = doc.createElement("div");
