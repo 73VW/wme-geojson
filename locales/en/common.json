@@ -229,7 +229,8 @@
       "badgeManual": "manual override",
       "badgeNone": "no linked MTE",
       "candidatesHeader": "Candidates (no URL match):",
-      "noCandidates": "No MTE candidates nearby."
+      "noCandidates": "No MTE candidates nearby.",
+      "blocked": "The window was blocked by the browser. Allow popups for this site."
     },
     "finalFields": {
       "title": "Export closures — final details",
