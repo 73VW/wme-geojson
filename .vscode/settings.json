@@ -88,5 +88,8 @@
         "copilot/oswe-vscode-prime"
       ]
     }
+  },
+  "chat.tools.terminal.autoApprove": {
+    "npx": true
   }
 }

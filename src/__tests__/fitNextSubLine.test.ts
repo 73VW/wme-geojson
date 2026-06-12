@@ -8,7 +8,15 @@ function lineFromKmRange(kmA: number, kmB: number): MultiLineString {
   // Use a 1-km/deg-longitude approximation at the equator (≈ 111 km/deg).
   const lonA = kmA / 111;
   const lonB = kmB / 111;
-  return { type: "MultiLineString", coordinates: [[[lonA, 0], [lonB, 0]]] };
+  return {
+    type: "MultiLineString",
+    coordinates: [
+      [
+        [lonA, 0],
+        [lonB, 0],
+      ],
+    ],
+  };
 }
 
 describe("fitNextSubLine", () => {

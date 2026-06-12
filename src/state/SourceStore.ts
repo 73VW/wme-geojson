@@ -17,7 +17,11 @@ export class SourceStore {
   }
 
   /** Append a SubLine; replace the line's pendingTail head with the remainder (or remove it if null). */
-  addSubLine(lineIndex: number, sub: SubLine, remainder: { kmA: number; kmB: number } | null): void {
+  addSubLine(
+    lineIndex: number,
+    sub: SubLine,
+    remainder: { kmA: number; kmB: number } | null,
+  ): void {
     this.mutate((src) => {
       const line = src.lines[lineIndex];
       line.subLines.push(sub);
@@ -58,11 +62,15 @@ export class SourceStore {
           line.pendingTail.unshift(merged);
         }
       }
-      src.cursor = subLineIndex > 0
-        ? { lineIndex, subLineIndex: subLineIndex - 1 }
-        : lineIndex > 0
-          ? { lineIndex: lineIndex - 1, subLineIndex: src.lines[lineIndex - 1].subLines.length - 1 }
-          : null;
+      src.cursor =
+        subLineIndex > 0
+          ? { lineIndex, subLineIndex: subLineIndex - 1 }
+          : lineIndex > 0
+            ? {
+                lineIndex: lineIndex - 1,
+                subLineIndex: src.lines[lineIndex - 1].subLines.length - 1,
+              }
+            : null;
     });
   }
 
@@ -73,7 +81,11 @@ export class SourceStore {
 
   private emit(): void {
     for (const l of this.listeners) {
-      try { l(); } catch { /* don't crash siblings */ }
+      try {
+        l();
+      } catch {
+        /* don't crash siblings */
+      }
     }
   }
 

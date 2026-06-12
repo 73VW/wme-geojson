@@ -23,11 +23,11 @@ L'orchestration est **impérative** : à chaque changement, on appelle `updateGu
 
 ## Points de douleur observés
 
-1. **Bugs de désynchronisation** : `stopIfRequested` émettait `onPaused` *avant* de mettre à jour `running`/`paused`, ce qui faisait que `updateGuidedControls()` lisait l'ancien état. Symptôme : Pause restait visible après pause. Cause racine : pas de garantie sur l'ordre "set-state-then-emit".
-2. **Combinaisons croisées difficiles à raisonner** : `Back` doit être visible en attente interactive *ou* en pause burst, mais pas en burst running. Chaque nouvelle exigence ajoute des `&& !isDone`, `|| isPaused`, etc. Le calcul de visibilité est un OU/ET imbriqué qui croît à chaque feature.
+1. **Bugs de désynchronisation** : `stopIfRequested` émettait `onPaused` _avant_ de mettre à jour `running`/`paused`, ce qui faisait que `updateGuidedControls()` lisait l'ancien état. Symptôme : Pause restait visible après pause. Cause racine : pas de garantie sur l'ordre "set-state-then-emit".
+2. **Combinaisons croisées difficiles à raisonner** : `Back` doit être visible en attente interactive _ou_ en pause burst, mais pas en burst running. Chaque nouvelle exigence ajoute des `&& !isDone`, `|| isPaused`, etc. Le calcul de visibilité est un OU/ET imbriqué qui croît à chaque feature.
 3. **Bouton "fantôme"** : visibilité par bouton mais conteneur parent géré séparément (cas `guidedManualActionsEl.style.display = "none"` pour burst qui masquait Pause). La double couche est piège.
 4. **Transitions implicites** : `Resume` callback fait `setPhase("matching")` puis `pipeline.resume()` puis `updateGuidedControls()` — l'ordre est porteur de sens mais non documenté.
-5. **États mal nommés** : `phase === "csv-loaded"` est utilisé à la fois pour "CSV chargé, prêt à matcher" *et* "matching en pause" (parce que `onPaused` repasse en csv-loaded). Le flag `isPaused()` désambiguïse mais l'overload sémantique de `phase` complique la lecture.
+5. **États mal nommés** : `phase === "csv-loaded"` est utilisé à la fois pour "CSV chargé, prêt à matcher" _et_ "matching en pause" (parce que `onPaused` repasse en csv-loaded). Le flag `isPaused()` désambiguïse mais l'overload sémantique de `phase` complique la lecture.
 
 ## Une state machine simplifierait-elle ?
 
@@ -78,15 +78,15 @@ digraph matching {
 
 1. **Visibilité des boutons = table par état**, plus une formule booléenne :
 
-   | État          | Validate | Skip | Back | Pause | Resume | Close-done | Start | Restart |
-   |---------------|----------|------|------|-------|--------|------------|-------|---------|
-   | idle          |          |      |      |       |        |            | ✓     | ✓       |
-   | running (interactif) |   |      |      |       |        |            |       | ✓       |
-   | running (burst) |       |      |      | ✓     |        |            |       | ✓       |
-   | waitingLeaf   | ✓        | ✓    | ✓    |       |        |            |       | ✓       |
-   | pausePending  |          |      |      | ✓ (disabled) | |            |       |         |
-   | paused        |          |      | ✓    |       | ✓      |            |       |         |
-   | done          |          |      |      |       |        | ✓          |       |         |
+   | État                 | Validate | Skip | Back | Pause        | Resume | Close-done | Start | Restart |
+   | -------------------- | -------- | ---- | ---- | ------------ | ------ | ---------- | ----- | ------- |
+   | idle                 |          |      |      |              |        |            | ✓     | ✓       |
+   | running (interactif) |          |      |      |              |        |            |       | ✓       |
+   | running (burst)      |          |      |      | ✓            |        |            |       | ✓       |
+   | waitingLeaf          | ✓        | ✓    | ✓    |              |        |            |       | ✓       |
+   | pausePending         |          |      |      | ✓ (disabled) |        |            |       |         |
+   | paused               |          |      | ✓    |              | ✓      |            |       |         |
+   | done                 |          |      |      |              |        | ✓          |       |         |
 
    Lecture directe, plus de `&& !isDone` partout.
 
@@ -128,6 +128,7 @@ private dispatch(event: MatchingUiEvent): void {
 ```
 
 Les events viennent de :
+
 - callbacks utilisateur (clicks)
 - événements pipeline (`onRowMatched`, `onPaused`, `onDone`, …)
 - changements de store (`phase` change)

@@ -1,9 +1,20 @@
-import type { Source } from "../domain/types";
+import type { MapAnchor, Source } from "../domain/types";
 
-export interface ClosureWindow { startISO: string; endISO: string; }
-export interface ClosuresBySegment { segmentId: number; windows: ClosureWindow[]; }
+export interface ClosureWindow {
+  startISO: string;
+  endISO: string;
+  geo: MapAnchor;
+}
+export interface ClosuresBySegment {
+  segmentId: number;
+  windows: ClosureWindow[];
+}
+export interface GlobalClosureGroup {
+  segmentIds: number[];
+  geo: MapAnchor;
+}
 export type ClosuresFromSource =
-  | { mode: "global-times"; segmentIds: number[] }
+  | { mode: "global-times"; groups: GlobalClosureGroup[] }
   | { mode: "per-line-times"; bySegment: ClosuresBySegment[] };
 
 function mergeWindows(input: ClosureWindow[]): ClosureWindow[] {
@@ -23,14 +34,14 @@ function mergeWindows(input: ClosureWindow[]): ClosureWindow[] {
 
 export function closuresFromSource(source: Source): ClosuresFromSource {
   if (!source.hasCsv) {
-    const ids = new Set<number>();
+    const groups: GlobalClosureGroup[] = [];
     for (const line of source.lines) {
       for (const sub of line.subLines) {
         if (!sub.validated) continue;
-        sub.segmentIds.forEach((id) => ids.add(id));
+        groups.push({ segmentIds: sub.segmentIds.slice(), geo: sub.view });
       }
     }
-    return { mode: "global-times", segmentIds: Array.from(ids) };
+    return { mode: "global-times", groups };
   }
 
   const windowsBySegment = new Map<number, ClosureWindow[]>();
@@ -40,7 +51,7 @@ export function closuresFromSource(source: Source): ClosuresFromSource {
       if (!sub.validated) continue;
       for (const segId of sub.segmentIds) {
         const arr = windowsBySegment.get(segId) ?? [];
-        arr.push({ startISO: line.startISO, endISO: line.endISO });
+        arr.push({ startISO: line.startISO, endISO: line.endISO, geo: sub.view });
         windowsBySegment.set(segId, arr);
       }
     }

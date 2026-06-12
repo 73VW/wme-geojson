@@ -5,7 +5,10 @@ const VIEW_SLICE_EPSILON_KM = 0.005;
 const DEFAULT_MIN_SPAN_KM = 0.01;
 const VIEW_SLICE_HEAD_RATIO = 0.75;
 
-export interface PendingRange { kmA: number; kmB: number; }
+export interface PendingRange {
+  kmA: number;
+  kmB: number;
+}
 
 export interface FittedSubLine {
   kmA: number;
@@ -16,9 +19,9 @@ export interface FittedSubLine {
 
 export interface FitInput {
   pending: PendingRange;
-  geometry: MultiLineString;          // geometry covering [pending.kmA, pending.kmB]
+  geometry: MultiLineString; // geometry covering [pending.kmA, pending.kmB]
   targetZoom: number;
-  evaluateZoom(geom: MultiLineString): number;   // pure delegate (Pipeline wraps zoomToExtent)
+  evaluateZoom(geom: MultiLineString): number; // pure delegate (Pipeline wraps zoomToExtent)
   sliceByKm(geom: MultiLineString, kmA: number, kmB: number): MultiLineString;
   minSpanKm?: number;
 }
@@ -38,9 +41,7 @@ export function fitNextSubLine(input: FitInput): FitResult {
 
   while (headGeom.coordinates.length > 0) {
     const zoom = input.evaluateZoom(headGeom);
-    const headKmB = sliced
-      ? headKmA + multiLineLengthKm(headGeom)
-      : input.pending.kmB;
+    const headKmB = sliced ? headKmA + multiLineLengthKm(headGeom) : input.pending.kmB;
     const box = bboxOfMultiLineString(headGeom);
     if (!box) {
       throw new Error("fitNextSubLine: empty bbox");

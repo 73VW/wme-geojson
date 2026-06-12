@@ -55,24 +55,24 @@ src/mte/
 
 ### Modifications de l'existant
 
-| Fichier | Changement |
-| --- | --- |
-| `src/lines/types.ts` | Ajout du type `SlowupFullDetails` (étend `SlowupDetails` avec `urlLink` + `abstracts.{fr,en,de,it}`). |
-| `src/lines/slowupClient.ts` | Ajout `fetchSlowupFullDetails(refid)` : 4 fetches `?lang=xx` en parallèle (`Promise.all`), extrait `abstract` et `urlLink` de chaque réponse. |
-| `src/ui/MtePreparePopup.ts` | Nouveau : DOM popup, lazy-load des 4 langs à l'ouverture, intègre store + resolver + SDK. |
-| `src/ui/subtabs/MatchingSubTab.ts` | Ajout du bouton « Préparer MTE » à côté de l'export CSV. |
-| `src/ui/promptFinalFields.ts` | Pré-remplissage du champ MTE ID depuis `mteStore.get(refid)` quand `defaults.mteId` est absent. Accepte un `refid?` en options. |
+| Fichier                            | Changement                                                                                                                                    |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/lines/types.ts`               | Ajout du type `SlowupFullDetails` (étend `SlowupDetails` avec `urlLink` + `abstracts.{fr,en,de,it}`).                                         |
+| `src/lines/slowupClient.ts`        | Ajout `fetchSlowupFullDetails(refid)` : 4 fetches `?lang=xx` en parallèle (`Promise.all`), extrait `abstract` et `urlLink` de chaque réponse. |
+| `src/ui/MtePreparePopup.ts`        | Nouveau : DOM popup, lazy-load des 4 langs à l'ouverture, intègre store + resolver + SDK.                                                     |
+| `src/ui/subtabs/MatchingSubTab.ts` | Ajout du bouton « Préparer MTE » à côté de l'export CSV.                                                                                      |
+| `src/ui/promptFinalFields.ts`      | Pré-remplissage du champ MTE ID depuis `mteStore.get(refid)` quand `defaults.mteId` est absent. Accepte un `refid?` en options.               |
 
 ### Tableau des responsabilités
 
-| Module | Rôle | Dépend de |
-| --- | --- | --- |
-| `mteStore` | Persistance localStorage `refid → mteId`. API : `get`, `set`, `clear`. | Rien (pur). |
-| `mteResolver` | Logique pure de matching : `byUrl(mtes, urlLink)` et `candidatesByBbox(mtes, slowupBbox, date)`. | Rien (pur). |
-| `mteSdk` | Adapter Waze SDK : `listMtes()` renvoie `MteRef[]` normalisés. | Runtime Waze. |
-| `MtePreparePopup` | DOM popup, état (loading/loaded/error), intègre les autres. | `mteStore`, `mteResolver`, `mteSdk`, `slowupClient`. |
-| `MatchingSubTab` | Expose le bouton « Préparer MTE ». | `MtePreparePopup`. |
-| `promptFinalFields` | Pré-remplit le champ MTE ID. | `mteStore`. |
+| Module              | Rôle                                                                                             | Dépend de                                            |
+| ------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------- |
+| `mteStore`          | Persistance localStorage `refid → mteId`. API : `get`, `set`, `clear`.                           | Rien (pur).                                          |
+| `mteResolver`       | Logique pure de matching : `byUrl(mtes, urlLink)` et `candidatesByBbox(mtes, slowupBbox, date)`. | Rien (pur).                                          |
+| `mteSdk`            | Adapter Waze SDK : `listMtes()` renvoie `MteRef[]` normalisés.                                   | Runtime Waze.                                        |
+| `MtePreparePopup`   | DOM popup, état (loading/loaded/error), intègre les autres.                                      | `mteStore`, `mteResolver`, `mteSdk`, `slowupClient`. |
+| `MatchingSubTab`    | Expose le bouton « Préparer MTE ».                                                               | `MtePreparePopup`.                                   |
+| `promptFinalFields` | Pré-remplit le champ MTE ID.                                                                     | `mteStore`.                                          |
 
 ## Modèle de données
 
@@ -82,8 +82,8 @@ src/mte/
 export interface SlowupFullDetails {
   refid: number;
   title: string;
-  date: string;                        // "YYYY-MM-DD"
-  urlLink: string;                     // vérifié identique entre les 4 langs, FR fait foi en cas de divergence
+  date: string; // "YYYY-MM-DD"
+  urlLink: string; // vérifié identique entre les 4 langs, FR fait foi en cas de divergence
   abstracts: {
     fr: string;
     en: string;
@@ -104,9 +104,9 @@ interface MteRef {
   id: string;
   name: string;
   urlLink: string | null;
-  bbox: [number, number, number, number];   // [minLon, minLat, maxLon, maxLat]
-  startDate: string;                        // ISO
-  endDate: string;                          // ISO
+  bbox: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
+  startDate: string; // ISO
+  endDate: string; // ISO
 }
 ```
 
@@ -192,7 +192,7 @@ mteStore.clear(refid: number): void
 mteIdInput.value = defaults?.mteId ?? "";
 
 // APRÈS
-mteIdInput.value = defaults?.mteId ?? (refid ? mteStore.get(refid) ?? "" : "");
+mteIdInput.value = defaults?.mteId ?? (refid ? (mteStore.get(refid) ?? "") : "");
 ```
 
 Le `refid` est ajouté aux options de `promptFinalFields`. `MatchingSubTab`
@@ -201,29 +201,29 @@ non-slowup), le comportement reste inchangé (champ vide par défaut).
 
 ## Erreurs et edge cases
 
-| Cas | Comportement |
-| --- | --- |
-| Pas de `slowupDetails` chargé (fetch initial KO ou en cours) | Bouton disabled + tooltip. |
-| 1+ lang KO au fetch popup | Affiche les abstracts dispo + bloc d'erreur inline pour les KO + bouton « réessayer ». La popup reste utilisable. |
-| `urlLink` différent entre langs | `slowupClient` vérifie, garde FR comme référence, log warning. |
-| `SDK.MajorTrafficEvents` indisponible | `mteSdk.listMtes()` renvoie `[]`. Popup affiche « Aucun MTE détecté » + bouton rafraîchir. Champ MTE ID reste éditable. |
-| Aucun candidat URL ni géo | Section candidats vide ; saisie manuelle reste possible. |
-| MTE auto-détecté mais `mteStore` contient déjà un ID différent | On garde la valeur du store + badge « override manuel ». Pas d'écrasement silencieux. |
-| `localStorage` indisponible / quota plein | `mteStore.set` log + no-op silencieux ; la session continue en mémoire. |
-| Slowup sans `refid` (legacy) | Bouton disabled. |
-| MTE ID vide à la sortie | `mteStore.clear(refid)`. Le défaut redevient l'auto-détection au prochain run. |
+| Cas                                                            | Comportement                                                                                                            |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Pas de `slowupDetails` chargé (fetch initial KO ou en cours)   | Bouton disabled + tooltip.                                                                                              |
+| 1+ lang KO au fetch popup                                      | Affiche les abstracts dispo + bloc d'erreur inline pour les KO + bouton « réessayer ». La popup reste utilisable.       |
+| `urlLink` différent entre langs                                | `slowupClient` vérifie, garde FR comme référence, log warning.                                                          |
+| `SDK.MajorTrafficEvents` indisponible                          | `mteSdk.listMtes()` renvoie `[]`. Popup affiche « Aucun MTE détecté » + bouton rafraîchir. Champ MTE ID reste éditable. |
+| Aucun candidat URL ni géo                                      | Section candidats vide ; saisie manuelle reste possible.                                                                |
+| MTE auto-détecté mais `mteStore` contient déjà un ID différent | On garde la valeur du store + badge « override manuel ». Pas d'écrasement silencieux.                                   |
+| `localStorage` indisponible / quota plein                      | `mteStore.set` log + no-op silencieux ; la session continue en mémoire.                                                 |
+| Slowup sans `refid` (legacy)                                   | Bouton disabled.                                                                                                        |
+| MTE ID vide à la sortie                                        | `mteStore.clear(refid)`. Le défaut redevient l'auto-détection au prochain run.                                          |
 
 ## Tests
 
-| Cible | Type | Outils | Couverture |
-| --- | --- | --- | --- |
-| `mteStore` | Unit | vitest + mock `localStorage` | get/set/clear, quota plein, JSON corrompu, multi-refid. |
-| `mteResolver` | Unit (pur) | vitest | `byUrl` : match exact, URL absente, URL différente. `candidatesByBbox` : aucun match, bbox tangente, dates hors fenêtre, tri overlap. |
-| `slowupClient` | Unit | vitest + mock `GM.xmlHttpRequest` | `fetchSlowupFullDetails` : 4 succès, 1 lang KO, urlLinks divergents, refid invalide. |
-| `mteSdk` | — | — | Trop couplé au runtime Waze ; testé manuellement. |
-| `MtePreparePopup` | — | — | DOM popup ; smoke testé en navigateur, cohérent avec le reste de `src/ui/`. |
-| `MatchingSubTab` | Intégration légère | vitest | Bouton disabled quand pas de slowup, enabled sinon (sans tester l'ouverture). |
-| `promptFinalFields` | Unit | vitest | Pré-remplissage MTE ID depuis store quand `defaults.mteId` absent. |
+| Cible               | Type               | Outils                            | Couverture                                                                                                                            |
+| ------------------- | ------------------ | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `mteStore`          | Unit               | vitest + mock `localStorage`      | get/set/clear, quota plein, JSON corrompu, multi-refid.                                                                               |
+| `mteResolver`       | Unit (pur)         | vitest                            | `byUrl` : match exact, URL absente, URL différente. `candidatesByBbox` : aucun match, bbox tangente, dates hors fenêtre, tri overlap. |
+| `slowupClient`      | Unit               | vitest + mock `GM.xmlHttpRequest` | `fetchSlowupFullDetails` : 4 succès, 1 lang KO, urlLinks divergents, refid invalide.                                                  |
+| `mteSdk`            | —                  | —                                 | Trop couplé au runtime Waze ; testé manuellement.                                                                                     |
+| `MtePreparePopup`   | —                  | —                                 | DOM popup ; smoke testé en navigateur, cohérent avec le reste de `src/ui/`.                                                           |
+| `MatchingSubTab`    | Intégration légère | vitest                            | Bouton disabled quand pas de slowup, enabled sinon (sans tester l'ouverture).                                                         |
+| `promptFinalFields` | Unit               | vitest                            | Pré-remplissage MTE ID depuis store quand `defaults.mteId` absent.                                                                    |
 
 **Vérification finale avant claim "done" :** `npm test` propre + `npm run
 compile` propre + smoke manuel dans WME (charger un slowup connu, ouvrir

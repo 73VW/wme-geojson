@@ -12,13 +12,7 @@ import i18next from "i18next";
 import type { Feature, MultiPolygon, Polygon } from "geojson";
 import { fetchSlowupFullDetails } from "../lines/slowupClient";
 import type { SlowupFullDetails } from "../lines/types";
-import {
-  byUrl,
-  candidatesByName,
-  mteStore,
-  type MteRef,
-  type MteSdk,
-} from "../mte";
+import { byUrl, candidatesByName, mteStore, type MteRef, type MteSdk } from "../mte";
 
 const NAME_FILTER_NEEDLE = "slowup";
 
@@ -183,13 +177,19 @@ function renderContent(
     );
   }
 
-  bodyEl.appendChild(copyRow(doc, popup, i18next.t("panel.mtePopup.dateLabel"), formatDateForEditor(details.date)));
-  bodyEl.appendChild(copyRow(doc, popup, i18next.t("panel.mtePopup.titleLabel"), `SlowUP ${details.title}`));
+  bodyEl.appendChild(
+    copyRow(doc, popup, i18next.t("panel.mtePopup.dateLabel"), formatDateForEditor(details.date)),
+  );
+  bodyEl.appendChild(
+    copyRow(doc, popup, i18next.t("panel.mtePopup.titleLabel"), `SlowUP ${details.title}`),
+  );
 
   bodyEl.appendChild(divider(doc));
 
   for (const lang of ["en", "fr", "de", "it"] as const) {
-    bodyEl.appendChild(textBlock(doc, popup, `Abstract ${lang.toUpperCase()}`, details.abstracts[lang]));
+    bodyEl.appendChild(
+      textBlock(doc, popup, `Abstract ${lang.toUpperCase()}`, details.abstracts[lang]),
+    );
   }
 
   bodyEl.appendChild(divider(doc));

@@ -41,7 +41,12 @@ describe("candidatesByBbox", () => {
     const list = [
       mte({ id: "in", bbox: [5, 47, 7, 47.5], startDate: "2026-06-20", endDate: "2026-06-22" }),
       mte({ id: "outside-bbox", bbox: [20, 20, 21, 21] }),
-      mte({ id: "outside-date", bbox: [5, 47, 7, 47.5], startDate: "2026-07-01", endDate: "2026-07-02" }),
+      mte({
+        id: "outside-date",
+        bbox: [5, 47, 7, 47.5],
+        startDate: "2026-07-01",
+        endDate: "2026-07-02",
+      }),
     ];
     const result = candidatesByBbox(list, slowupBbox, slowupDate);
     expect(result.map((c) => c.mte.id)).toEqual(["in"]);

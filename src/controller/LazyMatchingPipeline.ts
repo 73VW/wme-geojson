@@ -2,7 +2,7 @@ import type { MultiLineString } from "geojson";
 import type { SourceStore } from "../state/SourceStore";
 import type { Line, SubLine } from "../domain/types";
 import { fitNextSubLine } from "../matching/fitNextSubLine";
-import { sliceMultiLineByDistance } from "../matching/trackPortions";
+import { bboxOfMultiLineString, sliceMultiLineByDistance } from "../matching/trackPortions";
 
 export interface MapDriver {
   zoomToExtent(bbox: [number, number, number, number]): void;
@@ -72,13 +72,17 @@ export class LazyMatchingPipeline {
     if (!src || !src.cursor) return;
     const { lineIndex, subLineIndex } = src.cursor;
     if (subLineIndex > 0) {
-      this.opts.store.rewindCursor(lineIndex, subLineIndex - 1);
+      // Previous sub-line is in the same line — remove and un-validate it.
+      this.opts.store.rerunSubLine(lineIndex, subLineIndex - 1);
       return;
     }
     if (lineIndex > 0) {
       const prevLine = src.lines[lineIndex - 1];
       const lastIdx = prevLine.subLines.length - 1;
-      if (lastIdx >= 0) this.opts.store.rewindCursor(lineIndex - 1, lastIdx);
+      if (lastIdx >= 0) {
+        // Previous sub-line is the last one of the preceding line — remove and un-validate it.
+        this.opts.store.rerunSubLine(lineIndex - 1, lastIdx);
+      }
     }
   }
 
@@ -98,9 +102,10 @@ export class LazyMatchingPipeline {
       }
       if (line.pendingTail.length > 0) {
         const newSub = this.createNextSubLineFor(line);
-        const remainder = line.pendingTail[0].kmB > newSub.kmB
-          ? { kmA: newSub.kmB, kmB: line.pendingTail[0].kmB }
-          : null;
+        const remainder =
+          line.pendingTail[0].kmB > newSub.kmB
+            ? { kmA: newSub.kmB, kmB: line.pendingTail[0].kmB }
+            : null;
         this.opts.store.addSubLine(li, newSub, remainder);
         return { lineIndex: li, subLineIndex: newSub.index };
       }
@@ -130,11 +135,9 @@ export class LazyMatchingPipeline {
   }
 
   private evaluateZoomViaSdk(geom: MultiLineString): number {
-    const xs = geom.coordinates.flatMap((line) => line.map((p) => p[0]));
-    const ys = geom.coordinates.flatMap((line) => line.map((p) => p[1]));
-    const bbox: [number, number, number, number] = [
-      Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys),
-    ];
+    const box = bboxOfMultiLineString(geom);
+    if (!box) throw new Error("evaluateZoomViaSdk: empty geometry");
+    const bbox: [number, number, number, number] = [box[0], box[1], box[2], box[3]];
     this.opts.map.zoomToExtent(bbox);
     return this.opts.map.getZoomLevel();
   }

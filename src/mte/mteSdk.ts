@@ -47,7 +47,9 @@ export function createMteSdk(sdk: WmeSDK): MteSdk {
       );
 
       if (!mteModule || typeof mteModule.getAll !== "function") {
-        console.warn("[mteSdk] DataModel.MajorTrafficEvents.getAll() unavailable on the SDK instance.");
+        console.warn(
+          "[mteSdk] DataModel.MajorTrafficEvents.getAll() unavailable on the SDK instance.",
+        );
         return [];
       }
 

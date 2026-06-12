@@ -205,7 +205,9 @@ describe("fetchSlowupFullDetails", () => {
       }
       options.onload({
         status: 200,
-        response: [{ refid: 19, title: "T", date: "2026-06-21", abstract: "x", urlLink: "https://a" }],
+        response: [
+          { refid: 19, title: "T", date: "2026-06-21", abstract: "x", urlLink: "https://a" },
+        ],
       });
     });
 

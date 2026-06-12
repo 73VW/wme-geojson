@@ -73,7 +73,7 @@ The 2500-line `MatchPanel.ts` is split:
 - **`subtabs/MatchingSubTab.ts`** (new): everything currently in MatchPanel — CSV import, walk, match, results, download. Reads the active `LineEntry` from `LineRegistry`. Empty-state when no line is selected.
 - **`components/promptClosureWindow.ts`** (new): modal prompting date/time start + end. Used by MatchingSubTab when `mode === 'synthetic'` at download time.
 
-**View / logic separation.** Each sub-tab is split into a *controller* class (event wiring, state reads/writes against `LineRegistry`/`WalkController`) and one or more *view* classes that own pure DOM rendering. A view class:
+**View / logic separation.** Each sub-tab is split into a _controller_ class (event wiring, state reads/writes against `LineRegistry`/`WalkController`) and one or more _view_ classes that own pure DOM rendering. A view class:
 
 - exposes a `render(props)` / `update(props)` method taking a plain props object — no direct `LineRegistry` or SDK access;
 - exposes its root `HTMLElement` and DOM-event callbacks (e.g. `onSelectClick`, `onLoadClick`) as injectable handlers;

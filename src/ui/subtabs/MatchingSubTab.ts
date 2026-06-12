@@ -13,7 +13,7 @@ import type { CsvRow } from "../../csv/types";
 import { buildClosuresCsv } from "../../csv/buildClosuresCsv";
 import type { ClosureRowGroup, FinalFields, RowGeo } from "../../csv/buildClosuresCsv";
 import type { ClosureRange } from "../../csv/types";
-import { wzButton, wzTextInput, fileInput, type WzButtonProps } from "../components/wz";
+import { wzButton, fileInput, type WzButtonProps } from "../components/wz";
 import { parseSchedule } from "../../csv/parseSchedule";
 import { promptFinalFields } from "../promptFinalFields";
 import { confirmModal } from "../modal";
@@ -54,6 +54,19 @@ const MAX_CLOSURE_SEGMENTS_PER_ROW = 10;
  * DOM is created with createElement/textContent only — no innerHTML with
  * external data.
  */
+
+/**
+ * Pure helper: converts the raw segment-id list from the WME selection into
+ * the argument for `LazyMatchingPipeline.validate()`.
+ *
+ * - Non-empty array → return it as-is (overrides the pipeline's pendingMatched).
+ * - Empty array     → return `undefined` (lets the pipeline fall back to
+ *   pendingMatched, which is what we want when nothing is selected).
+ */
+export function resolveValidationIds(selectionIds: number[]): number[] | undefined {
+  return selectionIds.length > 0 ? selectionIds : undefined;
+}
+
 export class MatchingSubTab {
   private static readonly PANEL_POSITION_KEY = "wme-geojson.matchPanel.position";
   private static readonly PANEL_COLLAPSED_KEY = "wme-geojson.matchPanel.collapsed";
@@ -76,10 +89,7 @@ export class MatchingSubTab {
   private emptyStateEl: HTMLElement | null = null;
   private attachedLineId: string | null = null;
 
-  private loadFn: ((url: string) => Promise<void>) | null = null;
-
   // ── Row container elements (toggled by renderPhase) ─────────────────────
-  private urlRow: HTMLElement | null = null;
   private trackLengthRow: HTMLElement | null = null;
   private trackLengthValueEl: HTMLElement | null = null;
   private rangeSliderRow: HTMLElement | null = null;
@@ -88,17 +98,11 @@ export class MatchingSubTab {
   private downloadRow: HTMLElement | null = null;
   private prepareMteBtn?: HTMLButtonElement;
   private csvUploadRow: HTMLElement | null = null;
+  private csvErrorEl: HTMLElement | null = null;
   private csvRemoveBtn: HTMLElement | null = null;
   private resumeBannerRow: HTMLElement | null = null;
 
-  private urlInputEl: HTMLElement | null = null;
-  private urlErrorEl: HTMLElement | null = null;
-
   private headerView: MatchingHeaderView | null = null;
-
-  private _onRangeChanged: (() => void) | null = null;
-
-  private tabLabel: HTMLElement | null = null;
 
   // ── New lazy-matching engine ────────────────────────────────────────────
   private readonly sourceStore = new SourceStore();
@@ -330,7 +334,15 @@ export class MatchingSubTab {
       sourceId: entry.id,
       track: entry.track,
       csvRows: entry.csvRows,
+      onWarning: (message) => this.reportCsvWarning(message),
     });
+  }
+
+  /** Surface a non-fatal CSV warning (e.g. a skipped degenerate row). */
+  private reportCsvWarning(message: string): void {
+    logger.warn("MatchingSubTab: CSV warning", message);
+    const existing = this.csvErrorEl?.textContent;
+    this.showCsvError(existing ? `${existing}\n${message}` : message);
   }
 
   setController(c: WalkController): void {
@@ -351,20 +363,6 @@ export class MatchingSubTab {
       }
       this.rangeSliderRow.appendChild(this.buildRangeSlider());
     }
-  }
-
-  setLoadFn(fn: (url: string) => Promise<void>): void {
-    this.loadFn = fn;
-  }
-
-  getTabLabel(): HTMLElement | null {
-    return this.tabLabel;
-  }
-
-  showLoadError(message: string): void {
-    if (!this.urlErrorEl) return;
-    this.urlErrorEl.textContent = message;
-    this.urlErrorEl.style.display = "";
   }
 
   unmount(): void {
@@ -391,7 +389,6 @@ export class MatchingSubTab {
       this.tabPane = null;
     }
 
-    this.urlRow = null;
     this.trackLengthRow = null;
     this.rangeSliderRow = null;
     this.startMatchingRow = null;
@@ -399,10 +396,9 @@ export class MatchingSubTab {
     this.downloadRow = null;
     this.prepareMteBtn = undefined;
     this.csvUploadRow = null;
+    this.csvErrorEl = null;
     this.csvRemoveBtn = null;
     this.resumeBannerRow = null;
-    this.urlInputEl = null;
-    this.urlErrorEl = null;
     this.headerView = null;
     const guidedMatchingRow = this.guidedMatchingRow;
     if (guidedMatchingRow?.parentElement) {
@@ -446,86 +442,33 @@ export class MatchingSubTab {
 
   private buildDOM(container: HTMLElement): void {
     const wrapper = document.createElement("div");
-    const subwrapper = document.createElement("div");
-    wrapper.appendChild(subwrapper);
+    const body = document.createElement("div");
+    wrapper.appendChild(body);
     container.appendChild(wrapper);
-    container = subwrapper;
-    this.headerView = new MatchingHeaderView();
-    container.appendChild(this.headerView.root);
 
-    this.urlRow = this.buildUrlRow();
+    this.headerView = new MatchingHeaderView();
+    body.appendChild(this.headerView.root);
 
     this.trackLengthRow = this.buildTrackLengthRow();
-    container.appendChild(this.trackLengthRow);
+    body.appendChild(this.trackLengthRow);
 
     this.csvUploadRow = this.buildCsvUploadRow();
-    container.appendChild(this.csvUploadRow);
+    body.appendChild(this.csvUploadRow);
 
     this.resumeBannerRow = this.buildResumeBannerRow();
-    container.appendChild(this.resumeBannerRow);
+    body.appendChild(this.resumeBannerRow);
 
     this.rangeSliderRow = document.createElement("section");
     this.rangeSliderRow.appendChild(this.buildRangeSlider());
-    container.appendChild(this.rangeSliderRow);
+    body.appendChild(this.rangeSliderRow);
 
     this.startMatchingRow = this.buildStartMatchingRow();
-    container.appendChild(this.startMatchingRow);
+    body.appendChild(this.startMatchingRow);
 
     this.guidedMatchingRow = this.buildGuidedMatchingRow();
 
     this.downloadRow = this.buildDownloadRow();
-    container.appendChild(this.downloadRow);
-  }
-
-  private buildUrlRow(): HTMLElement {
-    const section = document.createElement("section");
-    section.className = "wmegj-section";
-    section.style.marginBottom = "8px";
-
-    const currentUrl = new URLSearchParams(window.location.search).get("geojson") ?? "";
-
-    const inputEl = wzTextInput({
-      label: i18next.t("panel.urlInput.label"),
-      value: currentUrl,
-      placeholder: i18next.t("panel.urlInput.placeholder"),
-      type: "url",
-    });
-    section.appendChild(inputEl);
-    this.urlInputEl = inputEl;
-
-    const errorEl = document.createElement("p");
-    errorEl.style.color = "#c0392b";
-    errorEl.style.fontSize = "11px";
-    errorEl.style.margin = "2px 0 0 0";
-    errorEl.style.display = "none";
-    section.appendChild(errorEl);
-    this.urlErrorEl = errorEl;
-
-    const buttonRow = document.createElement("div");
-    buttonRow.className = "wmegj-button-stack";
-    buttonRow.style.marginTop = "4px";
-
-    const loadBtn = wzButton({
-      text: i18next.t("panel.urlInput.load"),
-      variant: "primary",
-      onClick: () => {
-        this.onLoadUrlClick();
-      },
-    });
-    buttonRow.appendChild(loadBtn);
-
-    const centerBtn = wzButton({
-      text: i18next.t("panel.urlInput.center"),
-      variant: "secondary",
-      onClick: () => {
-        void this.onCenterUrlClick();
-      },
-    });
-    buttonRow.appendChild(centerBtn);
-
-    section.appendChild(buttonRow);
-
-    return section;
+    body.appendChild(this.downloadRow);
   }
 
   private buildTrackLengthRow(): HTMLElement {
@@ -572,6 +515,7 @@ export class MatchingSubTab {
     errorEl.style.margin = "2px 0 0 0";
     errorEl.style.display = "none";
     section.appendChild(errorEl);
+    this.csvErrorEl = errorEl;
 
     const removeBtn = wzButton({
       text: i18next.t("panel.csvInput.remove"),
@@ -595,17 +539,15 @@ export class MatchingSubTab {
   }
 
   private showCsvError(message: string): void {
-    const errEl = this.csvUploadRow?.querySelector<HTMLElement>(".wmegj-csv-error");
-    if (!errEl) return;
-    errEl.textContent = message;
-    errEl.style.display = "";
+    if (!this.csvErrorEl) return;
+    this.csvErrorEl.textContent = message;
+    this.csvErrorEl.style.display = "";
   }
 
   private clearCsvError(): void {
-    const errEl = this.csvUploadRow?.querySelector<HTMLElement>(".wmegj-csv-error");
-    if (!errEl) return;
-    errEl.textContent = "";
-    errEl.style.display = "none";
+    if (!this.csvErrorEl) return;
+    this.csvErrorEl.textContent = "";
+    this.csvErrorEl.style.display = "none";
   }
 
   private onCsvFileSelected(file: File): void {
@@ -678,7 +620,12 @@ export class MatchingSubTab {
     this.matchingActive = false;
     this.burstRunning = false;
     this.burstPaused = false;
-    const source = buildGeojsonSource({ sourceId, track, csvRows });
+    const source = buildGeojsonSource({
+      sourceId,
+      track,
+      csvRows,
+      onWarning: (message) => this.reportCsvWarning(message),
+    });
     this.sourceStore.hydrate(source);
     this.store.setPhase("csv-loaded");
     this.hideResumeBanner();
@@ -792,10 +739,7 @@ export class MatchingSubTab {
     const closeBtn = this.createGuidedIconButton({
       iconClass: "w-icon-x",
       label: i18next.t("panel.matching.close"),
-      onClick: () => {
-        this.matchingPanelOpen = false;
-        this.renderPhase(this.store.getState().phase);
-      },
+      onClick: () => this.closeMatchingPanel(),
     });
     headerActions.appendChild(closeBtn);
     this.guidedCloseBtn = closeBtn;
@@ -923,10 +867,7 @@ export class MatchingSubTab {
     this.guidedDoneCloseBtn = this.appendGuidedButton(matchActions, {
       text: i18next.t("panel.matching.closePanel"),
       variant: "primary",
-      onClick: () => {
-        this.matchingPanelOpen = false;
-        this.renderPhase(this.store.getState().phase);
-      },
+      onClick: () => this.closeMatchingPanel(),
     });
     this.guidedDoneCloseBtn.classList.add("wmegj-guided-button--done-close");
 
@@ -1172,6 +1113,11 @@ export class MatchingSubTab {
     this.updateGuidedControls();
   }
 
+  private closeMatchingPanel(): void {
+    this.matchingPanelOpen = false;
+    this.renderPhase(this.store.getState().phase);
+  }
+
   private resetGuidedSessionState(options: { closePanel?: boolean } = {}): void {
     if (options.closePanel) {
       this.matchingPanelOpen = false;
@@ -1338,7 +1284,7 @@ export class MatchingSubTab {
     if (this.guidedBusy) return;
     const pipeline = this.lazyPipeline;
     if (!pipeline) return;
-    const ids = this.readSelectionSegmentIds();
+    const ids = resolveValidationIds(this.readSelectionSegmentIds());
     pipeline.validate(ids);
     await this.runStep(() => pipeline.stepUntilValidation());
   }
@@ -1881,7 +1827,6 @@ export class MatchingSubTab {
         pendingFrame = requestAnimationFrame(() => {
           pendingFrame = 0;
           layer.setVisibleRange(pendingLo, pendingHi);
-          this._onRangeChanged?.();
         });
       }
     };
@@ -1930,64 +1875,6 @@ export class MatchingSubTab {
   private setRowVisible(el: HTMLElement | null, visible: boolean): void {
     if (!el) return;
     el.style.display = visible ? "" : "none";
-  }
-
-  // ---------------------------------------------------------------------------
-  // Private — URL event handlers
-  // ---------------------------------------------------------------------------
-
-  private onLoadUrlClick(): void {
-    const url = this.getUrlInputValue();
-    if (!url) return;
-
-    if (this.urlErrorEl) {
-      this.urlErrorEl.style.display = "none";
-      this.urlErrorEl.textContent = "";
-    }
-
-    if (!this.loadFn) {
-      logger.warn("MatchPanel: loadFn not injected yet — call setLoadFn() before mounting");
-      return;
-    }
-
-    this.loadFn(url).catch((err: unknown) => {
-      logger.error("MatchPanel: loadFn rejected", err);
-    });
-  }
-
-  private async onCenterUrlClick(): Promise<void> {
-    const url = this.getUrlInputValue();
-    if (!url) return;
-
-    if (this.urlErrorEl) {
-      this.urlErrorEl.style.display = "none";
-      this.urlErrorEl.textContent = "";
-    }
-
-    const geometry = this.trackLayer?.getTrackGeometry() ?? null;
-    if (!geometry && this.loadFn) {
-      await this.loadFn(url);
-    }
-
-    const geom = this.trackLayer?.getTrackGeometry() ?? null;
-    const bbox = geom ? bboxOfMultiLineString(geom) : null;
-    if (!bbox) {
-      logger.warn("MatchPanel.onCenterUrlClick: no track geometry available to center");
-      return;
-    }
-
-    this.wmeSDK.Map.zoomToExtent({ bbox });
-    logger.info("MatchPanel.onCenterUrlClick: centered map on track bbox", { url, bbox });
-  }
-
-  private getUrlInputValue(): string {
-    if (!this.urlInputEl) return "";
-    const asWz = this.urlInputEl as unknown as { value?: string };
-    if (typeof asWz.value === "string") {
-      return asWz.value.trim();
-    }
-    const nativeInput = this.urlInputEl.querySelector("input");
-    return nativeInput ? nativeInput.value.trim() : "";
   }
 
   // ---------------------------------------------------------------------------
@@ -2104,22 +1991,6 @@ export class MatchingSubTab {
     });
 
     this.emitClosuresCsv(rows, groups, closuresBySegment, fields);
-  }
-
-  /** RowGeo derived from the current map view — used as the closure anchor. */
-  private exportGeo(): RowGeo {
-    let lon = 0;
-    let lat = 0;
-    let zoom = 16;
-    try {
-      const center = this.wmeSDK.Map.getMapCenter();
-      lon = center.lon;
-      lat = center.lat;
-      zoom = this.wmeSDK.Map.getZoomLevel();
-    } catch (err) {
-      logger.warn("MatchingSubTab.exportGeo: failed to read map view", err);
-    }
-    return { lon, lat, zoom };
   }
 
   private emitClosuresCsv(

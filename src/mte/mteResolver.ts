@@ -32,10 +32,7 @@ export function byUrl(mtes: ReadonlyArray<MteRef>, urlLink: string): MteRef | nu
  * échoue : par convention dans WME, les MTE de slowup contiennent « slowup »
  * dans leur nom.
  */
-export function candidatesByName(
-  mtes: ReadonlyArray<MteRef>,
-  needle: string,
-): MteRef[] {
+export function candidatesByName(mtes: ReadonlyArray<MteRef>, needle: string): MteRef[] {
   const lower = needle.trim().toLowerCase();
   if (!lower) return [];
   return mtes.filter((m) => (m.name ?? "").toLowerCase().includes(lower));

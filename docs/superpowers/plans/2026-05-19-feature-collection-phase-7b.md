@@ -17,10 +17,12 @@
 ## File structure
 
 **Created:**
+
 - `src/layers/LinesPreviewLayer.ts` — SDK layer drawing every loaded line in its own colour.
 - `src/__tests__/featureCollection.test.ts` — tests for FeatureCollection validation + entry building.
 
 **Modified:**
+
 - `src/geojson/validate.ts` — add `validateFeatureCollection`.
 - `src/geojson/Loader.ts` — export the fetch helper so `loadLines` can reuse it.
 - `src/lines/featureCollectionLoader.ts` — `loadLines` handles `FeatureCollection`; add pure `buildEntriesFromData`.
@@ -33,6 +35,7 @@
 ## Task 1: `validateFeatureCollection`
 
 **Files:**
+
 - Modify: `src/geojson/validate.ts`
 - Test: `src/__tests__/featureCollection.test.ts`
 
@@ -62,7 +65,13 @@ describe("validateFeatureCollection", () => {
   it("returns the line features and drops Point features", () => {
     const fc = {
       type: "FeatureCollection",
-      features: [lineFeature([[7, 46], [7.01, 46]]), pointFeature],
+      features: [
+        lineFeature([
+          [7, 46],
+          [7.01, 46],
+        ]),
+        pointFeature,
+      ],
     };
     const result = validateFeatureCollection(fc);
     expect(result).toHaveLength(1);
@@ -73,10 +82,21 @@ describe("validateFeatureCollection", () => {
     const fc = {
       type: "FeatureCollection",
       features: [
-        lineFeature([[7, 46], [7.01, 46]]),
+        lineFeature([
+          [7, 46],
+          [7.01, 46],
+        ]),
         {
           type: "Feature",
-          geometry: { type: "MultiLineString", coordinates: [[[7, 46], [7.02, 46]]] },
+          geometry: {
+            type: "MultiLineString",
+            coordinates: [
+              [
+                [7, 46],
+                [7.02, 46],
+              ],
+            ],
+          },
           properties: {},
         },
       ],
@@ -96,7 +116,12 @@ describe("validateFeatureCollection", () => {
   it("rejects a line feature with projected (non-WGS84) coordinates", () => {
     const fc = {
       type: "FeatureCollection",
-      features: [lineFeature([[2600000, 1200000], [2600100, 1200100]])],
+      features: [
+        lineFeature([
+          [2600000, 1200000],
+          [2600100, 1200100],
+        ]),
+      ],
     };
     expect(() => validateFeatureCollection(fc)).toThrow(TrackLoadError);
   });
@@ -176,6 +201,7 @@ git commit -m "feat(geojson): validate FeatureCollection, dropping non-line feat
 ## Task 2: `loadLines` handles `FeatureCollection`
 
 **Files:**
+
 - Modify: `src/geojson/Loader.ts`
 - Modify: `src/lines/featureCollectionLoader.ts`
 - Test: `src/__tests__/featureCollection.test.ts`
@@ -224,9 +250,29 @@ describe("buildEntriesFromData", () => {
     const fc = {
       type: "FeatureCollection",
       features: [
-        { type: "Feature", geometry: { type: "LineString", coordinates: [[0, 0], [0.009, 0]] }, properties: { name: "A" } },
+        {
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: [
+              [0, 0],
+              [0.009, 0],
+            ],
+          },
+          properties: { name: "A" },
+        },
         { type: "Feature", geometry: { type: "Point", coordinates: [0, 0] }, properties: {} },
-        { type: "Feature", geometry: { type: "LineString", coordinates: [[1, 0], [1.009, 0]] }, properties: { name: "B" } },
+        {
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: [
+              [1, 0],
+              [1.009, 0],
+            ],
+          },
+          properties: { name: "B" },
+        },
       ],
     };
     const entries = buildEntriesFromData(fc, url);
@@ -237,8 +283,28 @@ describe("buildEntriesFromData", () => {
     const fc = {
       type: "FeatureCollection",
       features: [
-        { type: "Feature", geometry: { type: "LineString", coordinates: [[0, 0], [0.009, 0]] }, properties: {} },
-        { type: "Feature", geometry: { type: "LineString", coordinates: [[1, 0], [1.009, 0]] }, properties: {} },
+        {
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: [
+              [0, 0],
+              [0.009, 0],
+            ],
+          },
+          properties: {},
+        },
+        {
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: [
+              [1, 0],
+              [1.009, 0],
+            ],
+          },
+          properties: {},
+        },
       ],
     };
     const entries = buildEntriesFromData(fc, url);
@@ -248,7 +314,13 @@ describe("buildEntriesFromData", () => {
   it("still handles a lone Feature payload (one entry)", () => {
     const feature = {
       type: "Feature",
-      geometry: { type: "LineString", coordinates: [[0, 0], [0.009, 0]] },
+      geometry: {
+        type: "LineString",
+        coordinates: [
+          [0, 0],
+          [0.009, 0],
+        ],
+      },
       properties: { name: "Solo" },
     };
     const entries = buildEntriesFromData(feature, url);
@@ -260,8 +332,28 @@ describe("buildEntriesFromData", () => {
     const fc = {
       type: "FeatureCollection",
       features: [
-        { type: "Feature", geometry: { type: "LineString", coordinates: [[0, 0], [0.009, 0]] }, properties: {} },
-        { type: "Feature", geometry: { type: "LineString", coordinates: [[1, 0], [1.009, 0]] }, properties: {} },
+        {
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: [
+              [0, 0],
+              [0.009, 0],
+            ],
+          },
+          properties: {},
+        },
+        {
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: [
+              [1, 0],
+              [1.009, 0],
+            ],
+          },
+          properties: {},
+        },
       ],
     };
     const [a, b] = buildEntriesFromData(fc, url);
@@ -278,6 +370,7 @@ Expected: FAIL — `buildEntriesFromData` is not exported.
 - [ ] **Step 4: Implement**
 
 In `src/lines/featureCollectionLoader.ts`:
+
 - Update the import line `import { loadTrack } from "../geojson/Loader";` to `import { fetchGeoJson } from "../geojson/Loader";`.
 - Add imports: `import { validateFeature } from "../geojson/validate";`, `import { validateFeatureCollection } from "../geojson/validate";`, `import { normalizeTrack } from "../geojson/normalize";`.
 - Add the pure builder and rewrite `loadLines`:
@@ -290,7 +383,9 @@ In `src/lines/featureCollectionLoader.ts`:
  */
 export function buildEntriesFromData(raw: unknown, sourceUrl: string): LineEntry[] {
   const isFeatureCollection =
-    !!raw && typeof raw === "object" && (raw as Record<string, unknown>)["type"] === "FeatureCollection";
+    !!raw &&
+    typeof raw === "object" &&
+    (raw as Record<string, unknown>)["type"] === "FeatureCollection";
 
   if (isFeatureCollection) {
     const features = validateFeatureCollection(raw);
@@ -336,6 +431,7 @@ git commit -m "feat(lines): load FeatureCollection into one entry per line"
 ## Task 3: `LinesPreviewLayer`
 
 **Files:**
+
 - Create: `src/layers/LinesPreviewLayer.ts`
 
 **Context:** When the user has loaded lines but not yet selected one, every line is shown on the map in its own colour (`entry.color`). This is a lightweight, label-free layer, distinct from `TrackLayer` (which handles the single selected line with km labels). It uses its own SDK layer name so the two never collide. Per-feature colour is driven by a `styleContext` function — the same technique `TrackLayer` uses for per-feature labels (see `TrackLayer.draw`'s `styleContext.getLabel` + `strokeColor`/`label` style rule).
@@ -449,6 +545,7 @@ git commit -m "feat(layers): add LinesPreviewLayer for multi-colour line preview
 ## Task 4: Wire the preview layer into the shell
 
 **Files:**
+
 - Modify: `src/ui/MatchPanel.ts`
 
 **Context:** The `MatchPanel` shell owns SDK-coupled coordination. It will own a `LinesPreviewLayer` and drive it from `LineRegistry` events: show all lines while nothing is selected, hide the preview once a line is selected (the `MatchingSubTab` then draws that line via `TrackLayer`). Selection-driven, not tab-driven — per the design, once a line is selected only that line shows.
@@ -456,20 +553,21 @@ git commit -m "feat(layers): add LinesPreviewLayer for multi-colour line preview
 - [ ] **Step 1: Implement**
 
 In `src/ui/MatchPanel.ts`:
+
 - Add import: `import { LinesPreviewLayer } from "../layers/LinesPreviewLayer";`
 - Add a private field: `private previewLayer: LinesPreviewLayer | null = null;`
 - In `mount()`, after `this.matchingSubTab` is created and before `logger.info("MatchPanel shell mounted")`, add:
 
 ```ts
-    this.previewLayer = new LinesPreviewLayer(this.wmeSDK);
-    this.registry.onLinesChanged(() => this.refreshPreview());
-    this.registry.onSelectedLineChanged((entry) => {
-      if (entry) {
-        this.previewLayer?.destroy();
-      } else {
-        this.refreshPreview();
-      }
-    });
+this.previewLayer = new LinesPreviewLayer(this.wmeSDK);
+this.registry.onLinesChanged(() => this.refreshPreview());
+this.registry.onSelectedLineChanged((entry) => {
+  if (entry) {
+    this.previewLayer?.destroy();
+  } else {
+    this.refreshPreview();
+  }
+});
 ```
 
 - Add the private method:
@@ -509,6 +607,7 @@ git commit -m "feat(ui): show multi-colour line preview until a line is selected
 ## Task 5: Per-line matching-state preservation
 
 **Files:**
+
 - Modify: `src/lines/types.ts`
 - Modify: `src/ui/subtabs/MatchingSubTab.ts`
 
@@ -521,12 +620,12 @@ The `WalkController` geometry cache is intentionally NOT preserved — clicking 
 Append to `src/__tests__/LineRegistry.test.ts` a test inside the existing `describe("LineRegistry", ...)` block:
 
 ```ts
-  it("getEntryById returns the entry or null", () => {
-    const reg = new LineRegistry();
-    reg.setEntries([makeEntry("a"), makeEntry("b")]);
-    expect(reg.getEntryById("b")?.id).toBe("b");
-    expect(reg.getEntryById("missing")).toBeNull();
-  });
+it("getEntryById returns the entry or null", () => {
+  const reg = new LineRegistry();
+  reg.setEntries([makeEntry("a"), makeEntry("b")]);
+  expect(reg.getEntryById("b")?.id).toBe("b");
+  expect(reg.getEntryById("missing")).toBeNull();
+});
 ```
 
 Run `npx vitest run src/__tests__/LineRegistry.test.ts` — the new test FAILS (`getEntryById` is not a function).
@@ -571,38 +670,38 @@ Replace the attach logic so that **before** changing `attachedLineId`, the outgo
 - Right after the `if (entry.id === this.attachedLineId) return;` guard and **before** `this.attachedLineId = entry.id;`, snapshot the previous line:
 
 ```ts
-    // Snapshot the outgoing line's matching state so returning to it restores
-    // the work in progress.
-    if (this.attachedLineId !== null) {
-      this.registry.updateEntry(this.attachedLineId, {
-        session: this.store.getState(),
-        sessionCsvText: this.registry.getEntryById(this.attachedLineId)?.csvText ?? "",
-        matchedGroups: this.pipeline ? [...this.pipeline.getMatchedGroups()] : undefined,
-      });
-    }
-    this.attachedLineId = entry.id;
+// Snapshot the outgoing line's matching state so returning to it restores
+// the work in progress.
+if (this.attachedLineId !== null) {
+  this.registry.updateEntry(this.attachedLineId, {
+    session: this.store.getState(),
+    sessionCsvText: this.registry.getEntryById(this.attachedLineId)?.csvText ?? "",
+    matchedGroups: this.pipeline ? [...this.pipeline.getMatchedGroups()] : undefined,
+  });
+}
+this.attachedLineId = entry.id;
 ```
 
 - Then, where the method currently sets up the schedule (`if (entry.mode === "csv" && entry.csvRows) { ... } else { ... }`), wrap it so a saved session is restored instead:
 
 ```ts
-    if (entry.session) {
-      // Returning to a line worked on earlier — restore its full state.
-      this.store.rehydrate(entry.session, entry.sessionCsvText ?? "");
-      const isCsv = entry.mode === "csv";
-      this.setSyntheticBannerVisible(!isCsv);
-      this.setRemoveCsvVisible(isCsv);
-    } else if (entry.mode === "csv" && entry.csvRows) {
-      this.store.setCsvRows(entry.csvRows, entry.csvText ?? "");
-      this.store.setPhase("csv-loaded");
-      this.setSyntheticBannerVisible(false);
-      this.setRemoveCsvVisible(true);
-    } else {
-      this.store.setCsvRows([buildSyntheticRow()], "");
-      this.store.setPhase("csv-loaded");
-      this.setSyntheticBannerVisible(true);
-      this.setRemoveCsvVisible(false);
-    }
+if (entry.session) {
+  // Returning to a line worked on earlier — restore its full state.
+  this.store.rehydrate(entry.session, entry.sessionCsvText ?? "");
+  const isCsv = entry.mode === "csv";
+  this.setSyntheticBannerVisible(!isCsv);
+  this.setRemoveCsvVisible(isCsv);
+} else if (entry.mode === "csv" && entry.csvRows) {
+  this.store.setCsvRows(entry.csvRows, entry.csvText ?? "");
+  this.store.setPhase("csv-loaded");
+  this.setSyntheticBannerVisible(false);
+  this.setRemoveCsvVisible(true);
+} else {
+  this.store.setCsvRows([buildSyntheticRow()], "");
+  this.store.setPhase("csv-loaded");
+  this.setSyntheticBannerVisible(true);
+  this.setRemoveCsvVisible(false);
+}
 ```
 
 > **Note:** keep the existing `store.setTrack(entry.id, entry.lengthKm)` call BEFORE this block. `setTrack` resets csv/closure state when the URL changes — that is fine, because the very next line either rehydrates or sets fresh rows.
@@ -624,6 +723,7 @@ git commit -m "feat: preserve per-line matching state across selection switches"
 ## Task 6: Download falls back to snapshotted match groups
 
 **Files:**
+
 - Modify: `src/ui/subtabs/MatchingSubTab.ts`
 
 **Context:** `getExportClosureGroups` reads `this.pipeline?.getMatchedGroups()`. After switching away and back to a line, `this.pipeline` is the freshly-attached line's pipeline (or `null`), so a previously-matched line's groups would be lost at download time. Fall back to the `matchedGroups` snapshot stored on the selected `LineEntry` (Task 5).
@@ -633,16 +733,16 @@ git commit -m "feat: preserve per-line matching state across selection switches"
 In `src/ui/subtabs/MatchingSubTab.ts`, `getExportClosureGroups`. It currently starts with:
 
 ```ts
-    const closureGroups = (this.pipeline?.getMatchedGroups() ?? []) as ClosureRowGroup[];
+const closureGroups = (this.pipeline?.getMatchedGroups() ?? []) as ClosureRowGroup[];
 ```
 
 Replace that line with:
 
 ```ts
-    // After a line switch the live pipeline belongs to a different line; fall
-    // back to the match groups snapshotted on the selected entry (Task 5).
-    const snapshotGroups = this.registry.getSelected()?.matchedGroups ?? [];
-    const closureGroups = (this.pipeline?.getMatchedGroups() ?? snapshotGroups) as ClosureRowGroup[];
+// After a line switch the live pipeline belongs to a different line; fall
+// back to the match groups snapshotted on the selected entry (Task 5).
+const snapshotGroups = this.registry.getSelected()?.matchedGroups ?? [];
+const closureGroups = (this.pipeline?.getMatchedGroups() ?? snapshotGroups) as ClosureRowGroup[];
 ```
 
 - [ ] **Step 2: Verify**

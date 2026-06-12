@@ -25,7 +25,7 @@ export interface SlowupDetails {
 export interface SlowupFullDetails {
   refid: number;
   title: string;
-  date: string;          // "YYYY-MM-DD"
+  date: string; // "YYYY-MM-DD"
   urlLink: string;
   abstracts: {
     fr: string;

@@ -24,8 +24,14 @@
 
 ```ts
 // src/domain/types.ts (new)
-export interface Bbox4 { readonly bbox: [number, number, number, number]; }
-export interface MapAnchor { lon: number; lat: number; zoom: number; }
+export interface Bbox4 {
+  readonly bbox: [number, number, number, number];
+}
+export interface MapAnchor {
+  lon: number;
+  lat: number;
+  zoom: number;
+}
 
 export interface MatchedSegment {
   segmentId: number;
@@ -84,6 +90,7 @@ export interface Source {
 ## Task 1: Domain types module
 
 **Files:**
+
 - Create: `src/domain/types.ts`
 - Test: `src/__tests__/domainTypes.test.ts`
 
@@ -112,7 +119,15 @@ describe("domain types", () => {
     const line: Line = {
       index: 0,
       bbox: [0, 0, 1, 1],
-      geometry: { type: "MultiLineString", coordinates: [[[0, 0], [1, 1]]] },
+      geometry: {
+        type: "MultiLineString",
+        coordinates: [
+          [
+            [0, 0],
+            [1, 1],
+          ],
+        ],
+      },
       lengthKm: 1.4,
       subLines: [],
       pendingTail: [{ kmA: 0, kmB: 1.4 }],
@@ -162,6 +177,7 @@ git commit -m "feat(domain): introduce Source/Line/SubLine/MatchedSegment types"
 ## Task 2: localStorage persistence adapter
 
 **Files:**
+
 - Create: `src/domain/SourcePersistence.ts`
 - Test: `src/__tests__/SourcePersistence.test.ts`
 
@@ -235,7 +251,7 @@ describe("SourcePersistence", () => {
     const p = new SourcePersistence({ debounceMs: 200 });
     p.save(makeSource("s3"));
     p.flush();
-    expect(localStorage.getItem("wme-geojson:source:s3")).toContain("\"sourceId\":\"s3\"");
+    expect(localStorage.getItem("wme-geojson:source:s3")).toContain('"sourceId":"s3"');
   });
 
   it("clear() removes the key", () => {
@@ -336,6 +352,7 @@ git commit -m "feat(domain): add SourcePersistence adapter for localStorage"
 Goal: pull the inner zoom-fitting logic out of `MatchingPipeline` into a pure, testable function. Today's `fitPendingSlice` (`MatchingPipeline.ts:746`) mixes `wmeSDK.Map.zoomToExtent` calls with looping. We want a pure function that takes `(geometry, kmA, evaluateZoomForBbox)` and returns the fitted slice without owning the loop state.
 
 **Files:**
+
 - Create: `src/matching/fitNextSubLine.ts`
 - Test: `src/__tests__/fitNextSubLine.test.ts`
 
@@ -353,7 +370,15 @@ function lineFromKmRange(kmA: number, kmB: number): MultiLineString {
   // Use a 1-km/deg-longitude approximation at the equator (≈ 111 km/deg).
   const lonA = kmA / 111;
   const lonB = kmB / 111;
-  return { type: "MultiLineString", coordinates: [[[lonA, 0], [lonB, 0]]] };
+  return {
+    type: "MultiLineString",
+    coordinates: [
+      [
+        [lonA, 0],
+        [lonB, 0],
+      ],
+    ],
+  };
 }
 
 describe("fitNextSubLine", () => {
@@ -421,7 +446,10 @@ const VIEW_SLICE_EPSILON_KM = 0.005;
 const DEFAULT_MIN_SPAN_KM = 0.01;
 const VIEW_SLICE_HEAD_RATIO = 0.75;
 
-export interface PendingRange { kmA: number; kmB: number; }
+export interface PendingRange {
+  kmA: number;
+  kmB: number;
+}
 
 export interface FittedSubLine {
   kmA: number;
@@ -432,9 +460,9 @@ export interface FittedSubLine {
 
 export interface FitInput {
   pending: PendingRange;
-  geometry: MultiLineString;          // geometry covering [pending.kmA, pending.kmB]
+  geometry: MultiLineString; // geometry covering [pending.kmA, pending.kmB]
   targetZoom: number;
-  evaluateZoom(geom: MultiLineString): number;   // pure delegate (Pipeline wraps zoomToExtent)
+  evaluateZoom(geom: MultiLineString): number; // pure delegate (Pipeline wraps zoomToExtent)
   sliceByKm(geom: MultiLineString, kmA: number, kmB: number): MultiLineString;
   minSpanKm?: number;
 }
@@ -508,6 +536,7 @@ git commit -m "feat(matching): pure fitNextSubLine helper for lazy sub-line iter
 This produces the `Line[]` for a slowup `LineEntry` using the existing `listTrackChains` + `mergeTrackChainsByEndpoints(_, 0.05)`. Each merged chain becomes one Line.
 
 **Files:**
+
 - Create: `src/domain/buildSlowupSource.ts`
 - Test: `src/__tests__/buildSlowupSource.test.ts`
 
@@ -531,8 +560,14 @@ describe("buildSlowupSource", () => {
   it("creates one Line per merged chain", () => {
     // Two well-separated pieces (gap >> 50m) → 2 lines.
     const t = track([
-      [[6.0, 46.0], [6.01, 46.0]],
-      [[7.0, 47.0], [7.01, 47.0]],
+      [
+        [6.0, 46.0],
+        [6.01, 46.0],
+      ],
+      [
+        [7.0, 47.0],
+        [7.01, 47.0],
+      ],
     ]);
     const src = buildSlowupSource({ sourceId: "slowup-1", track: t });
     expect(src.kind).toBe("slowup");
@@ -540,9 +575,7 @@ describe("buildSlowupSource", () => {
     expect(src.lines).toHaveLength(2);
     expect(src.lines[0].index).toBe(0);
     expect(src.lines[1].index).toBe(1);
-    expect(src.lines[0].pendingTail).toEqual([
-      { kmA: 0, kmB: src.lines[0].lengthKm },
-    ]);
+    expect(src.lines[0].pendingTail).toEqual([{ kmA: 0, kmB: src.lines[0].lengthKm }]);
     expect(src.lines[0].subLines).toEqual([]);
     expect(src.cursor).toBeNull();
   });
@@ -550,8 +583,14 @@ describe("buildSlowupSource", () => {
   it("collapses small endpoint gaps into a single Line", () => {
     // Two pieces whose endpoints are within 50 m.
     const t = track([
-      [[6.0, 46.0], [6.001, 46.0]],
-      [[6.0010003, 46.0], [6.002, 46.0]],
+      [
+        [6.0, 46.0],
+        [6.001, 46.0],
+      ],
+      [
+        [6.0010003, 46.0],
+        [6.002, 46.0],
+      ],
     ]);
     const src = buildSlowupSource({ sourceId: "slowup-2", track: t });
     expect(src.lines).toHaveLength(1);
@@ -631,6 +670,7 @@ git commit -m "feat(domain): build Source from a slowup track via existing chain
 GeoJSON without CSV → 1 Line covering the full track. GeoJSON with CSV → N Lines, one per CSV row, with kmA/kmB derived from existing `computeMatchingWorkItems`.
 
 **Files:**
+
 - Create: `src/domain/buildGeojsonSource.ts`
 - Test: `src/__tests__/buildGeojsonSource.test.ts`
 
@@ -646,7 +686,15 @@ import type { CsvRow } from "../state/SessionStore";
 function track(): NormalizedTrack {
   return {
     trackId: null,
-    geometry: { type: "MultiLineString", coordinates: [[[6.0, 46.0], [6.1, 46.0]]] },
+    geometry: {
+      type: "MultiLineString",
+      coordinates: [
+        [
+          [6.0, 46.0],
+          [6.1, 46.0],
+        ],
+      ],
+    },
     rawProperties: {},
   };
 }
@@ -776,6 +824,7 @@ The existing `SessionStore` is row-centric (CSV rows + match groups). It is used
 ## Task 6: SourceStore — minimum API
 
 **Files:**
+
 - Create: `src/state/SourceStore.ts`
 - Test: `src/__tests__/SourceStore.test.ts`
 
@@ -793,14 +842,24 @@ function srcWithOneLine(): Source {
     sourceId: "s1",
     kind: "geojson",
     hasCsv: false,
-    lines: [{
-      index: 0,
-      bbox: [0, 0, 1, 1],
-      geometry: { type: "MultiLineString", coordinates: [[[0, 0], [1, 1]]] },
-      lengthKm: 2,
-      subLines: [],
-      pendingTail: [{ kmA: 0, kmB: 2 }],
-    }],
+    lines: [
+      {
+        index: 0,
+        bbox: [0, 0, 1, 1],
+        geometry: {
+          type: "MultiLineString",
+          coordinates: [
+            [
+              [0, 0],
+              [1, 1],
+            ],
+          ],
+        },
+        lengthKm: 2,
+        subLines: [],
+        pendingTail: [{ kmA: 0, kmB: 2 }],
+      },
+    ],
     cursor: null,
   };
 }
@@ -905,7 +964,11 @@ export class SourceStore {
   }
 
   /** Append a SubLine; replace the line's pendingTail head with the remainder (or remove it if null). */
-  addSubLine(lineIndex: number, sub: SubLine, remainder: { kmA: number; kmB: number } | null): void {
+  addSubLine(
+    lineIndex: number,
+    sub: SubLine,
+    remainder: { kmA: number; kmB: number } | null,
+  ): void {
     this.mutate((src) => {
       const line = src.lines[lineIndex];
       line.subLines.push(sub);
@@ -947,11 +1010,15 @@ export class SourceStore {
           line.pendingTail.unshift(merged);
         }
       }
-      src.cursor = subLineIndex > 0
-        ? { lineIndex, subLineIndex: subLineIndex - 1 }
-        : lineIndex > 0
-          ? { lineIndex: lineIndex - 1, subLineIndex: src.lines[lineIndex - 1].subLines.length - 1 }
-          : null;
+      src.cursor =
+        subLineIndex > 0
+          ? { lineIndex, subLineIndex: subLineIndex - 1 }
+          : lineIndex > 0
+            ? {
+                lineIndex: lineIndex - 1,
+                subLineIndex: src.lines[lineIndex - 1].subLines.length - 1,
+              }
+            : null;
     });
   }
 
@@ -962,7 +1029,11 @@ export class SourceStore {
 
   private emit(): void {
     for (const l of this.listeners) {
-      try { l(); } catch { /* don't crash siblings */ }
+      try {
+        l();
+      } catch {
+        /* don't crash siblings */
+      }
     }
   }
 
@@ -1003,6 +1074,7 @@ git commit -m "feat(state): SourceStore with addSubLine/validateSubLine/rewind/r
 Bind `SourceStore.onChange` → `SourcePersistence.save(source)`. Add a helper `attachPersistence(store, persistence)` that returns an unsubscribe.
 
 **Files:**
+
 - Modify: `src/state/SourceStore.ts` (add `attachPersistence` exported helper)
 - Test: extend `src/__tests__/SourceStore.test.ts`
 
@@ -1069,10 +1141,12 @@ Phase 4 produced the data model. Phase 5 plugs the pipeline into it.
 We keep the existing `MatchingPipeline.ts` untouched during this phase so the app keeps building. The new pipeline ships under a new name; the swap is in Phase 6.
 
 **Files:**
+
 - Create: `src/controller/LazyMatchingPipeline.ts`
 - Test: `src/__tests__/LazyMatchingPipeline.test.ts`
 
 The pipeline depends on:
+
 - `SourceStore` (to read state and call `addSubLine` / `validateSubLine`)
 - A delegate `MapDriver` that wraps the WME SDK calls (zoomToExtent + setMapCenter + getZoomLevel + setSelection). The delegate keeps tests free of SDK.
 - The existing `WalkController` for `matchInCurrentViewport`.
@@ -1082,7 +1156,11 @@ The pipeline depends on:
 ```ts
 // src/__tests__/LazyMatchingPipeline.test.ts
 import { describe, expect, it, vi } from "vitest";
-import { LazyMatchingPipeline, type MapDriver, type MatchDriver } from "../controller/LazyMatchingPipeline";
+import {
+  LazyMatchingPipeline,
+  type MapDriver,
+  type MatchDriver,
+} from "../controller/LazyMatchingPipeline";
 import { SourceStore } from "../state/SourceStore";
 import { buildGeojsonSource } from "../domain/buildGeojsonSource";
 import type { NormalizedTrack } from "../geojson/types";
@@ -1090,12 +1168,24 @@ import type { NormalizedTrack } from "../geojson/types";
 function track(): NormalizedTrack {
   return {
     trackId: null,
-    geometry: { type: "MultiLineString", coordinates: [[[6.0, 46.0], [6.4, 46.0]]] }, // ~ 31km
+    geometry: {
+      type: "MultiLineString",
+      coordinates: [
+        [
+          [6.0, 46.0],
+          [6.4, 46.0],
+        ],
+      ],
+    }, // ~ 31km
     rawProperties: {},
   };
 }
 
-function makeDrivers(zoomSchedule: number[]): { map: MapDriver; match: MatchDriver; segmentsByCall: number[][] } {
+function makeDrivers(zoomSchedule: number[]): {
+  map: MapDriver;
+  match: MatchDriver;
+  segmentsByCall: number[][];
+} {
   let call = 0;
   const segmentsByCall: number[][] = [[111], [222]];
   return {
@@ -1238,9 +1328,10 @@ export class LazyMatchingPipeline {
       }
       if (line.pendingTail.length > 0) {
         const newSub = this.createNextSubLineFor(line);
-        const remainder = line.pendingTail[0].kmB > newSub.kmB
-          ? { kmA: newSub.kmB, kmB: line.pendingTail[0].kmB }
-          : null;
+        const remainder =
+          line.pendingTail[0].kmB > newSub.kmB
+            ? { kmA: newSub.kmB, kmB: line.pendingTail[0].kmB }
+            : null;
         this.opts.store.addSubLine(li, newSub, remainder);
         return { lineIndex: li, subLineIndex: newSub.index };
       }
@@ -1274,7 +1365,10 @@ export class LazyMatchingPipeline {
     const xs = geom.coordinates.flatMap((line) => line.map((p) => p[0]));
     const ys = geom.coordinates.flatMap((line) => line.map((p) => p[1]));
     const bbox: [number, number, number, number] = [
-      Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys),
+      Math.min(...xs),
+      Math.min(...ys),
+      Math.max(...xs),
+      Math.max(...ys),
     ];
     this.opts.map.zoomToExtent(bbox);
     return this.opts.map.getZoomLevel();
@@ -1301,6 +1395,7 @@ git commit -m "feat(controller): LazyMatchingPipeline driving SourceStore via ma
 Add a focused test that exercises a 2-line scenario and verifies back from sub-line 1 of line 2 lands on the last sub-line of line 1, and that re-validating walks back into line 2 sub-line 1 without recomputing it.
 
 **Files:**
+
 - Modify: `src/__tests__/LazyMatchingPipeline.test.ts`
 
 - [ ] **Step 1: Append the test**
@@ -1313,9 +1408,7 @@ it("back from sub-line 1 of line 2 lands on the last sub-line of line 1", async 
     { date: "2026-05-21", startTime: "08:00", endTime: "12:00", distance: "0.0 - 15.0" },
     { date: "2026-05-21", startTime: "12:00", endTime: "18:00", distance: "15.0 - 30.0" },
   ];
-  store.hydrate(
-    buildGeojsonSource({ sourceId: "s2", track: track(), csvRows: csvRows as never }),
-  );
+  store.hydrate(buildGeojsonSource({ sourceId: "s2", track: track(), csvRows: csvRows as never }));
   const { map, match } = makeDrivers([16, 16, 16, 16]);
   const pipeline = new LazyMatchingPipeline({ store, map, match, targetZoom: 16 });
 
@@ -1359,6 +1452,7 @@ git commit -m "test(controller): cover cross-line back semantics"
 ## Task 10: Rerun semantics test
 
 **Files:**
+
 - Modify: `src/__tests__/LazyMatchingPipeline.test.ts`
 
 - [ ] **Step 1: Append the test**
@@ -1391,6 +1485,7 @@ it("rerunCurrent drops the current sub-line and recomputes from the merged range
 - [ ] **Step 2: Run + commit**
 
 Run: `npx vitest run src/__tests__/LazyMatchingPipeline.test.ts -t "rerunCurrent"` → PASS.
+
 ```bash
 git add src/__tests__/LazyMatchingPipeline.test.ts
 git commit -m "test(controller): cover rerun semantics on the current sub-line"
@@ -1405,6 +1500,7 @@ Phase 5 produced an SDK-free pipeline. Phase 6 wires it in. The work is one-shot
 ## Task 11: Build a Source on line selection
 
 **Files:**
+
 - Modify: `src/ui/subtabs/MatchingSubTab.ts`
 
 Locate the line selection handler (today calls `mergeChainsForSelectedLine` and friends). Replace its body with:
@@ -1458,6 +1554,7 @@ git commit -m "feat(ui): hydrate SourceStore on line selection (with resume from
 ## Task 12: Swap MatchingPipeline → LazyMatchingPipeline at start
 
 **Files:**
+
 - Modify: `src/ui/subtabs/MatchingSubTab.ts`
 
 Replace the construction of `MatchingPipeline` in the start-matching handler with `LazyMatchingPipeline`, wired through a thin `MapDriver` and `MatchDriver` built around the existing `wmeSDK` and `WalkController`.
@@ -1503,13 +1600,15 @@ Find where `new MatchingPipeline(...)` is constructed in `MatchingSubTab.ts`. Re
 const pipeline = new LazyMatchingPipeline({
   store: this.sourceStore,
   map: makeMapDriver(this.wmeSDK),
-  match: { runMatch: async () => {
-    const src = this.sourceStore.getSource()!;
-    const { lineIndex, subLineIndex } = src.cursor!;
-    const line = src.lines[lineIndex];
-    const sub = line.subLines[subLineIndex];
-    return makeMatchDriver(this.controller, line, sub).runMatch();
-  } },
+  match: {
+    runMatch: async () => {
+      const src = this.sourceStore.getSource()!;
+      const { lineIndex, subLineIndex } = src.cursor!;
+      const line = src.lines[lineIndex];
+      const sub = line.subLines[subLineIndex];
+      return makeMatchDriver(this.controller, line, sub).runMatch();
+    },
+  },
   targetZoom: 16,
 });
 this.activePipeline = pipeline;
@@ -1535,6 +1634,7 @@ git commit -m "feat(ui): wire LazyMatchingPipeline to drive matching from Source
 ## Task 13: Sub-line overlay color
 
 **Files:**
+
 - Modify: `src/ui/subtabs/MatchingSubTab.ts`
 - Modify: `src/__tests__/TrackLayer.test.ts` (if applicable)
 
@@ -1577,6 +1677,7 @@ git commit -m "feat(ui): highlight only the active sub-line on the track overlay
 ## Task 14: New header text + remove chain suffix
 
 **Files:**
+
 - Modify: `src/ui/views/MatchingHeaderView.ts`
 - Modify: `locales/en/common.json`, `locales/fr/common.json`
 
@@ -1585,6 +1686,7 @@ git commit -m "feat(ui): highlight only the active sub-line on the track overlay
 Edit both `locales/en/common.json` and `locales/fr/common.json`. Remove keys: `chainSuffix`, `chainStart`, `chainSwitching`, `subLinesEmpty`, `mergeEligible`, `mergeChainItem`. Adjust:
 
 For fr/common.json:
+
 ```json
 "rowHeader": "Ligne {{index}} / {{total}} — {{km}} km, {{startTime}} → {{endTime}}",
 "rowHeaderWithSubLine": "Ligne {{index}} / {{total}} — {{km}} km, {{startTime}} → {{endTime}} | sous-ligne {{subIndex}}/{{subTotal}}",
@@ -1607,6 +1709,7 @@ For each match, update the test/usage. Mostly in `MatchingSubTab.test.ts` and th
 - [ ] **Step 4: Run + commit**
 
 Run: `npx vitest run` → all PASS.
+
 ```bash
 git add src/ui/views/MatchingHeaderView.ts locales/en/common.json locales/fr/common.json src/ui/subtabs/MatchingSubTab.ts src/__tests__/
 git commit -m "feat(ui): unified line/sub-line header text; drop chain suffix"
@@ -1617,9 +1720,11 @@ git commit -m "feat(ui): unified line/sub-line header text; drop chain suffix"
 ## Task 15: Remove chain-by-chain orchestrator from MatchingSubTab
 
 **Files:**
+
 - Modify: `src/ui/subtabs/MatchingSubTab.ts`
 
 Remove:
+
 - Fields: `activeChains`, `activeChainIndex`, `chainSnapshots`, `chainByChainEnabled`.
 - Methods: `shouldUseChainByChain`, `ensureMergeInitializedForSelectedSlowup`, the chain-progress branches in `start` / `validate` / `pause` / `goBack`.
 - Constant `SLOWUP_CHAIN_MERGE_MAX_GAP_KM` (already centralized in `buildSlowupSource`).
@@ -1648,6 +1753,7 @@ git commit -m "refactor(ui): remove chain-by-chain orchestrator from MatchingSub
 ## Task 16: Delete chainMerge.ts, chainMergeState types, and obsolete tests
 
 **Files:**
+
 - Delete: `src/matching/chainMerge.ts`
 - Delete: `src/__tests__/chainMerge.test.ts`
 - Modify: `src/lines/types.ts` (remove `ChainMergeState`, `ChainMergeSnapshot`)
@@ -1710,6 +1816,7 @@ git commit -m "chore(cleanup): remove legacy MatchingPipeline and planLeafSlices
 ## Task 18: Remove CSV-upload UI for slowup sources
 
 **Files:**
+
 - Modify: `src/ui/subtabs/LinesSubTab.ts` (or wherever slowup rows expose the CSV upload control)
 - Modify: `src/ui/views/LineRowView.ts` (if relevant)
 - Modify: i18n if a string mentions CSV-upload-on-slowup.
@@ -1738,10 +1845,12 @@ git commit -m "feat(ui): remove CSV-upload affordance from slowup line rows"
 ## Task 19: Adapt export to consume SourceStore
 
 The existing `buildClosuresCsv` consumes `ClosureRowGroup[]` keyed by `rowIndex`. We feed it equivalent data computed from the Source:
+
 - For each `MatchedSegment` (= each `segmentId` in a `SubLine.segmentIds` of a validated sub-line), produce a tuple `{ segmentId, lineIndex, startISO?, endISO?, mapAnchor }`.
 - Group by `segmentId`, dedupe `(segmentId, startISO, endISO)` for CSV mode.
 
 **Files:**
+
 - Create: `src/csv/closuresFromSource.ts`
 - Test: `src/__tests__/closuresFromSource.test.ts`
 - Modify: caller(s) of `buildClosuresCsv` in `MatchingSubTab.ts` to use `closuresFromSource(source)` as the input shape.
@@ -1756,34 +1865,65 @@ import type { Source } from "../domain/types";
 
 function srcWithMatches(hasCsv: boolean): Source {
   return {
-    schemaVersion: 1, sourceId: "s", kind: "geojson", hasCsv,
+    schemaVersion: 1,
+    sourceId: "s",
+    kind: "geojson",
+    hasCsv,
     cursor: null,
     lines: [
       {
-        index: 0, bbox: [0,0,1,1], lengthKm: 5,
-        geometry: { type: "MultiLineString", coordinates: [[[0,0],[1,1]]] },
+        index: 0,
+        bbox: [0, 0, 1, 1],
+        lengthKm: 5,
+        geometry: {
+          type: "MultiLineString",
+          coordinates: [
+            [
+              [0, 0],
+              [1, 1],
+            ],
+          ],
+        },
         startISO: hasCsv ? "2026-05-21T08:00" : undefined,
         endISO: hasCsv ? "2026-05-21T12:00" : undefined,
         pendingTail: [],
         subLines: [
           {
-            index: 0, kmA: 0, kmB: 5, bbox: [0,0,1,1],
+            index: 0,
+            kmA: 0,
+            kmB: 5,
+            bbox: [0, 0, 1, 1],
             view: { lon: 0.5, lat: 0.5, zoom: 16 },
-            segmentIds: [100, 101], validated: true,
+            segmentIds: [100, 101],
+            validated: true,
           },
         ],
       },
       {
-        index: 1, bbox: [0,0,1,1], lengthKm: 3,
-        geometry: { type: "MultiLineString", coordinates: [[[0,0],[1,1]]] },
+        index: 1,
+        bbox: [0, 0, 1, 1],
+        lengthKm: 3,
+        geometry: {
+          type: "MultiLineString",
+          coordinates: [
+            [
+              [0, 0],
+              [1, 1],
+            ],
+          ],
+        },
         startISO: hasCsv ? "2026-05-21T10:00" : undefined,
         endISO: hasCsv ? "2026-05-21T14:00" : undefined,
         pendingTail: [],
         subLines: [
           {
-            index: 0, kmA: 0, kmB: 3, bbox: [0,0,1,1],
+            index: 0,
+            kmA: 0,
+            kmB: 3,
+            bbox: [0, 0, 1, 1],
             view: { lon: 0.5, lat: 0.5, zoom: 16 },
-            segmentIds: [101, 102], validated: true,
+            segmentIds: [101, 102],
+            validated: true,
           },
         ],
       },
@@ -1803,9 +1943,7 @@ describe("closuresFromSource", () => {
     expect(out.mode).toBe("per-line-times");
     const seg101 = out.bySegment.find((s) => s.segmentId === 101)!;
     // 08:00-12:00 overlaps 10:00-14:00 → merged 08:00-14:00
-    expect(seg101.windows).toEqual([
-      { startISO: "2026-05-21T08:00", endISO: "2026-05-21T14:00" },
-    ]);
+    expect(seg101.windows).toEqual([{ startISO: "2026-05-21T08:00", endISO: "2026-05-21T14:00" }]);
   });
 });
 ```
@@ -1816,8 +1954,14 @@ describe("closuresFromSource", () => {
 // src/csv/closuresFromSource.ts
 import type { Source } from "../domain/types";
 
-export interface ClosureWindow { startISO: string; endISO: string; }
-export interface ClosuresBySegment { segmentId: number; windows: ClosureWindow[]; }
+export interface ClosureWindow {
+  startISO: string;
+  endISO: string;
+}
+export interface ClosuresBySegment {
+  segmentId: number;
+  windows: ClosureWindow[];
+}
 export type ClosuresFromSource =
   | { mode: "global-times"; segmentIds: number[] }
   | { mode: "per-line-times"; bySegment: ClosuresBySegment[] };
@@ -1898,6 +2042,7 @@ If no callers remain, `git rm src/state/SessionStore.ts src/__tests__/SessionSto
 - [ ] **Step 2: Run + commit**
 
 Run: `npx tsc --noEmit && npx vitest run`.
+
 ```bash
 git add -A
 git commit -m "chore(cleanup): remove legacy SessionStore"
@@ -1919,6 +2064,7 @@ Both clean.
 - [ ] **Step 2: Smoke test in WME**
 
 Load the script, select a slowup with multiple chains, run guided matching end-to-end. Confirm:
+
 - Header reads `Ligne X/N — km | sous-ligne A/B` with no "chaîne".
 - Each sub-line is highlighted in the contrasting color while active.
 - Validate / Back / Rerun behave per spec (cross-line back lands on previous line's last sub-line).

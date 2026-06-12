@@ -54,7 +54,7 @@ Inner loop:
 3. On validate: persist `MatchedSegment[]` under the sub-line, mark it validated, advance the cursor (next sub-line is either already identified — back-then-forward case — or freshly computed by step 1 next round).
 4. On back/rerun/skip: see "Back semantics" and "Rerun semantics" below.
 
-Because step 1 commits the sub-line shape and the remainder *before* matching, a Back followed by Validate never triggers a recompute: the next sub-line is already in the persisted state.
+Because step 1 commits the sub-line shape and the remainder _before_ matching, a Back followed by Validate never triggers a recompute: the next sub-line is already in the persisted state.
 
 `planLeafSlices()` is deleted. The map only jitters once per sub-line, immediately before the operator inspects it.
 
@@ -62,11 +62,11 @@ Because step 1 commits the sub-line shape and the remainder *before* matching, a
 
 Back rewinds the cursor by one step; Validate from the new position returns to where you came from. Sub-lines that were already identified stay identified (their shape is persisted); only their `validated` flag and `segmentIds` are touched.
 
-| From | Back lands on | Subsequent Validate goes to |
-|---|---|---|
+| From                     | Back lands on                                                                        | Subsequent Validate goes to                                                         |
+| ------------------------ | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
 | Sub-line k > 1 of line m | Sub-line k−1 of line m, with its persisted `segmentIds` re-applied as WME selection. | Sub-line k of line m (unchanged shape, possibly already matched but not validated). |
-| Sub-line 1 of line m > 1 | Last sub-line of line m−1, with its segments re-applied as WME selection. | Sub-line 1 of line m. |
-| Sub-line 1 of line 1 | No-op (UI disabled). | — |
+| Sub-line 1 of line m > 1 | Last sub-line of line m−1, with its segments re-applied as WME selection.            | Sub-line 1 of line m.                                                               |
+| Sub-line 1 of line 1     | No-op (UI disabled).                                                                 | —                                                                                   |
 
 No prior sub-line is destroyed by Back. The operator can chain Backs all the way to the first sub-line and walk forward again without recomputing any sub-line shape.
 
@@ -108,11 +108,11 @@ One localStorage key per Source: `wme-geojson:source:<sourceId>`. Atomic JSON, w
 ```ts
 interface PersistedSource {
   schemaVersion: 1;
-  sourceId: string;            // stable id of the GeoJSON file or slowup
+  sourceId: string; // stable id of the GeoJSON file or slowup
   kind: "geojson" | "slowup";
   hasCsv: boolean;
   lines: PersistedLine[];
-  cursor: { lineIndex: number; subLineIndex: number } | null;  // resume point
+  cursor: { lineIndex: number; subLineIndex: number } | null; // resume point
 }
 interface PersistedLine {
   index: number;
@@ -124,7 +124,7 @@ interface PersistedLine {
 interface PersistedSubLine {
   index: number;
   bbox: [number, number, number, number];
-  view: { lon: number; lat: number; zoom: number };  // map anchor used for matching
+  view: { lon: number; lat: number; zoom: number }; // map anchor used for matching
   segmentIds: number[];
   validated: boolean;
 }
@@ -152,18 +152,18 @@ The current `ClosureRowGroup[]` model and `buildClosuresCsv` are reframed in ter
 
 ## Component changes
 
-| File | Change |
-|---|---|
-| `src/lines/types.ts` | Replace `LineEntry` surface to expose `lines: Line[]`. Drop `ChainMergeState`. |
-| `src/lines/slowupMerge.ts` (new) | `mergeSlowupPieces(pieces) → MultiLineString[]`, distilled from `chainTracks.ts`. Runs at slowup selection. |
-| `src/state/SessionStore.ts` | Replace CSV-row-oriented state with line/sub-line/segment state. `validateRow` → `validateSubLine`. `rewindToRow` → `rewindToSubLine`. |
-| `src/state/persistence.ts` (new) | Read/write `PersistedSource` to localStorage. Debounced write (e.g. 200ms). |
-| `src/controller/MatchingPipeline.ts` | Replace per-row leaf planning with lazy `SubLineIterator`. Add cross-line back logic that consults persisted prior lines. Persist after each step. |
-| `src/ui/views/MatchingHeaderView.ts` | New header format. Drop chain suffix. |
-| `src/ui/subtabs/MatchingSubTab.ts` | Drop chain orchestrator. Drop CSV upload UI for slowup sources. Wire persistence resume on source open. |
-| `src/layers/TrackLayer.ts` | `setHighlightedSlice` is now driven by current sub-line geometry. |
-| `locales/{en,fr}/common.json` | Remove chain strings. Adjust header strings. |
-| `src/__tests__/*` | Add `lazySubLineIterator.test.ts`, `crossLineBack.test.ts`, `persistence.test.ts`. Remove `chainMerge.test.ts`, `chainTracks.test.ts`, `slowupsMerge.test.ts` (or rewrite under new names). |
+| File                                 | Change                                                                                                                                                                                      |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/lines/types.ts`                 | Replace `LineEntry` surface to expose `lines: Line[]`. Drop `ChainMergeState`.                                                                                                              |
+| `src/lines/slowupMerge.ts` (new)     | `mergeSlowupPieces(pieces) → MultiLineString[]`, distilled from `chainTracks.ts`. Runs at slowup selection.                                                                                 |
+| `src/state/SessionStore.ts`          | Replace CSV-row-oriented state with line/sub-line/segment state. `validateRow` → `validateSubLine`. `rewindToRow` → `rewindToSubLine`.                                                      |
+| `src/state/persistence.ts` (new)     | Read/write `PersistedSource` to localStorage. Debounced write (e.g. 200ms).                                                                                                                 |
+| `src/controller/MatchingPipeline.ts` | Replace per-row leaf planning with lazy `SubLineIterator`. Add cross-line back logic that consults persisted prior lines. Persist after each step.                                          |
+| `src/ui/views/MatchingHeaderView.ts` | New header format. Drop chain suffix.                                                                                                                                                       |
+| `src/ui/subtabs/MatchingSubTab.ts`   | Drop chain orchestrator. Drop CSV upload UI for slowup sources. Wire persistence resume on source open.                                                                                     |
+| `src/layers/TrackLayer.ts`           | `setHighlightedSlice` is now driven by current sub-line geometry.                                                                                                                           |
+| `locales/{en,fr}/common.json`        | Remove chain strings. Adjust header strings.                                                                                                                                                |
+| `src/__tests__/*`                    | Add `lazySubLineIterator.test.ts`, `crossLineBack.test.ts`, `persistence.test.ts`. Remove `chainMerge.test.ts`, `chainTracks.test.ts`, `slowupsMerge.test.ts` (or rewrite under new names). |
 
 ## Out of scope
 

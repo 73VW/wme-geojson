@@ -12,9 +12,12 @@ export interface BuildGeojsonSourceInput {
   sourceId: string;
   track: NormalizedTrack;
   csvRows?: CsvRow[];
+  onWarning?: (message: string) => void;
 }
 
-function bbox4(geometry: import("geojson").MultiLineString): [number, number, number, number] | null {
+function bbox4(
+  geometry: import("geojson").MultiLineString,
+): [number, number, number, number] | null {
   const box = bboxOfMultiLineString(geometry);
   if (!box) return null;
   return [box[0], box[1], box[2], box[3]];
@@ -49,7 +52,12 @@ export function buildGeojsonSource(input: BuildGeojsonSourceInput): Source {
   workItems.forEach((item, idx) => {
     const geom = sliceMultiLineByDistance(input.track.geometry, item.kmA, item.kmB);
     const bbox = bbox4(geom);
-    if (!bbox) return;
+    if (!bbox) {
+      input.onWarning?.(
+        `CSV row ${item.rowIndex} skipped: degenerate portion (km ${item.kmA}–${item.kmB})`,
+      );
+      return;
+    }
     const row = input.csvRows![item.rowIndex];
     lines.push({
       index: idx,

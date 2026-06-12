@@ -15,6 +15,7 @@
 ## File Structure
 
 **Created :**
+
 - `src/mte/mteStore.ts` — persistance `localStorage` `refid → mteId`
 - `src/mte/mteResolver.ts` — logique pure de matching MTE↔slowup
 - `src/mte/mteSdk.ts` — adapter Waze SDK `MajorTrafficEvents`
@@ -24,6 +25,7 @@
 - `src/__tests__/mteResolver.test.ts`
 
 **Modified :**
+
 - `src/lines/types.ts` — ajout `SlowupFullDetails`
 - `src/lines/slowupClient.ts` — ajout `fetchSlowupFullDetails`
 - `src/__tests__/slowupClient.test.ts` — tests pour `fetchSlowupFullDetails`
@@ -46,6 +48,7 @@
 ### Task 1 : `mteStore` — persistance localStorage
 
 **Files:**
+
 - Create: `src/mte/mteStore.ts`
 - Test: `src/__tests__/mteStore.test.ts`
 
@@ -198,6 +201,7 @@ git commit -m "feat(mte): persistent refid→mteId store backed by localStorage"
 ### Task 2 : `mteResolver` — logique pure de matching
 
 **Files:**
+
 - Create: `src/mte/mteResolver.ts`
 - Test: `src/__tests__/mteResolver.test.ts`
 
@@ -247,7 +251,12 @@ describe("candidatesByBbox", () => {
     const list = [
       mte({ id: "in", bbox: [5, 47, 7, 47.5], startDate: "2026-06-20", endDate: "2026-06-22" }),
       mte({ id: "outside-bbox", bbox: [20, 20, 21, 21] }),
-      mte({ id: "outside-date", bbox: [5, 47, 7, 47.5], startDate: "2026-07-01", endDate: "2026-07-02" }),
+      mte({
+        id: "outside-date",
+        bbox: [5, 47, 7, 47.5],
+        startDate: "2026-07-01",
+        endDate: "2026-07-02",
+      }),
     ];
     const result = candidatesByBbox(list, slowupBbox, slowupDate);
     expect(result.map((c) => c.mte.id)).toEqual(["in"]);
@@ -292,7 +301,7 @@ export interface MteRef {
   urlLink: string | null;
   bbox: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
   startDate: string; // ISO "YYYY-MM-DD"
-  endDate: string;   // ISO "YYYY-MM-DD"
+  endDate: string; // ISO "YYYY-MM-DD"
 }
 
 export interface MteCandidate {
@@ -359,6 +368,7 @@ git commit -m "feat(mte): pure resolver for URL match and bbox+date candidates"
 ### Task 3 : `SlowupFullDetails` + `fetchSlowupFullDetails`
 
 **Files:**
+
 - Modify: `src/lines/types.ts` (ajout type, après l'existant `SlowupDetails`)
 - Modify: `src/lines/slowupClient.ts` (ajout `parseSlowupFullDetailsItem` + `fetchSlowupFullDetails`)
 - Modify: `src/__tests__/slowupClient.test.ts` (tests pour la nouvelle API)
@@ -376,7 +386,7 @@ Ajouter dans `src/lines/types.ts` juste après l'interface `SlowupDetails` (vers
 export interface SlowupFullDetails {
   refid: number;
   title: string;
-  date: string;          // "YYYY-MM-DD"
+  date: string; // "YYYY-MM-DD"
   urlLink: string;
   abstracts: {
     fr: string;
@@ -456,7 +466,9 @@ describe("fetchSlowupFullDetails", () => {
       }
       options.onload({
         status: 200,
-        response: [{ refid: 19, title: "T", date: "2026-06-21", abstract: "x", urlLink: "https://a" }],
+        response: [
+          { refid: 19, title: "T", date: "2026-06-21", abstract: "x", urlLink: "https://a" },
+        ],
       });
     });
 
@@ -491,21 +503,37 @@ interface RawFullItem {
   urlLink: unknown;
 }
 
-function parseFullItem(raw: unknown, lang: FullLang): { abstract: string; urlLink: string; refid: number; title: string; date: string } {
+function parseFullItem(
+  raw: unknown,
+  lang: FullLang,
+): { abstract: string; urlLink: string; refid: number; title: string; date: string } {
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new Error(`slowUp full detail (${lang}) response must be a non-empty array.`);
   }
   const item = raw[0] as RawFullItem;
   const refid = typeof item.refid === "number" ? item.refid : Number(item.refid);
   if (!Number.isFinite(refid)) throw new Error(`slowUp full detail (${lang}) missing refid.`);
-  if (typeof item.title !== "string" || !item.title) throw new Error(`slowUp full detail (${lang}) missing title.`);
-  if (typeof item.date !== "string" || !item.date) throw new Error(`slowUp full detail (${lang}) missing date.`);
-  if (typeof item.abstract !== "string") throw new Error(`slowUp full detail (${lang}) missing abstract.`);
-  if (typeof item.urlLink !== "string" || !item.urlLink) throw new Error(`slowUp full detail (${lang}) missing urlLink.`);
-  return { refid, title: item.title, date: item.date, abstract: item.abstract, urlLink: item.urlLink };
+  if (typeof item.title !== "string" || !item.title)
+    throw new Error(`slowUp full detail (${lang}) missing title.`);
+  if (typeof item.date !== "string" || !item.date)
+    throw new Error(`slowUp full detail (${lang}) missing date.`);
+  if (typeof item.abstract !== "string")
+    throw new Error(`slowUp full detail (${lang}) missing abstract.`);
+  if (typeof item.urlLink !== "string" || !item.urlLink)
+    throw new Error(`slowUp full detail (${lang}) missing urlLink.`);
+  return {
+    refid,
+    title: item.title,
+    date: item.date,
+    abstract: item.abstract,
+    urlLink: item.urlLink,
+  };
 }
 
-function fetchOneLang(refid: number, lang: FullLang): Promise<{ abstract: string; urlLink: string; refid: number; title: string; date: string }> {
+function fetchOneLang(
+  refid: number,
+  lang: FullLang,
+): Promise<{ abstract: string; urlLink: string; refid: number; title: string; date: string }> {
   const url = buildSlowupDetailUrl(refid, lang);
   return new Promise((resolve, reject) => {
     GM.xmlHttpRequest({
@@ -525,7 +553,11 @@ function fetchOneLang(refid: number, lang: FullLang): Promise<{ abstract: string
         }
       },
       onerror(response) {
-        reject(new Error(`Network error fetching slowUp ${lang} for refid ${refid}: ${response.statusText || "unknown"}.`));
+        reject(
+          new Error(
+            `Network error fetching slowUp ${lang} for refid ${refid}: ${response.statusText || "unknown"}.`,
+          ),
+        );
       },
       ontimeout() {
         reject(new Error(`Timeout fetching slowUp ${lang} for refid ${refid}.`));
@@ -539,7 +571,10 @@ export async function fetchSlowupFullDetails(refid: number): Promise<SlowupFullD
 
   const urls = [fr.urlLink, en.urlLink, de.urlLink, it.urlLink];
   if (new Set(urls).size > 1) {
-    console.warn(`[slowupClient] urlLink diverges across langs for refid ${refid}; using FR.`, urls);
+    console.warn(
+      `[slowupClient] urlLink diverges across langs for refid ${refid}; using FR.`,
+      urls,
+    );
   }
 
   return {
@@ -577,6 +612,7 @@ git commit -m "feat(slowup): fetch 4-lang abstracts + urlLink for MTE popup"
 ### Task 4 : `mteSdk` — adapter Waze SDK
 
 **Files:**
+
 - Create: `src/mte/mteSdk.ts`
 
 > Pas de tests automatisés : couplé au runtime Waze, smoke testé en navigateur. Cohérent avec `src/utils/queryParams.ts` et autres adapters SDK du projet.
@@ -586,7 +622,7 @@ git commit -m "feat(slowup): fetch 4-lang abstracts + urlLink for MTE popup"
 Ouvrir le dernier WME en dev, dans la console du navigateur :
 
 ```js
-wmeSDK.MajorTrafficEvents.getMajorTrafficEvents()
+wmeSDK.MajorTrafficEvents.getMajorTrafficEvents();
 ```
 
 Noter : nom du champ ID (`id`), du champ URL (`url` vs `urlLink` vs `link`), forme du polygon/bbox, et le format des dates. **Si la forme diffère du squelette ci-dessous, ajuster le mapping dans `mteSdk.ts` avant de commit.**
@@ -649,7 +685,10 @@ function normalize(raw: unknown): MteRef | null {
 function bboxFromGeometry(geom: RawMte["geometry"]): [number, number, number, number] | null {
   const ring = geom?.coordinates?.[0];
   if (!ring || ring.length === 0) return null;
-  let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
+  let minLon = Infinity,
+    minLat = Infinity,
+    maxLon = -Infinity,
+    maxLat = -Infinity;
   for (const pt of ring) {
     const [lon, lat] = pt;
     if (typeof lon !== "number" || typeof lat !== "number") continue;
@@ -694,6 +733,7 @@ git commit -m "feat(mte): SDK adapter for MajorTrafficEvents (normalized MteRef 
 ### Task 5 : `promptFinalFields` — option `refid` + défaut `mteStore`
 
 **Files:**
+
 - Modify: `src/ui/promptFinalFields.ts` (signature + ligne 82)
 
 > Pas de nouveau test : `promptFinalFields` n'a pas de tests existants (DOM `<dialog>`). On rajoutera seulement un test ciblé sur le défaut dans un fichier dédié.
@@ -748,7 +788,10 @@ En haut du fichier, ajouter l'import et le helper exporté juste avant `promptFi
 ```ts
 import { mteStore } from "../mte/mteStore";
 
-export function resolveDefaultMteId(explicit: string | undefined, refid: number | undefined): string {
+export function resolveDefaultMteId(
+  explicit: string | undefined,
+  refid: number | undefined,
+): string {
   if (explicit !== undefined) return explicit;
   if (refid !== undefined) return mteStore.get(refid) ?? "";
   return "";
@@ -807,6 +850,7 @@ git commit -m "feat(ui): promptFinalFields accepts refid, defaults MTE ID from s
 ### Task 6 : `MtePreparePopup` — popup DOM
 
 **Files:**
+
 - Create: `src/ui/MtePreparePopup.ts`
 
 > Pas de tests automatisés (DOM popup, cohérent avec `promptFinalFields`/`promptClosureWindow`). Smoke testé en navigateur Task 8.
@@ -818,7 +862,14 @@ git commit -m "feat(ui): promptFinalFields accepts refid, defaults MTE ID from s
 import i18next from "i18next";
 import { fetchSlowupFullDetails } from "../lines/slowupClient";
 import type { SlowupFullDetails } from "../lines/types";
-import { byUrl, candidatesByBbox, mteStore, type MteCandidate, type MteRef, type MteSdk } from "../mte";
+import {
+  byUrl,
+  candidatesByBbox,
+  mteStore,
+  type MteCandidate,
+  type MteRef,
+  type MteSdk,
+} from "../mte";
 
 export interface MtePreparePopupDeps {
   refid: number;
@@ -836,8 +887,12 @@ export async function openMtePreparePopup(deps: MtePreparePopupDeps): Promise<vo
   }
 
   const dialog = document.createElement("dialog");
-  dialog.style.cssText = "border:none;border-radius:8px;padding:24px 28px;max-width:560px;width:92vw;box-shadow:0 6px 32px rgba(0,0,0,.25);";
-  dialog.addEventListener("cancel", (e) => { e.preventDefault(); close(); });
+  dialog.style.cssText =
+    "border:none;border-radius:8px;padding:24px 28px;max-width:560px;width:92vw;box-shadow:0 6px 32px rgba(0,0,0,.25);";
+  dialog.addEventListener("cancel", (e) => {
+    e.preventDefault();
+    close();
+  });
   openInstance = dialog;
 
   function close() {
@@ -911,7 +966,8 @@ function renderContent(
   inputRow.style.cssText = "display:flex;gap:8px;align-items:center;";
   const mteInput = document.createElement("input");
   mteInput.type = "text";
-  mteInput.style.cssText = "flex:1;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:13px;";
+  mteInput.style.cssText =
+    "flex:1;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:13px;";
   const badge = document.createElement("span");
   badge.style.cssText = "font-size:12px;color:#555;";
   const refreshBtn = document.createElement("button");
@@ -956,11 +1012,13 @@ function renderContent(
         header.textContent = i18next.t("panel.mtePopup.candidatesHeader");
         candidatesContainer.appendChild(header);
         for (const c of candidates) {
-          candidatesContainer.appendChild(candidateRow(c, () => {
-            mteInput.value = c.mte.id;
-            mteStore.set(deps.refid, c.mte.id);
-            badge.textContent = i18next.t("panel.mtePopup.badgeManual");
-          }));
+          candidatesContainer.appendChild(
+            candidateRow(c, () => {
+              mteInput.value = c.mte.id;
+              mteStore.set(deps.refid, c.mte.id);
+              badge.textContent = i18next.t("panel.mtePopup.badgeManual");
+            }),
+          );
         }
       }
     }
@@ -1005,7 +1063,8 @@ function abstractBlock(langLabel: string, text: string): HTMLElement {
   const box = document.createElement("textarea");
   box.value = text;
   box.readOnly = true;
-  box.style.cssText = "width:100%;min-height:60px;font-size:12px;padding:6px;border:1px solid #ddd;border-radius:4px;resize:vertical;font-family:inherit;";
+  box.style.cssText =
+    "width:100%;min-height:60px;font-size:12px;padding:6px;border:1px solid #ddd;border-radius:4px;resize:vertical;font-family:inherit;";
   wrap.appendChild(header);
   wrap.appendChild(box);
   return wrap;
@@ -1031,7 +1090,8 @@ function divider(): HTMLElement {
 function candidateRow(c: MteCandidate, onPick: () => void): HTMLElement {
   const row = document.createElement("button");
   row.type = "button";
-  row.style.cssText = "text-align:left;padding:6px 8px;border:1px solid #ddd;border-radius:4px;background:#fafafa;cursor:pointer;font-size:12px;";
+  row.style.cssText =
+    "text-align:left;padding:6px 8px;border:1px solid #ddd;border-radius:4px;background:#fafafa;cursor:pointer;font-size:12px;";
   row.textContent = `[#${c.mte.id}] ${c.mte.name || "(sans nom)"} — overlap ${c.overlap.toFixed(4)}°²`;
   row.addEventListener("click", onPick);
   return row;
@@ -1058,6 +1118,7 @@ git commit -m "feat(ui): MtePreparePopup with lazy 4-lang fetch and MTE auto-det
 ### Task 7 : `MatchingSubTab` button + i18n keys
 
 **Files:**
+
 - Modify: `locales/fr/common.json`
 - Modify: `locales/en/common.json`
 - Modify: `src/ui/subtabs/MatchingSubTab.ts`

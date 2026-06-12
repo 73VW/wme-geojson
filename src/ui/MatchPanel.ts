@@ -2,12 +2,14 @@
 // control with [Lignes][Matching] sub-tabs. All matching logic lives in
 // MatchingSubTab; all line-loading logic in LinesSubTab.
 
+import type { MultiLineString } from "geojson";
 import type { WmeSDK } from "wme-sdk-typings";
 import { i18next } from "../../locales/i18n";
 import { logger } from "../utils/logger";
 import type { SessionStore } from "../state/SessionStore";
 import type { LineRegistry } from "../lines/LineRegistry";
 import type { LineEntry } from "../lines/types";
+import { bboxOfMultiLineString } from "../matching/trackPortions";
 import { wzTabs, type WzTabsHandle } from "./components/wz";
 import { LinesSubTab } from "./subtabs/LinesSubTab";
 import { MatchingSubTab } from "./subtabs/MatchingSubTab";
@@ -130,27 +132,14 @@ export class MatchPanel {
   private zoomToEntries(entries: readonly LineEntry[]): void {
     if (entries.length === 0) return;
 
-    let minLon = Infinity;
-    let minLat = Infinity;
-    let maxLon = -Infinity;
-    let maxLat = -Infinity;
-    for (const entry of entries) {
-      for (const line of entry.track.geometry.coordinates) {
-        for (const coord of line) {
-          const lon = coord[0];
-          const lat = coord[1];
-          if (lon < minLon) minLon = lon;
-          if (lat < minLat) minLat = lat;
-          if (lon > maxLon) maxLon = lon;
-          if (lat > maxLat) maxLat = lat;
-        }
-      }
-    }
-    if (!Number.isFinite(minLon)) return;
+    const merged: MultiLineString = {
+      type: "MultiLineString",
+      coordinates: entries.flatMap((entry) => entry.track.geometry.coordinates),
+    };
+    const bbox = bboxOfMultiLineString(merged);
+    if (!bbox) return;
 
-    this.wmeSDK.Map.zoomToExtent({
-      bbox: [minLon, minLat, maxLon, maxLat] as import("geojson").BBox,
-    });
+    this.wmeSDK.Map.zoomToExtent({ bbox });
   }
 
   private injectShellStyles(container: HTMLElement): void {

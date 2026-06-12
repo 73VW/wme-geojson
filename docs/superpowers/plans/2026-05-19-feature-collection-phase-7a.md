@@ -15,6 +15,7 @@
 ## File structure
 
 **Created:**
+
 - `src/lines/types.ts` — `LineEntry`, `SlowupDetails`, `LineMatchPhase` type definitions.
 - `src/lines/displayName.ts` — pure `computeDisplayName()` helper.
 - `src/lines/LineRegistry.ts` — observable store of `LineEntry[]` + selection.
@@ -31,6 +32,7 @@
 - `src/__tests__/featureCollectionLoader.test.ts`
 
 **Modified:**
+
 - `src/ui/MatchPanel.ts` — reduced to a shell: tab registration, sub-tab toggle, sub-tab mounting.
 - `main.user.ts` — construct `LineRegistry`, pass to `MatchPanel`.
 - `src/bootstrap/loadAndAttachTrack.ts` — populate `LineRegistry` instead of (or alongside) direct panel setters.
@@ -41,6 +43,7 @@
 ## Task 1: `LineEntry` types
 
 **Files:**
+
 - Create: `src/lines/types.ts`
 
 - [ ] **Step 1: Write the type definitions**
@@ -118,6 +121,7 @@ git commit -m "feat(lines): add LineEntry and related types"
 ## Task 2: `computeDisplayName` helper
 
 **Files:**
+
 - Create: `src/lines/displayName.ts`
 - Test: `src/__tests__/displayName.test.ts`
 
@@ -232,6 +236,7 @@ git commit -m "feat(lines): add computeDisplayName helper"
 ## Task 3: `LineRegistry` observable store
 
 **Files:**
+
 - Create: `src/lines/LineRegistry.ts`
 - Test: `src/__tests__/LineRegistry.test.ts`
 
@@ -444,6 +449,7 @@ git commit -m "feat(lines): add observable LineRegistry store"
 ## Task 4: Synthetic schedule builder
 
 **Files:**
+
 - Create: `src/csv/syntheticSchedule.ts`
 - Test: `src/__tests__/syntheticSchedule.test.ts`
 
@@ -504,9 +510,7 @@ import type { CsvRow } from "../state/SessionStore";
  */
 export function buildSyntheticRow(trackLengthKm: number): CsvRow {
   if (!(trackLengthKm > 0)) {
-    throw new Error(
-      `[syntheticSchedule] track length must be positive, got ${trackLengthKm}`,
-    );
+    throw new Error(`[syntheticSchedule] track length must be positive, got ${trackLengthKm}`);
   }
   return {
     distance: trackLengthKm,
@@ -535,6 +539,7 @@ git commit -m "feat(csv): add synthetic single-row schedule builder"
 ## Task 5: `loadLines` — single Feature loader
 
 **Files:**
+
 - Create: `src/lines/featureCollectionLoader.ts`
 - Test: `src/__tests__/featureCollectionLoader.test.ts`
 
@@ -562,7 +567,12 @@ const track: NormalizedTrack = {
   geometry: {
     type: "MultiLineString",
     // ~1 km along the equator
-    coordinates: [[[0, 0], [0.009, 0]]],
+    coordinates: [
+      [
+        [0, 0],
+        [0.009, 0],
+      ],
+    ],
   },
   rawProperties: { name: "Test line" },
 };
@@ -709,6 +719,7 @@ git commit -m "feat(lines): add loadLines for a single Feature source"
 ## Task 6: `promptClosureWindow` modal
 
 **Files:**
+
 - Create: `src/ui/components/promptClosureWindow.ts`
 
 **Context:** Mirrors `src/ui/promptFinalFields.ts` exactly in structure (native `<dialog>`, `settle`/`cleanup` pattern, i18n keys). It collects a closure start and end datetime. Defaults are passed in by the caller.
@@ -898,6 +909,7 @@ git commit -m "feat(ui): add promptClosureWindow modal"
 ## Task 7: Extract `MatchingSubTab` (pure refactor, no behaviour change)
 
 **Files:**
+
 - Create: `src/ui/subtabs/MatchingSubTab.ts`
 - Modify: `src/ui/MatchPanel.ts`
 
@@ -914,6 +926,7 @@ cp src/ui/MatchPanel.ts src/ui/subtabs/MatchingSubTab.ts
 - [ ] **Step 2: Rename the class and fix relative import paths**
 
 In `src/ui/subtabs/MatchingSubTab.ts`:
+
 - Rename the class `MatchPanel` → `MatchingSubTab`.
 - The file moved one directory deeper (`src/ui/` → `src/ui/subtabs/`), so every relative import gains one `../`:
   - `"../../locales/i18n"` → `"../../../locales/i18n"`
@@ -971,6 +984,7 @@ git commit -m "refactor(ui): extract MatchingSubTab from MatchPanel (no behaviou
 ## Task 8: Extract view classes from `MatchingSubTab`
 
 **Files:**
+
 - Modify: `src/ui/subtabs/MatchingSubTab.ts`
 - Create: `src/ui/views/MatchingHeaderView.ts` (and others as the split dictates)
 
@@ -1043,6 +1057,7 @@ export class MatchingHeaderView {
 - [ ] **Step 2: Rewire `MatchingSubTab` to use `MatchingHeaderView`**
 
 In `MatchingSubTab.ts`:
+
 - Remove the `buildTrackLengthRow` method and the inline title/badge construction in `buildDOM`.
 - In `buildDOM`, instantiate `new MatchingHeaderView({ onBack: () => {} })` and append `headerView.root`. The `onBack` callback is a temporary no-op at this task; Task 9 replaces it with `() => this.deps.onBack()` once `MatchingSubTab` gains the `deps` constructor.
 - Replace `this.trackLengthValueEl` writes and `updateBadge` body with `this.headerView.setLine(...)` / `this.headerView.setBadge(state)`.
@@ -1068,6 +1083,7 @@ git commit -m "refactor(ui): extract MatchingHeaderView from MatchingSubTab"
 ## Task 9: `MatchPanel` shell + `LinesSubTab` + line list views
 
 **Files:**
+
 - Create: `src/ui/views/LineRowView.ts`
 - Create: `src/ui/views/LinesListView.ts`
 - Create: `src/ui/subtabs/LinesSubTab.ts`
@@ -1458,9 +1474,22 @@ export class MatchPanel {
 In `MatchingSubTab`'s `injectStyles` (or a small style block in the shell), add:
 
 ```css
-.wmegj-subtab-toggle { display: flex; gap: 0; margin-bottom: 8px; }
-.wmegj-subtab-toggle button { flex: 1; padding: 6px; cursor: pointer; border: 1px solid #ccc; background: #f4f4f4; }
-.wmegj-subtab-toggle button.wmegj-subtab-active { background: #fff; font-weight: 700; }
+.wmegj-subtab-toggle {
+  display: flex;
+  gap: 0;
+  margin-bottom: 8px;
+}
+.wmegj-subtab-toggle button {
+  flex: 1;
+  padding: 6px;
+  cursor: pointer;
+  border: 1px solid #ccc;
+  background: #f4f4f4;
+}
+.wmegj-subtab-toggle button.wmegj-subtab-active {
+  background: #fff;
+  font-weight: 700;
+}
 ```
 
 - [ ] **Step 7: Verify build + tests**
@@ -1480,6 +1509,7 @@ git commit -m "feat(ui): split MatchPanel into Lignes and Matching sub-tabs"
 ## Task 10: Wire `LineRegistry` through bootstrap + synthetic matching
 
 **Files:**
+
 - Modify: `main.user.ts`
 - Modify: `src/bootstrap/loadAndAttachTrack.ts`
 - Modify: `src/ui/subtabs/MatchingSubTab.ts`
@@ -1584,6 +1614,7 @@ export async function loadAndAttachLines(
 - [ ] **Step 3: Make `MatchingSubTab` attach to the selected `LineEntry`**
 
 In `MatchingSubTab.ts`:
+
 - Subscribe to `registry.onSelectedLineChanged` in `buildRoot`.
 - On selection of entry `X`:
   - If a walk is running, call the controller's `stop()` first.
@@ -1598,6 +1629,7 @@ In `MatchingSubTab.ts`:
 - [ ] **Step 4: Synthetic-mode download path**
 
 In `MatchingSubTab.onDownloadClosuresClick`:
+
 - Determine mode from the selected entry (`registry.getSelected()?.mode`).
 - If `mode === "csv"`: keep the existing flow unchanged.
 - If `mode === "synthetic"`:
@@ -1608,6 +1640,7 @@ In `MatchingSubTab.onDownloadClosuresClick`:
      `store.rewindToRow(0)` is not enough — instead update the synthetic row's date/times then call `store.validateRow(0, matchedSegments, window.startISO, window.endISO)`. The simplest correct path: rebuild the row via `store.setCsvRows([{ ...buildSyntheticRow(lengthKm), date: window.startISO.slice(0,10), startTime: window.startISO.slice(11), endTime: window.endISO.slice(11) }], "")`, then re-run `validateRow(0, matchedSegments, window.startISO, window.endISO)`.
 
      > **Decision point — flag for review:** this re-validation interaction with `SessionStore` is the one genuinely fiddly piece. The cleanest implementation may be a small new `SessionStore` method `setClosureWindowForRow(index, startISO, endISO)` that rewrites a row's date/time and rebuilds its `closuresBySegment` ranges from the already-matched `segments`. If the executing engineer finds the rebuild-via-setCsvRows path loses the matched `segments`, add that method instead. Surface the chosen approach in the task commit message.
+
   5. Then run the existing `buildClosuresCsv(...)` + `triggerDownload(...)` path.
 
 - [ ] **Step 5: Verify build + tests + manual smoke**
@@ -1616,6 +1649,7 @@ Run: `npx tsc --noEmit && npm test && npm run build`
 Expected: clean.
 
 Manual:
+
 1. Open WME with `?geojson=https%3A%2F%2Fschweizmobil.ch%2Fapi%2F6%2Ftracks%2F1764963942` — Lignes sub-tab shows one row, URL field pre-filled.
 2. Click "Sélectionner" — switches to Matching sub-tab, synthetic banner visible, no CSV table.
 3. Run matching — segments matched.
@@ -1634,6 +1668,7 @@ git commit -m "feat: wire LineRegistry and CSV-less synthetic matching"
 ## Task 11: i18n keys
 
 **Files:**
+
 - Modify: `locales/en/common.json`
 - Modify: `locales/fr/common.json`
 
@@ -1739,6 +1774,7 @@ git commit -m "i18n: add keys for sub-tabs, line list, and closure window"
 ## Task 12: Full verification + cleanup
 
 **Files:**
+
 - All (verification only).
 
 - [ ] **Step 1: Run the whole test suite**
@@ -1759,6 +1795,7 @@ Expected: `releases/release-*.user.js` produced, no errors.
 - [ ] **Step 4: Full manual validation checklist**
 
 Install the dev build and verify:
+
 - [ ] `?geojson=` query param still auto-loads; URL field pre-filled in Lignes sub-tab.
 - [ ] Toggle switches between Lignes and Matching; state persists across switches.
 - [ ] A single Feature shows exactly one row with name (or "Tracé de X km") + Sélectionner.

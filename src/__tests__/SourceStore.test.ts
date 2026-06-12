@@ -10,14 +10,24 @@ function srcWithOneLine(): Source {
     sourceId: "s1",
     kind: "geojson",
     hasCsv: false,
-    lines: [{
-      index: 0,
-      bbox: [0, 0, 1, 1],
-      geometry: { type: "MultiLineString", coordinates: [[[0, 0], [1, 1]]] },
-      lengthKm: 2,
-      subLines: [],
-      pendingTail: [{ kmA: 0, kmB: 2 }],
-    }],
+    lines: [
+      {
+        index: 0,
+        bbox: [0, 0, 1, 1],
+        geometry: {
+          type: "MultiLineString",
+          coordinates: [
+            [
+              [0, 0],
+              [1, 1],
+            ],
+          ],
+        },
+        lengthKm: 2,
+        subLines: [],
+        pendingTail: [{ kmA: 0, kmB: 2 }],
+      },
+    ],
     cursor: null,
   };
 }

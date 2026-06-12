@@ -104,21 +104,37 @@ interface RawFullItem {
   urlLink: unknown;
 }
 
-function parseFullItem(raw: unknown, lang: FullLang): { abstract: string; urlLink: string; refid: number; title: string; date: string } {
+function parseFullItem(
+  raw: unknown,
+  lang: FullLang,
+): { abstract: string; urlLink: string; refid: number; title: string; date: string } {
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new Error(`slowUp full detail (${lang}) response must be a non-empty array.`);
   }
   const item = raw[0] as RawFullItem;
   const refid = typeof item.refid === "number" ? item.refid : Number(item.refid);
   if (!Number.isFinite(refid)) throw new Error(`slowUp full detail (${lang}) missing refid.`);
-  if (typeof item.title !== "string" || !item.title) throw new Error(`slowUp full detail (${lang}) missing title.`);
-  if (typeof item.date !== "string" || !item.date) throw new Error(`slowUp full detail (${lang}) missing date.`);
-  if (typeof item.abstract !== "string") throw new Error(`slowUp full detail (${lang}) missing abstract.`);
-  if (typeof item.urlLink !== "string" || !item.urlLink) throw new Error(`slowUp full detail (${lang}) missing urlLink.`);
-  return { refid, title: item.title, date: item.date, abstract: item.abstract, urlLink: item.urlLink };
+  if (typeof item.title !== "string" || !item.title)
+    throw new Error(`slowUp full detail (${lang}) missing title.`);
+  if (typeof item.date !== "string" || !item.date)
+    throw new Error(`slowUp full detail (${lang}) missing date.`);
+  if (typeof item.abstract !== "string")
+    throw new Error(`slowUp full detail (${lang}) missing abstract.`);
+  if (typeof item.urlLink !== "string" || !item.urlLink)
+    throw new Error(`slowUp full detail (${lang}) missing urlLink.`);
+  return {
+    refid,
+    title: item.title,
+    date: item.date,
+    abstract: item.abstract,
+    urlLink: item.urlLink,
+  };
 }
 
-function fetchOneLang(refid: number, lang: FullLang): Promise<{ abstract: string; urlLink: string; refid: number; title: string; date: string }> {
+function fetchOneLang(
+  refid: number,
+  lang: FullLang,
+): Promise<{ abstract: string; urlLink: string; refid: number; title: string; date: string }> {
   const url = buildSlowupDetailUrl(refid, lang);
   return new Promise((resolve, reject) => {
     GM.xmlHttpRequest({
@@ -138,7 +154,11 @@ function fetchOneLang(refid: number, lang: FullLang): Promise<{ abstract: string
         }
       },
       onerror(response) {
-        reject(new Error(`Network error fetching slowUp ${lang} for refid ${refid}: ${response.statusText || "unknown"}.`));
+        reject(
+          new Error(
+            `Network error fetching slowUp ${lang} for refid ${refid}: ${response.statusText || "unknown"}.`,
+          ),
+        );
       },
       ontimeout() {
         reject(new Error(`Timeout fetching slowUp ${lang} for refid ${refid}.`));
@@ -152,7 +172,10 @@ export async function fetchSlowupFullDetails(refid: number): Promise<SlowupFullD
 
   const urls = [fr.urlLink, en.urlLink, de.urlLink, it.urlLink];
   if (new Set(urls).size > 1) {
-    console.warn(`[slowupClient] urlLink diverges across langs for refid ${refid}; using FR.`, urls);
+    console.warn(
+      `[slowupClient] urlLink diverges across langs for refid ${refid}; using FR.`,
+      urls,
+    );
   }
 
   return {

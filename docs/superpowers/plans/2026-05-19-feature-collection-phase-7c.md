@@ -17,10 +17,12 @@
 ## File structure
 
 **Created:**
+
 - `src/lines/slowupClient.ts` — build the detail-API URL, parse the response, fetch via `GM.xmlHttpRequest`.
 - `src/__tests__/slowupClient.test.ts` — tests for the URL builder + parser.
 
 **Modified:**
+
 - `src/lines/featureCollectionLoader.ts` — `buildEntriesFromData` groups features by `slowup_number`; `buildEntryFromTrack` takes an explicit id.
 - `src/__tests__/featureCollection.test.ts` — update `buildEntryFromTrack` calls; add grouping tests.
 - `src/ui/subtabs/LinesSubTab.ts` — fire slowUp detail fetches in parallel; refresh rows on `onEntryUpdated`.
@@ -35,6 +37,7 @@
 ## Task 1: Group FeatureCollection features by `slowup_number`
 
 **Files:**
+
 - Modify: `src/lines/featureCollectionLoader.ts`
 - Test: `src/__tests__/featureCollection.test.ts`
 
@@ -45,8 +48,9 @@
 - [ ] **Step 1: Update the existing `buildEntryFromTrack` tests for the new signature**
 
 The `buildEntryFromTrack` tests live in `src/__tests__/featureCollectionLoader.test.ts` (created in Phase 7a). They call `buildEntryFromTrack(track, "https://example.com/x.json", 0)`. Change every such call to pass a precomputed id string instead of `(url, index)`:
+
 - `buildEntryFromTrack(track, "https://example.com/x.json", 0)` → `buildEntryFromTrack(track, "https://example.com/x.json#0")`
-The test asserting the id should still expect `entry.id === "https://example.com/x.json#0"` (now the id passed in). Apply the change to every `buildEntryFromTrack` call in that file. Do NOT touch `src/__tests__/featureCollection.test.ts` in this step — it only tests `buildEntriesFromData`, whose signature is unchanged.
+  The test asserting the id should still expect `entry.id === "https://example.com/x.json#0"` (now the id passed in). Apply the change to every `buildEntryFromTrack` call in that file. Do NOT touch `src/__tests__/featureCollection.test.ts` in this step — it only tests `buildEntriesFromData`, whose signature is unchanged.
 
 - [ ] **Step 2: Write the failing grouping tests**
 
@@ -66,9 +70,18 @@ describe("buildEntriesFromData — slowUp grouping", () => {
     const fc = {
       type: "FeatureCollection",
       features: [
-        slowupFeature(19, [[0, 0], [0.009, 0]]),
-        slowupFeature(19, [[1, 0], [1.009, 0]]),
-        slowupFeature(7, [[2, 0], [2.009, 0]]),
+        slowupFeature(19, [
+          [0, 0],
+          [0.009, 0],
+        ]),
+        slowupFeature(19, [
+          [1, 0],
+          [1.009, 0],
+        ]),
+        slowupFeature(7, [
+          [2, 0],
+          [2.009, 0],
+        ]),
       ],
     };
     const entries = buildEntriesFromData(fc, url);
@@ -81,8 +94,14 @@ describe("buildEntriesFromData — slowUp grouping", () => {
     const fc = {
       type: "FeatureCollection",
       features: [
-        slowupFeature(19, [[0, 0], [0.009, 0]]),
-        slowupFeature(19, [[1, 0], [1.009, 0]]),
+        slowupFeature(19, [
+          [0, 0],
+          [0.009, 0],
+        ]),
+        slowupFeature(19, [
+          [1, 0],
+          [1.009, 0],
+        ]),
       ],
     };
     const [entry] = buildEntriesFromData(fc, url);
@@ -93,7 +112,12 @@ describe("buildEntriesFromData — slowUp grouping", () => {
   it("gives merged entries a stable slowup-based id", () => {
     const fc = {
       type: "FeatureCollection",
-      features: [slowupFeature(19, [[0, 0], [0.009, 0]])],
+      features: [
+        slowupFeature(19, [
+          [0, 0],
+          [0.009, 0],
+        ]),
+      ],
     };
     expect(buildEntriesFromData(fc, url)[0].id).toBe(`${url}#slowup-19`);
   });
@@ -102,8 +126,28 @@ describe("buildEntriesFromData — slowUp grouping", () => {
     const fc = {
       type: "FeatureCollection",
       features: [
-        { type: "Feature", geometry: { type: "LineString", coordinates: [[0, 0], [0.009, 0]] }, properties: {} },
-        { type: "Feature", geometry: { type: "LineString", coordinates: [[1, 0], [1.009, 0]] }, properties: {} },
+        {
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: [
+              [0, 0],
+              [0.009, 0],
+            ],
+          },
+          properties: {},
+        },
+        {
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: [
+              [1, 0],
+              [1.009, 0],
+            ],
+          },
+          properties: {},
+        },
       ],
     };
     expect(buildEntriesFromData(fc, url)).toHaveLength(2);
@@ -113,9 +157,18 @@ describe("buildEntriesFromData — slowUp grouping", () => {
     const fc = {
       type: "FeatureCollection",
       features: [
-        slowupFeature(19, [[0, 0], [0.009, 0]]),
-        slowupFeature(7, [[1, 0], [1.009, 0]]),
-        slowupFeature(19, [[2, 0], [2.009, 0]]),
+        slowupFeature(19, [
+          [0, 0],
+          [0.009, 0],
+        ]),
+        slowupFeature(7, [
+          [1, 0],
+          [1.009, 0],
+        ]),
+        slowupFeature(19, [
+          [2, 0],
+          [2.009, 0],
+        ]),
       ],
     };
     const entries = buildEntriesFromData(fc, url);
@@ -280,6 +333,7 @@ git commit -m "feat(lines): group FeatureCollection features by slowup_number"
 ## Task 2: `slowupClient` — fetch slowUp details
 
 **Files:**
+
 - Create: `src/lines/slowupClient.ts`
 - Test: `src/__tests__/slowupClient.test.ts`
 
@@ -430,6 +484,7 @@ git commit -m "feat(lines): add slowupClient for the SchweizMobil detail API"
 ## Task 3: i18n keys for the fetch states
 
 **Files:**
+
 - Modify: `locales/en/common.json`, `locales/fr/common.json`
 
 - [ ] **Step 1: Add the keys**
@@ -459,6 +514,7 @@ git commit -m "i18n: add slowUp detail loading/error strings"
 ## Task 4: Fetch slowUp details and show them per row
 
 **Files:**
+
 - Modify: `src/ui/views/LineRowView.ts`
 - Modify: `src/ui/views/LinesListView.ts`
 - Modify: `src/ui/subtabs/LinesSubTab.ts`
@@ -560,19 +616,31 @@ export class LineRowView {
 In `src/ui/MatchPanel.ts`, inside `injectShellStyles`'s template string, after the `.wmegj-line-arrow` rule, add:
 
 ```css
-      .wmegj-line-row--loading { opacity: 0.6; cursor: default; }
-      .wmegj-line-row--loading:hover { background: transparent; }
-      .wmegj-line-warning { flex: 0 0 auto; color: #e0a800; }
-      .wmegj-spinner {
-        flex: 0 0 auto;
-        width: 14px;
-        height: 14px;
-        border: 2px solid #c7ced6;
-        border-top-color: #2c6fbb;
-        border-radius: 50%;
-        animation: wmegj-spin 0.7s linear infinite;
-      }
-      @keyframes wmegj-spin { to { transform: rotate(360deg); } }
+.wmegj-line-row--loading {
+  opacity: 0.6;
+  cursor: default;
+}
+.wmegj-line-row--loading:hover {
+  background: transparent;
+}
+.wmegj-line-warning {
+  flex: 0 0 auto;
+  color: #e0a800;
+}
+.wmegj-spinner {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #c7ced6;
+  border-top-color: #2c6fbb;
+  border-radius: 50%;
+  animation: wmegj-spin 0.7s linear infinite;
+}
+@keyframes wmegj-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 ```
 
 ### 4c. `LinesListView` — re-render rows on entry updates
@@ -584,23 +652,31 @@ In `src/ui/MatchPanel.ts`, inside `injectShellStyles`'s template string, after t
 In `src/ui/subtabs/LinesSubTab.ts`:
 
 - Add imports:
+
 ```ts
 import { i18next } from "../../../locales/i18n";
 import { fetchSlowupDetails } from "../../lines/slowupClient";
 import { computeDisplayName } from "../../lines/displayName";
 ```
+
 - Subscribe to `onEntryUpdated` (in the constructor, alongside the existing `onLinesChanged` subscription) so a resolved fetch re-renders the list. Store the extra unsubscribe handle and call it in `dispose()`:
+
 ```ts
-    this.unsubscribeEntry = deps.registry.onEntryUpdated(() => {
-      this.view.setEntries(deps.registry.getAll());
-    });
+this.unsubscribeEntry = deps.registry.onEntryUpdated(() => {
+  this.view.setEntries(deps.registry.getAll());
+});
 ```
+
 (Add a private field `private readonly unsubscribeEntry: () => void;` and `this.unsubscribeEntry();` in `dispose()`.)
+
 - After the existing `onLinesChanged` subscription, also kick off detail fetches whenever the line list changes:
+
 ```ts
-    deps.registry.onLinesChanged(() => this.fetchSlowupDetailsForLines());
+deps.registry.onLinesChanged(() => this.fetchSlowupDetailsForLines());
 ```
+
 - Add the fetch driver method:
+
 ```ts
   /**
    * For every loaded line that carries a slowUp number and has not been
@@ -656,6 +732,7 @@ git commit -m "feat(ui): fetch and show slowUp details per line"
 ## Task 5: Default the closure-window date from slowUp details
 
 **Files:**
+
 - Modify: `src/ui/subtabs/MatchingSubTab.ts`
 
 **Context:** `downloadClosuresSynthetic` opens `promptClosureWindow` with `date` defaulting to today. When the selected line is a slowUp with fetched details, default the date to the slowUp's date instead (times stay 09:00 / 17:30).
@@ -665,25 +742,25 @@ git commit -m "feat(ui): fetch and show slowUp details per line"
 In `src/ui/subtabs/MatchingSubTab.ts`, `downloadClosuresSynthetic`. It currently starts:
 
 ```ts
-    const today = new Date().toISOString().slice(0, 10);
-    const window = await promptClosureWindow({
-      date: today,
-      startTime: "09:00",
-      endTime: "17:30",
-    });
+const today = new Date().toISOString().slice(0, 10);
+const window = await promptClosureWindow({
+  date: today,
+  startTime: "09:00",
+  endTime: "17:30",
+});
 ```
 
 Replace those lines with:
 
 ```ts
-    const today = new Date().toISOString().slice(0, 10);
-    // A slowUp line carries its event date — default the closure date to it.
-    const slowupDate = this.registry.getSelected()?.slowupDetails?.date;
-    const window = await promptClosureWindow({
-      date: slowupDate ?? today,
-      startTime: "09:00",
-      endTime: "17:30",
-    });
+const today = new Date().toISOString().slice(0, 10);
+// A slowUp line carries its event date — default the closure date to it.
+const slowupDate = this.registry.getSelected()?.slowupDetails?.date;
+const window = await promptClosureWindow({
+  date: slowupDate ?? today,
+  startTime: "09:00",
+  endTime: "17:30",
+});
 ```
 
 Leave the rest of the method unchanged.
