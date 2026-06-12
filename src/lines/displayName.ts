@@ -4,6 +4,7 @@
 
 import i18next from "i18next";
 import type { SlowupDetails } from "./types";
+import { parseSlowupDateUTC } from "./slowupDate";
 
 export interface DisplayNameInput {
   lengthKm: number;
@@ -16,25 +17,16 @@ function formatSlowupDate(date: unknown): string | null {
     return null;
   }
 
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
-  if (!match) {
+  const parsed = parseSlowupDateUTC(date);
+  if (parsed === null) {
+    // Regex mismatch or impossible date — return the raw string so the
+    // caller can still display something meaningful.
     return date;
   }
 
-  const [, year, month, day] = match;
-  const parsedYear = Number.parseInt(year, 10);
-  const parsedMonth = Number.parseInt(month, 10);
-  const parsedDay = Number.parseInt(day, 10);
-  const parsedDate = new Date(Date.UTC(parsedYear, parsedMonth - 1, parsedDay));
-  const isValidDate =
-    parsedDate.getUTCFullYear() === parsedYear &&
-    parsedDate.getUTCMonth() === parsedMonth - 1 &&
-    parsedDate.getUTCDate() === parsedDay;
-
-  if (!isValidDate) {
-    return date;
-  }
-
+  const year = String(parsed.getUTCFullYear()).padStart(4, "0");
+  const month = String(parsed.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getUTCDate()).padStart(2, "0");
   return `${day}.${month}.${year}`;
 }
 

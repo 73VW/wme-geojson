@@ -163,6 +163,18 @@ export function bboxOfMultiLineString(geometry: MultiLineString): BBox | null {
 }
 
 /**
+ * Narrow the BBox of a MultiLineString to a 4-element [minX, minY, maxX, maxY] tuple.
+ * Returns `null` for empty geometry (same semantics as bboxOfMultiLineString).
+ */
+export function bbox4OfMultiLineString(
+  geometry: MultiLineString,
+): [number, number, number, number] | null {
+  const box = bboxOfMultiLineString(geometry);
+  if (!box) return null;
+  return [box[0], box[1], box[2], box[3]];
+}
+
+/**
  * Inflate a MultiLineString by `meters` and return the resulting polygon
  * Feature. Used to produce a GeoJSON polygon that hugs the track, suitable
  * for pasting into the MTE creation form (which accepts a GeoJSON polygon).

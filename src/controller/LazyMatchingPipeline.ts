@@ -2,7 +2,7 @@ import type { MultiLineString } from "geojson";
 import type { SourceStore } from "../state/SourceStore";
 import type { Line, SubLine } from "../domain/types";
 import { fitNextSubLine } from "../matching/fitNextSubLine";
-import { bboxOfMultiLineString, sliceMultiLineByDistance } from "../matching/trackPortions";
+import { bbox4OfMultiLineString, sliceMultiLineByDistance } from "../matching/trackPortions";
 
 export interface MapDriver {
   zoomToExtent(bbox: [number, number, number, number]): void;
@@ -22,6 +22,8 @@ export interface LazyMatchingPipelineOptions {
   match: MatchDriver;
   targetZoom: number;
 }
+
+const MAX_SUB_LINES_PER_LINE = 200;
 
 export class LazyMatchingPipeline {
   constructor(private readonly opts: LazyMatchingPipelineOptions) {}
@@ -101,6 +103,13 @@ export class LazyMatchingPipeline {
         return { lineIndex: li, subLineIndex: firstUnvalidated };
       }
       if (line.pendingTail.length > 0) {
+        if (line.subLines.length >= MAX_SUB_LINES_PER_LINE) {
+          console.warn(
+            `LazyMatchingPipeline: line ${li} has reached the cap of ${MAX_SUB_LINES_PER_LINE} sub-lines; abandoning remaining pendingTail`,
+          );
+          this.opts.store.clearPendingTail(li);
+          continue;
+        }
         const newSub = this.createNextSubLineFor(line);
         const remainder =
           line.pendingTail[0].kmB > newSub.kmB
@@ -135,9 +144,8 @@ export class LazyMatchingPipeline {
   }
 
   private evaluateZoomViaSdk(geom: MultiLineString): number {
-    const box = bboxOfMultiLineString(geom);
-    if (!box) throw new Error("evaluateZoomViaSdk: empty geometry");
-    const bbox: [number, number, number, number] = [box[0], box[1], box[2], box[3]];
+    const bbox = bbox4OfMultiLineString(geom);
+    if (!bbox) throw new Error("evaluateZoomViaSdk: empty geometry");
     this.opts.map.zoomToExtent(bbox);
     return this.opts.map.getZoomLevel();
   }

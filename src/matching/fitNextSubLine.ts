@@ -1,5 +1,5 @@
 import type { MultiLineString } from "geojson";
-import { bboxOfMultiLineString, multiLineLengthKm } from "./trackPortions";
+import { bbox4OfMultiLineString, multiLineLengthKm } from "./trackPortions";
 
 const VIEW_SLICE_EPSILON_KM = 0.005;
 const DEFAULT_MIN_SPAN_KM = 0.01;
@@ -42,8 +42,8 @@ export function fitNextSubLine(input: FitInput): FitResult {
   while (headGeom.coordinates.length > 0) {
     const zoom = input.evaluateZoom(headGeom);
     const headKmB = sliced ? headKmA + multiLineLengthKm(headGeom) : input.pending.kmB;
-    const box = bboxOfMultiLineString(headGeom);
-    if (!box) {
+    const box4 = bbox4OfMultiLineString(headGeom);
+    if (!box4) {
       throw new Error("fitNextSubLine: empty bbox");
     }
     const span = headKmB - headKmA;
@@ -52,7 +52,6 @@ export function fitNextSubLine(input: FitInput): FitResult {
         input.pending.kmB - headKmB > VIEW_SLICE_EPSILON_KM
           ? { kmA: headKmB, kmB: input.pending.kmB }
           : null;
-      const box4: [number, number, number, number] = [box[0], box[1], box[2], box[3]];
       return {
         accepted: {
           kmA: headKmA,

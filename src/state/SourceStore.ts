@@ -45,6 +45,13 @@ export class SourceStore {
     });
   }
 
+  /** Clear the pendingTail for a line (used when the sub-line cap is hit). */
+  clearPendingTail(lineIndex: number): void {
+    this.mutate((src) => {
+      src.lines[lineIndex].pendingTail = [];
+    });
+  }
+
   /** Drop the sub-line at (lineIndex, subLineIndex) and any later ones in that line; merge its range back into pendingTail head. */
   rerunSubLine(lineIndex: number, subLineIndex: number): void {
     this.mutate((src) => {

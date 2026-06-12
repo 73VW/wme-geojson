@@ -7,6 +7,7 @@ import { logger } from "../../utils/logger";
 import type { LineRegistry } from "../../lines/LineRegistry";
 import type { LineEntry } from "../../lines/types";
 import { fetchSlowupDetails } from "../../lines/slowupClient";
+import { parseSlowupDateUTC } from "../../lines/slowupDate";
 import { LinesListView } from "../views/LinesListView";
 
 export interface LinesSubTabDeps {
@@ -26,26 +27,8 @@ function parseSortableSlowupDate(date: string | undefined): number | null {
     return null;
   }
 
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
-  if (!match) {
-    return null;
-  }
-
-  const [, year, month, day] = match;
-  const parsedYear = Number.parseInt(year, 10);
-  const parsedMonth = Number.parseInt(month, 10);
-  const parsedDay = Number.parseInt(day, 10);
-  const parsedDate = new Date(Date.UTC(parsedYear, parsedMonth - 1, parsedDay));
-  const isValidDate =
-    parsedDate.getUTCFullYear() === parsedYear &&
-    parsedDate.getUTCMonth() === parsedMonth - 1 &&
-    parsedDate.getUTCDate() === parsedDay;
-
-  if (!isValidDate) {
-    return null;
-  }
-
-  return parsedDate.getTime();
+  const parsed = parseSlowupDateUTC(date);
+  return parsed === null ? null : parsed.getTime();
 }
 
 function sortSlowupEntries(entries: readonly LineEntry[]): LineEntry[] {

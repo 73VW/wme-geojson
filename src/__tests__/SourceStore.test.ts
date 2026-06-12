@@ -103,6 +103,17 @@ describe("SourceStore", () => {
     store.validateSubLine(0, 0, [1]);
     expect(seen.length).toBe(3);
   });
+
+  it("clearPendingTail empties pendingTail and emits onChange", () => {
+    const store = new SourceStore();
+    const seen: number[] = [];
+    store.hydrate(srcWithOneLine());
+    store.onChange(() => seen.push(seen.length));
+    expect(store.getSource()!.lines[0].pendingTail).toHaveLength(1);
+    store.clearPendingTail(0);
+    expect(store.getSource()!.lines[0].pendingTail).toHaveLength(0);
+    expect(seen.length).toBe(1);
+  });
 });
 
 describe("attachPersistence", () => {

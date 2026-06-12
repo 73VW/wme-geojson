@@ -1,7 +1,7 @@
 import type { NormalizedTrack } from "../geojson/types";
 import type { CsvRow } from "../csv/types";
 import {
-  bboxOfMultiLineString,
+  bbox4OfMultiLineString,
   computeMatchingWorkItems,
   multiLineLengthKm,
   sliceMultiLineByDistance,
@@ -15,20 +15,12 @@ export interface BuildGeojsonSourceInput {
   onWarning?: (message: string) => void;
 }
 
-function bbox4(
-  geometry: import("geojson").MultiLineString,
-): [number, number, number, number] | null {
-  const box = bboxOfMultiLineString(geometry);
-  if (!box) return null;
-  return [box[0], box[1], box[2], box[3]];
-}
-
 export function buildGeojsonSource(input: BuildGeojsonSourceInput): Source {
   const fullLengthKm = multiLineLengthKm(input.track.geometry);
   const lines: Line[] = [];
 
   if (!input.csvRows || input.csvRows.length === 0) {
-    const bbox = bbox4(input.track.geometry);
+    const bbox = bbox4OfMultiLineString(input.track.geometry);
     if (!bbox) throw new Error("buildGeojsonSource: empty bbox");
     lines.push({
       index: 0,
@@ -51,7 +43,7 @@ export function buildGeojsonSource(input: BuildGeojsonSourceInput): Source {
   const workItems = computeMatchingWorkItems(input.csvRows, fullLengthKm);
   workItems.forEach((item, idx) => {
     const geom = sliceMultiLineByDistance(input.track.geometry, item.kmA, item.kmB);
-    const bbox = bbox4(geom);
+    const bbox = bbox4OfMultiLineString(geom);
     if (!bbox) {
       input.onWarning?.(
         `CSV row ${item.rowIndex} skipped: degenerate portion (km ${item.kmA}–${item.kmB})`,
