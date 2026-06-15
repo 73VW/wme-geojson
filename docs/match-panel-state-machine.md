@@ -154,3 +154,11 @@ Pour une vraie SM avec visualisation, `xstate` reste l'option de référence. Av
 ## Reco
 
 Faire l'étape 1 dès qu'on touche encore au panneau. Étape 2 si on ajoute deux nouveaux états (par ex. revue post-done, mode lecture seule). Étapes 3-4 hors-scope tant qu'on n'a pas plusieurs consommateurs du pipeline.
+
+## Statut (2026-06-15)
+
+Étapes 1+2 implémentées dans `MatchingSubTab` via `src/ui/matchingUiState.ts`
+(reducer pur + table de visibilité + `dispatch`). États : idle, stepping,
+waiting, bursting, pausePending, paused, error, done. Étapes 3 (pipeline
+`getState()`) et 4 (XState) restent hors-scope. La machine de _progression_
+vit dans `SourceStore` (Source.cursor/validated/pendingTail), pas ici.
