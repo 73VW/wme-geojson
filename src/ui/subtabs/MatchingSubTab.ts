@@ -39,6 +39,14 @@ import { closuresFromSource, type GlobalClosureGroup } from "../../csv/closuresF
 import { waitForMapIdle } from "../../utils/waitForMapIdle";
 import { openMtePreparePopup } from "../MtePreparePopup";
 import { createMteSdk } from "../../mte";
+import {
+  controlsFor,
+  reduceMatchingUi,
+  statusKeyFor,
+  type ButtonView,
+  type MatchingUiEvent,
+  type MatchingUiState,
+} from "../matchingUiState";
 
 const TARGET_ZOOM = 16;
 const MAX_CLOSURE_SEGMENTS_PER_ROW = 10;
@@ -109,11 +117,8 @@ export class MatchingSubTab {
   private readonly persistence = new SourcePersistence();
   private detachPersistence: (() => void) | null = null;
   private lazyPipeline: LazyMatchingPipeline | null = null;
-  // True while the pipeline is mid-step (centering / matching) — disables the
-  // guided controls so the operator cannot fire overlapping steps.
-  private guidedBusy = false;
-  // True once a Source has been started (matching kicked off at least once).
-  private matchingActive = false;
+  private uiState: MatchingUiState = { kind: "idle" };
+  private guidedRetryBtn: HTMLElement | null = null;
 
   // Guided sub-panel text elements
   private guidedRowHeaderEl: HTMLElement | null = null;
@@ -137,11 +142,6 @@ export class MatchingSubTab {
   private matchingPanelOpen = false;
   private guidedCollapsed = false;
 
-  // Burst mode: when running, sub-lines are auto-validated in a loop until the
-  // source is complete or the operator pauses.
-  private matchingMode: "interactive" | "burst" = "interactive";
-  private burstPaused = false;
-  private burstRunning = false;
   private guidedStartBurstBtn: HTMLElement | null = null;
   private guidedPauseBtn: HTMLElement | null = null;
   private guidedResumeBtn: HTMLElement | null = null;
@@ -253,7 +253,6 @@ export class MatchingSubTab {
 
     this.attachedLineId = entry.id;
     this.headerView?.setTitle(entry.displayName);
-    this.matchingActive = false;
     this.matchingPanelOpen = false;
 
     try {
@@ -297,10 +296,8 @@ export class MatchingSubTab {
     this.setTrackLayer(layer);
 
     this.lazyPipeline = null;
-    this.matchingMode = "interactive";
-    this.burstRunning = false;
-    this.burstPaused = false;
     this.sourceStore.hydrate(source);
+    this.dispatch({ type: "SOURCE_CHANGED" });
     this.detachPersistence?.();
     this.detachPersistence = attachPersistence(this.sourceStore, this.persistence);
 
@@ -425,6 +422,7 @@ export class MatchingSubTab {
     this.guidedStartBurstBtn = null;
     this.guidedPauseBtn = null;
     this.guidedResumeBtn = null;
+    this.guidedRetryBtn = null;
     this.guidedTabMatchEl = null;
     this.guidedTabDebugEl = null;
     this.guidedMatchPaneEl = null;
@@ -617,9 +615,6 @@ export class MatchingSubTab {
   ): void {
     this.persistence.clear(sourceId);
     this.lazyPipeline = null;
-    this.matchingActive = false;
-    this.burstRunning = false;
-    this.burstPaused = false;
     const source = buildGeojsonSource({
       sourceId,
       track,
@@ -627,6 +622,7 @@ export class MatchingSubTab {
       onWarning: (message) => this.reportCsvWarning(message),
     });
     this.sourceStore.hydrate(source);
+    this.dispatch({ type: "SOURCE_CHANGED" });
     this.store.setPhase("csv-loaded");
     this.hideResumeBanner();
     this.resetGuidedSessionState({ closePanel: true });
@@ -851,8 +847,7 @@ export class MatchingSubTab {
       text: i18next.t("panel.matching.pause"),
       variant: "secondary",
       onClick: () => {
-        this.burstPaused = true;
-        this.updateGuidedControls();
+        this.dispatch({ type: "PAUSE_REQUESTED" });
       },
     });
     this.guidedPauseBtn.classList.add("wmegj-guided-button--pause");
@@ -864,6 +859,14 @@ export class MatchingSubTab {
       },
     });
     this.guidedResumeBtn.classList.add("wmegj-guided-button--resume");
+    this.guidedRetryBtn = this.appendGuidedButton(matchActions, {
+      text: i18next.t("panel.matching.retry"),
+      variant: "primary",
+      onClick: () => {
+        void this.onRetryClick();
+      },
+    });
+    this.guidedRetryBtn.classList.add("wmegj-guided-button--retry");
     this.guidedDoneCloseBtn = this.appendGuidedButton(matchActions, {
       text: i18next.t("panel.matching.closePanel"),
       variant: "primary",
@@ -1104,28 +1107,24 @@ export class MatchingSubTab {
   }
 
   private setGuidedLoading(isLoading: boolean, message?: string): void {
-    this.guidedBusy = isLoading;
     if (!this.guidedLoaderEl) return;
     if (message && this.guidedLoaderTextEl) {
       this.guidedLoaderTextEl.textContent = message;
     }
     this.guidedLoaderEl.style.display = isLoading ? "flex" : "none";
-    this.updateGuidedControls();
   }
 
   private closeMatchingPanel(): void {
+    this.dispatch({ type: "CLOSE_DONE" });
     this.matchingPanelOpen = false;
     this.renderPhase(this.store.getState().phase);
   }
 
   private resetGuidedSessionState(options: { closePanel?: boolean } = {}): void {
+    this.uiState = { kind: "idle" };
     if (options.closePanel) {
       this.matchingPanelOpen = false;
     }
-    this.guidedBusy = false;
-    this.burstRunning = false;
-    this.burstPaused = false;
-    this.matchingMode = "interactive";
     this.trackLayer?.setHighlightedSlice(null);
     this.setGuidedLoading(false);
 
@@ -1212,134 +1211,131 @@ export class MatchingSubTab {
   }
 
   private async onStartMatchingClick(): Promise<void> {
-    if (this.guidedBusy) return;
+    if (this.uiState.kind !== "idle") return;
     const pipeline = this.ensurePipeline();
     if (!pipeline) return;
-    this.matchingMode = "interactive";
-    this.matchingActive = true;
     this.matchingPanelOpen = true;
     this.store.setPhase("matching");
     if (this.guidedInstructionEl) {
       this.guidedInstructionEl.textContent = i18next.t("panel.matching.validateOrCorrect");
     }
+    this.dispatch({ type: "START_INTERACTIVE" });
     await this.runStep(() => pipeline.stepUntilValidation());
   }
 
   /** Burst: auto-step + auto-validate until complete or paused. */
   private async onStartBurstClick(): Promise<void> {
-    if (this.guidedBusy || this.burstRunning) return;
+    if (this.uiState.kind !== "idle") return;
     const pipeline = this.ensurePipeline();
     if (!pipeline) return;
-    this.matchingMode = "burst";
-    this.matchingActive = true;
     this.matchingPanelOpen = true;
-    this.burstPaused = false;
     this.store.setPhase("matching");
     if (this.guidedInstructionEl) {
       this.guidedInstructionEl.textContent = i18next.t("panel.matching.burstRunning");
     }
+    this.dispatch({ type: "START_BURST" });
     await this.runBurstLoop(pipeline);
   }
 
   /** Resume a paused burst run from the current cursor. */
   private async onResumeBurstClick(): Promise<void> {
-    if (this.guidedBusy || this.burstRunning) return;
+    if (this.uiState.kind !== "paused") return;
     const pipeline = this.lazyPipeline;
     if (!pipeline) return;
-    this.matchingMode = "burst";
-    this.matchingActive = true;
-    this.burstPaused = false;
     this.store.setPhase("matching");
+    this.dispatch({ type: "RESUME_BURST" });
     await this.runBurstLoop(pipeline);
   }
 
   /**
-   * Repeatedly step to the next unvalidated sub-line and auto-validate it
-   * (no override → pipeline uses its pendingMatched) until the source is
-   * complete or the operator pauses.
+   * Step + auto-validate while the machine stays in `bursting`. Pause, error,
+   * completion and source switches all leave that state, which exits the loop —
+   * no boolean loop flags.
    */
   private async runBurstLoop(pipeline: LazyMatchingPipeline): Promise<void> {
-    this.burstRunning = true;
-    this.updateGuidedControls();
-    try {
-      while (!this.burstPaused && !this.isSourceComplete()) {
-        await this.runStep(() => pipeline.stepUntilValidation());
-        if (this.burstPaused || this.isSourceComplete()) break;
-        // Validate the current sub-line only if it is awaiting validation;
-        // otherwise the step produced nothing — avoid an infinite loop.
-        const src = this.sourceStore.getSource();
-        const cursor = src?.cursor;
-        const sub =
-          cursor && src ? src.lines[cursor.lineIndex]?.subLines[cursor.subLineIndex] : undefined;
-        if (!sub || sub.validated) break;
-        pipeline.validate();
+    // Capture in a local on each iteration to avoid TypeScript's control-flow
+    // narrowing locking the type to `{ kind: "bursting" }` inside the loop.
+    while ((this.uiState as MatchingUiState).kind === "bursting") {
+      await this.runStep(() => pipeline.stepUntilValidation());
+      const afterStep = (this.uiState as MatchingUiState).kind;
+      if (afterStep !== "bursting" && afterStep !== "pausePending") return;
+      const src = this.sourceStore.getSource();
+      const cursor = src?.cursor;
+      const sub =
+        cursor && src ? src.lines[cursor.lineIndex]?.subLines[cursor.subLineIndex] : undefined;
+      if (!sub || sub.validated) {
+        this.dispatch({ type: "STEP_FAILED", message: i18next.t("panel.matching.burstStalled") });
+        return;
       }
-    } finally {
-      this.burstRunning = false;
-      this.updateGuidedControls();
+      pipeline.validate();
+      if ((this.uiState as MatchingUiState).kind === "pausePending") {
+        this.dispatch({ type: "PAUSE_REACHED" });
+        return;
+      }
     }
   }
 
   private async onValidateClick(): Promise<void> {
-    if (this.guidedBusy) return;
+    if (this.uiState.kind !== "waiting") return;
     const pipeline = this.lazyPipeline;
     if (!pipeline) return;
-    const ids = resolveValidationIds(this.readSelectionSegmentIds());
-    pipeline.validate(ids);
+    pipeline.validate(resolveValidationIds(this.readSelectionSegmentIds()));
+    this.dispatch({ type: "STEP_STARTED" });
     await this.runStep(() => pipeline.stepUntilValidation());
   }
 
   private async onSkipMatchingClick(): Promise<void> {
-    if (this.guidedBusy) return;
+    if (this.uiState.kind !== "waiting") return;
     const pipeline = this.lazyPipeline;
     if (!pipeline) return;
     pipeline.validate([]);
+    this.dispatch({ type: "STEP_STARTED" });
     await this.runStep(() => pipeline.stepUntilValidation());
   }
 
   private async onBackMatchingClick(): Promise<void> {
-    if (this.guidedBusy) return;
+    if (this.uiState.kind !== "waiting") return;
     const pipeline = this.lazyPipeline;
     if (!pipeline) return;
     pipeline.back();
+    this.dispatch({ type: "STEP_STARTED" });
     await this.runStep(() => pipeline.stepUntilValidation());
   }
 
   private async onRerunCurrentRowClick(): Promise<void> {
-    if (this.guidedBusy) return;
+    if (this.uiState.kind !== "waiting") return;
     const pipeline = this.lazyPipeline;
     if (!pipeline) return;
     pipeline.rerunCurrent();
+    this.dispatch({ type: "STEP_STARTED" });
     await this.runStep(() => pipeline.stepUntilValidation());
   }
 
-  /** Run a pipeline step, surfacing the spinner and completion state. */
+  /** Run a pipeline step; outcome transitions (ready/failed/completed) go through dispatch. */
   private async runStep(step: () => Promise<void>): Promise<void> {
     this.setGuidedLoading(true, i18next.t("panel.matching.matchingInProgress"));
     try {
       await step();
     } catch (err) {
       logger.error("MatchingSubTab.runStep: pipeline step failed", err);
+      this.dispatch({
+        type: "STEP_FAILED",
+        message: err instanceof Error ? err.message : String(err),
+      });
+      return;
     } finally {
       this.setGuidedLoading(false);
     }
     if (this.isSourceComplete()) {
-      this.matchingActive = false;
-      this.store.setPhase("done");
-      const segments = this.countMatchedSegments();
-      if (this.guidedSegmentCountEl) {
-        this.guidedSegmentCountEl.textContent = i18next.t("panel.matching.steps.completedSummary", {
-          rowsValidated: this.countValidatedSubLines(),
-          totalSegments: segments,
-        });
-      }
-      this.trackLayer?.setHighlightedSlice(null);
-    } else {
-      // Refresh header/overlay/segment-count now that the step has set
-      // pendingMatched (the addSubLine onChange fired before the match ran).
-      this.renderSourceState();
+      this.dispatch({
+        type: "COMPLETED",
+        rowsValidated: this.countValidatedSubLines(),
+        totalSegments: this.countMatchedSegments(),
+      });
+      return;
     }
-    this.updateGuidedControls();
+    this.renderSourceState();
+    this.dispatch({ type: "STEP_READY" }); // no-op while bursting (no gate in burst mode)
   }
 
   /** Read the live WME segment selection. */
@@ -1420,16 +1416,20 @@ export class MatchingSubTab {
     })
       .then((confirmed) => {
         if (!confirmed) return;
+        // Belt-and-braces: button is disabled in these states but guard anyway.
+        if (
+          this.uiState.kind === "stepping" ||
+          this.uiState.kind === "bursting" ||
+          this.uiState.kind === "pausePending"
+        ) return;
         const entry = this.registry.getSelected();
         if (!entry) return;
         this.persistence.clear(entry.id);
         this.lazyPipeline = null;
-        this.matchingActive = false;
-        this.matchingMode = "interactive";
-        this.burstRunning = false;
-        this.burstPaused = false;
+        this.dispatch({ type: "RESTART" });
         const fresh = this.buildSourceForEntry(entry);
         this.sourceStore.hydrate(fresh);
+        this.dispatch({ type: "SOURCE_CHANGED" });
         this.store.setPhase("csv-loaded");
         this.resetGuidedSessionState();
         this.renderSourceState();
@@ -1439,49 +1439,79 @@ export class MatchingSubTab {
       });
   }
 
-  private updateGuidedControls(): void {
-    const phase = this.store.getState().phase;
-    const hasSource = this.sourceStore.getSource() !== null;
-    const isDone = phase === "done";
-    const isMatching = this.matchingActive && !isDone;
-    const isBurst = this.matchingMode === "burst";
-    const isInteractive = !isBurst;
-    // Interactive per-sub-line controls are only live while waiting (not busy).
-    const isWaiting = isMatching && isInteractive && !this.guidedBusy;
-    const canStart = hasSource && !this.matchingActive && !isDone && !this.guidedBusy;
+  private dispatch(event: MatchingUiEvent): void {
+    const prev = this.uiState;
+    const next = reduceMatchingUi(prev, event);
+    if (next === prev) return;
+    this.uiState = next;
+    this.applyTransitionEffects(prev, next);
+    this.updateGuidedControls();
+  }
 
-    // Burst sub-states.
-    const burstActive = isMatching && isBurst;
-    const showPause = burstActive && this.burstRunning && !this.burstPaused;
-    const showResume = burstActive && !this.burstRunning && this.burstPaused;
-
-    this.setButtonDisabled(this.guidedStartBtn, !canStart);
-    this.setButtonDisabled(this.guidedStartBurstBtn, !canStart);
-    this.setButtonDisabled(this.guidedValidateBtn, !isWaiting);
-    this.setButtonDisabled(this.guidedSkipBtn, !isWaiting);
-    this.setButtonDisabled(this.guidedBackBtn, !isWaiting);
-    this.setButtonDisabled(this.guidedReselectBtn, !isWaiting);
-    this.setButtonDisabled(this.guidedRerunBtn, !isWaiting);
-    this.setButtonDisabled(this.guidedPauseBtn, !showPause);
-    this.setButtonDisabled(this.guidedResumeBtn, !showResume);
-    this.setButtonDisabled(this.guidedRestartBtn, !hasSource);
-
-    this.setButtonVisible(this.guidedStartBtn, canStart);
-    this.setButtonVisible(this.guidedStartBurstBtn, canStart);
-    this.setButtonVisible(this.guidedValidateBtn, isMatching && isInteractive);
-    this.setButtonVisible(this.guidedSkipBtn, isMatching && isInteractive);
-    this.setButtonVisible(this.guidedBackBtn, isMatching && isInteractive);
-    this.setButtonVisible(this.guidedReselectBtn, isMatching && isInteractive);
-    this.setButtonVisible(this.guidedRerunBtn, isMatching && isInteractive);
-    this.setButtonVisible(this.guidedPauseBtn, showPause);
-    this.setButtonVisible(this.guidedResumeBtn, showResume);
-    this.setButtonVisible(this.guidedDoneCloseBtn, isDone);
-    this.setButtonVisible(this.guidedRestartBtn, hasSource && !isDone);
-
-    if (this.guidedStatusEl) {
-      const key = this.guidedBusy ? "running" : isMatching ? "waiting" : isDone ? "done" : "ready";
-      this.guidedStatusEl.textContent = i18next.t(`panel.matching.panelStatus.${key}`);
+  /** Side effects owned by transitions — the single place set-state-then-act is ordered. */
+  private applyTransitionEffects(prev: MatchingUiState, next: MatchingUiState): void {
+    if (next.kind === "done" && prev.kind !== "done") {
+      this.store.setPhase("done");
+      if (this.guidedSegmentCountEl) {
+        this.guidedSegmentCountEl.textContent = i18next.t("panel.matching.steps.completedSummary", {
+          rowsValidated: next.rowsValidated,
+          totalSegments: next.totalSegments,
+        });
+      }
+      this.trackLayer?.setHighlightedSlice(null);
+      // Review finding #6: return the operator to a clean map view.
+      try {
+        this.wmeSDK.Editing.setSelection({ selection: { ids: [], objectType: "segment" } });
+      } catch (err) {
+        logger.warn("MatchingSubTab: clearing selection on done failed", err);
+      }
     }
+    if (next.kind === "error" && this.guidedInstructionEl) {
+      // Review finding #5: surface step failures to the operator.
+      this.guidedInstructionEl.textContent = i18next.t("panel.matching.stepError", {
+        message: next.message,
+      });
+    }
+  }
+
+  private async onRetryClick(): Promise<void> {
+    if (this.uiState.kind !== "error") return;
+    const pipeline = this.lazyPipeline;
+    if (!pipeline) return;
+    const mode = this.uiState.resumeMode;
+    this.dispatch({ type: "RETRY" });
+    if (mode === "burst") {
+      await this.runBurstLoop(pipeline);
+    } else {
+      await this.runStep(() => pipeline.stepUntilValidation());
+    }
+  }
+
+  private updateGuidedControls(): void {
+    const hasSource = this.sourceStore.getSource() !== null;
+    const c = controlsFor(this.uiState, hasSource);
+    this.applyButtonView(this.guidedStartBtn, c.start);
+    this.applyButtonView(this.guidedStartBurstBtn, c.startBurst);
+    this.applyButtonView(this.guidedValidateBtn, c.validate);
+    this.applyButtonView(this.guidedSkipBtn, c.skip);
+    this.applyButtonView(this.guidedBackBtn, c.back);
+    this.applyButtonView(this.guidedReselectBtn, c.reselect);
+    this.applyButtonView(this.guidedRerunBtn, c.rerun);
+    this.applyButtonView(this.guidedPauseBtn, c.pause);
+    this.applyButtonView(this.guidedResumeBtn, c.resume);
+    this.applyButtonView(this.guidedRetryBtn, c.retry);
+    this.applyButtonView(this.guidedDoneCloseBtn, c.doneClose);
+    this.applyButtonView(this.guidedRestartBtn, c.restart);
+    if (this.guidedStatusEl) {
+      this.guidedStatusEl.textContent = i18next.t(
+        `panel.matching.panelStatus.${statusKeyFor(this.uiState)}`,
+      );
+    }
+  }
+
+  private applyButtonView(button: HTMLElement | null, view: ButtonView): void {
+    this.setButtonVisible(button, view.visible);
+    this.setButtonDisabled(button, !view.enabled);
   }
 
   private setButtonDisabled(button: HTMLElement | null, disabled: boolean): void {
