@@ -1117,12 +1117,17 @@ export class MatchingSubTab {
   }
 
   private closeMatchingPanel(): void {
+    const wasDone = this.uiState.kind === "done";
     this.dispatch({ type: "CLOSE_DONE" });
     this.matchingPanelOpen = false;
+    if (wasDone) {
+      this.store.setPhase("csv-loaded");
+    }
     this.renderPhase(this.store.getState().phase);
   }
 
   private resetGuidedSessionState(options: { closePanel?: boolean } = {}): void {
+    // Direct write (not dispatch) because this resets all derived UI too via the callers.
     this.uiState = { kind: "idle" };
     if (options.closePanel) {
       this.matchingPanelOpen = false;
@@ -1269,7 +1274,16 @@ export class MatchingSubTab {
         this.dispatch({ type: "STEP_FAILED", message: i18next.t("panel.matching.burstStalled") });
         return;
       }
-      pipeline.validate();
+      try {
+        pipeline.validate();
+      } catch (err) {
+        logger.error("MatchingSubTab.runBurstLoop: validate failed", err);
+        this.dispatch({
+          type: "STEP_FAILED",
+          message: err instanceof Error ? err.message : String(err),
+        });
+        return;
+      }
       if ((this.uiState as MatchingUiState).kind === "pausePending") {
         this.dispatch({ type: "PAUSE_REACHED" });
         return;
