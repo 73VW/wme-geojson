@@ -85,6 +85,7 @@ export function reduceMatchingUi(state: MatchingUiState, event: MatchingUiEvent)
 
 export interface ButtonView {
   visible: boolean;
+  /** Only meaningful when visible is true. */
   enabled: boolean;
 }
 
@@ -127,6 +128,8 @@ export function controlsFor(state: MatchingUiState, hasSource: boolean): Matchin
   switch (state.kind) {
     case "idle":
       if (!hasSource) return ALL_HIDDEN;
+      // Restart is shown in idle because it re-hydrates the source from scratch —
+      // useful after a partial session or a source change.
       return { ...ALL_HIDDEN, start: SHOWN, startBurst: SHOWN, restart: SHOWN };
     case "stepping":
       return {

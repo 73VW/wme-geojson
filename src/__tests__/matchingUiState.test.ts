@@ -120,6 +120,7 @@ describe("controlsFor", () => {
       expect(c[key]).toEqual({ visible: true, enabled: true });
     }
     expect(c.start.visible).toBe(false);
+    expect(c.restart).toEqual({ visible: true, enabled: true });
   });
   it("stepping shows the per-sub-line controls disabled", () => {
     const c = controlsFor({ kind: "stepping" }, true);
@@ -163,13 +164,13 @@ describe("controlsFor", () => {
 
 describe("statusKeyFor", () => {
   it("maps every state to a panelStatus i18n key", () => {
-    expect(statusKeyFor({ kind: "idle" })).toBe("ready");
-    expect(statusKeyFor({ kind: "stepping" })).toBe("running");
-    expect(statusKeyFor({ kind: "bursting" })).toBe("running");
-    expect(statusKeyFor({ kind: "waiting" })).toBe("waiting");
-    expect(statusKeyFor({ kind: "pausePending" })).toBe("paused");
-    expect(statusKeyFor({ kind: "paused" })).toBe("paused");
-    expect(statusKeyFor({ kind: "error", message: "x", resumeMode: "burst" })).toBe("error");
-    expect(statusKeyFor({ kind: "done", rowsValidated: 1, totalSegments: 2 })).toBe("done");
+    expect(statusKeyFor(idle)).toBe("ready");
+    expect(statusKeyFor(stepping)).toBe("running");
+    expect(statusKeyFor(bursting)).toBe("running");
+    expect(statusKeyFor(waiting)).toBe("waiting");
+    expect(statusKeyFor(pausePending)).toBe("paused");
+    expect(statusKeyFor(paused)).toBe("paused");
+    expect(statusKeyFor(errBurst)).toBe("error");
+    expect(statusKeyFor(done)).toBe("done");
   });
 });
