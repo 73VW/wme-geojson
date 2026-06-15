@@ -130,8 +130,12 @@
         "running": "Matching in progress",
         "waiting": "Waiting for validation",
         "paused": "Paused",
+        "error": "Error",
         "done": "Done"
       },
+      "retry": "Retry",
+      "stepError": "Matching step failed: {{message}}",
+      "burstStalled": "Automatic matching stalled: the last step produced no sub-line to validate.",
       "mode": {
         "idle": "Not started",
         "interactive": "Manual mode",

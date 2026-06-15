@@ -130,8 +130,12 @@
         "running": "Matching en cours",
         "waiting": "En attente de validation",
         "paused": "En pause",
+        "error": "Erreur",
         "done": "Terminé"
       },
+      "retry": "Réessayer",
+      "stepError": "Échec de l'étape de matching : {{message}}",
+      "burstStalled": "Le matching automatique s'est arrêté : la dernière étape n'a produit aucune sous-ligne à valider.",
       "mode": {
         "idle": "Mode non démarré",
         "interactive": "Mode manuel",
