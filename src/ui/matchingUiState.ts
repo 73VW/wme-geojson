@@ -82,3 +82,102 @@ export function reduceMatchingUi(state: MatchingUiState, event: MatchingUiEvent)
       return state.kind === "done" ? { kind: "idle" } : state;
   }
 }
+
+export interface ButtonView {
+  visible: boolean;
+  enabled: boolean;
+}
+
+export interface MatchingControlsView {
+  start: ButtonView;
+  startBurst: ButtonView;
+  validate: ButtonView;
+  skip: ButtonView;
+  back: ButtonView;
+  reselect: ButtonView;
+  rerun: ButtonView;
+  pause: ButtonView;
+  resume: ButtonView;
+  retry: ButtonView;
+  doneClose: ButtonView;
+  restart: ButtonView;
+}
+
+const HIDDEN: ButtonView = { visible: false, enabled: false };
+const SHOWN: ButtonView = { visible: true, enabled: true };
+const SHOWN_DISABLED: ButtonView = { visible: true, enabled: false };
+
+const ALL_HIDDEN: MatchingControlsView = {
+  start: HIDDEN,
+  startBurst: HIDDEN,
+  validate: HIDDEN,
+  skip: HIDDEN,
+  back: HIDDEN,
+  reselect: HIDDEN,
+  rerun: HIDDEN,
+  pause: HIDDEN,
+  resume: HIDDEN,
+  retry: HIDDEN,
+  doneClose: HIDDEN,
+  restart: HIDDEN,
+};
+
+/** One row per state — the whole "which button when" question, in one place. */
+export function controlsFor(state: MatchingUiState, hasSource: boolean): MatchingControlsView {
+  switch (state.kind) {
+    case "idle":
+      if (!hasSource) return ALL_HIDDEN;
+      return { ...ALL_HIDDEN, start: SHOWN, startBurst: SHOWN, restart: SHOWN };
+    case "stepping":
+      return {
+        ...ALL_HIDDEN,
+        validate: SHOWN_DISABLED,
+        skip: SHOWN_DISABLED,
+        back: SHOWN_DISABLED,
+        reselect: SHOWN_DISABLED,
+        rerun: SHOWN_DISABLED,
+        restart: SHOWN_DISABLED,
+      };
+    case "waiting":
+      return {
+        ...ALL_HIDDEN,
+        validate: SHOWN,
+        skip: SHOWN,
+        back: SHOWN,
+        reselect: SHOWN,
+        rerun: SHOWN,
+        restart: SHOWN,
+      };
+    case "bursting":
+      return { ...ALL_HIDDEN, pause: SHOWN, restart: SHOWN_DISABLED };
+    case "pausePending":
+      return { ...ALL_HIDDEN, pause: SHOWN_DISABLED, restart: SHOWN_DISABLED };
+    case "paused":
+      return { ...ALL_HIDDEN, resume: SHOWN, restart: SHOWN };
+    case "error":
+      return { ...ALL_HIDDEN, retry: SHOWN, restart: SHOWN };
+    case "done":
+      return { ...ALL_HIDDEN, doneClose: SHOWN };
+  }
+}
+
+export type PanelStatusKey = "ready" | "running" | "waiting" | "paused" | "error" | "done";
+
+export function statusKeyFor(state: MatchingUiState): PanelStatusKey {
+  switch (state.kind) {
+    case "idle":
+      return "ready";
+    case "stepping":
+    case "bursting":
+      return "running";
+    case "waiting":
+      return "waiting";
+    case "pausePending":
+    case "paused":
+      return "paused";
+    case "error":
+      return "error";
+    case "done":
+      return "done";
+  }
+}

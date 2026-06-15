@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { reduceMatchingUi, type MatchingUiState } from "../ui/matchingUiState";
+import { reduceMatchingUi, type MatchingUiState, controlsFor, statusKeyFor } from "../ui/matchingUiState";
 
 const idle: MatchingUiState = { kind: "idle" };
 const stepping: MatchingUiState = { kind: "stepping" };
@@ -97,5 +97,79 @@ describe("reduceMatchingUi — completion, restart, source change", () => {
     for (const s of [idle, stepping, waiting, bursting, pausePending, paused, errBurst, done]) {
       expect(reduceMatchingUi(s, { type: "SOURCE_CHANGED" })).toEqual(idle);
     }
+  });
+});
+
+describe("controlsFor", () => {
+  it("idle with a source shows Start, Start burst and Restart only", () => {
+    const c = controlsFor({ kind: "idle" }, true);
+    expect(c.start).toEqual({ visible: true, enabled: true });
+    expect(c.startBurst).toEqual({ visible: true, enabled: true });
+    expect(c.restart).toEqual({ visible: true, enabled: true });
+    expect(c.validate.visible).toBe(false);
+    expect(c.pause.visible).toBe(false);
+    expect(c.doneClose.visible).toBe(false);
+  });
+  it("idle without a source hides everything", () => {
+    const c = controlsFor({ kind: "idle" }, false);
+    for (const v of Object.values(c)) expect(v.visible).toBe(false);
+  });
+  it("waiting enables the per-sub-line controls", () => {
+    const c = controlsFor({ kind: "waiting" }, true);
+    for (const key of ["validate", "skip", "back", "reselect", "rerun"] as const) {
+      expect(c[key]).toEqual({ visible: true, enabled: true });
+    }
+    expect(c.start.visible).toBe(false);
+  });
+  it("stepping shows the per-sub-line controls disabled", () => {
+    const c = controlsFor({ kind: "stepping" }, true);
+    for (const key of ["validate", "skip", "back", "reselect", "rerun"] as const) {
+      expect(c[key]).toEqual({ visible: true, enabled: false });
+    }
+  });
+  it("bursting shows an enabled Pause; pausePending shows it DISABLED (feedback gap fix)", () => {
+    expect(controlsFor({ kind: "bursting" }, true).pause).toEqual({
+      visible: true,
+      enabled: true,
+    });
+    expect(controlsFor({ kind: "pausePending" }, true).pause).toEqual({
+      visible: true,
+      enabled: false,
+    });
+    expect(controlsFor({ kind: "pausePending" }, true).resume.visible).toBe(false);
+  });
+  it("paused shows Resume and Restart", () => {
+    const c = controlsFor({ kind: "paused" }, true);
+    expect(c.resume).toEqual({ visible: true, enabled: true });
+    expect(c.restart).toEqual({ visible: true, enabled: true });
+    expect(c.pause.visible).toBe(false);
+  });
+  it("error shows Retry and Restart", () => {
+    const c = controlsFor({ kind: "error", message: "x", resumeMode: "burst" }, true);
+    expect(c.retry).toEqual({ visible: true, enabled: true });
+    expect(c.restart).toEqual({ visible: true, enabled: true });
+  });
+  it("done shows only Close", () => {
+    const c = controlsFor({ kind: "done", rowsValidated: 1, totalSegments: 2 }, true);
+    expect(c.doneClose).toEqual({ visible: true, enabled: true });
+    expect(c.restart.visible).toBe(false);
+  });
+  it("restart is visible but disabled while a loop or step runs (race guard echo)", () => {
+    for (const kind of ["stepping", "bursting", "pausePending"] as const) {
+      expect(controlsFor({ kind }, true).restart).toEqual({ visible: true, enabled: false });
+    }
+  });
+});
+
+describe("statusKeyFor", () => {
+  it("maps every state to a panelStatus i18n key", () => {
+    expect(statusKeyFor({ kind: "idle" })).toBe("ready");
+    expect(statusKeyFor({ kind: "stepping" })).toBe("running");
+    expect(statusKeyFor({ kind: "bursting" })).toBe("running");
+    expect(statusKeyFor({ kind: "waiting" })).toBe("waiting");
+    expect(statusKeyFor({ kind: "pausePending" })).toBe("paused");
+    expect(statusKeyFor({ kind: "paused" })).toBe("paused");
+    expect(statusKeyFor({ kind: "error", message: "x", resumeMode: "burst" })).toBe("error");
+    expect(statusKeyFor({ kind: "done", rowsValidated: 1, totalSegments: 2 })).toBe("done");
   });
 });
