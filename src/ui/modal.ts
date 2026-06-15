@@ -56,7 +56,7 @@ export function confirmModal(opts: ConfirmOptions): Promise<boolean> {
     // --- Card ---
     const card = document.createElement("div");
     card.style.background = "#ffffff";
-    card.style.borderRadius = "6px";
+    card.style.borderRadius = "10px";
     card.style.padding = "24px 28px";
     card.style.maxWidth = "420px";
     card.style.width = "90%";
@@ -71,28 +71,43 @@ export function confirmModal(opts: ConfirmOptions): Promise<boolean> {
     messageEl.style.margin = "0";
     messageEl.style.fontSize = "14px";
     messageEl.style.lineHeight = "1.5";
-    messageEl.style.color = "#333";
+    messageEl.style.color = "#1f2937";
     card.appendChild(messageEl);
 
     // --- Button row ---
     const buttonRow = document.createElement("div");
     buttonRow.style.display = "flex";
     buttonRow.style.justifyContent = "flex-end";
-    buttonRow.style.gap = "10px";
+    buttonRow.style.gap = "8px";
 
     const cancelBtn = document.createElement("button");
     cancelBtn.textContent = opts.cancelLabel;
-    cancelBtn.style.padding = "7px 16px";
+    cancelBtn.style.padding = "8px 16px";
+    cancelBtn.style.minHeight = "36px";
+    cancelBtn.style.border = "1px solid #c7d0d9";
+    cancelBtn.style.borderRadius = "8px";
+    cancelBtn.style.background = "#ffffff";
+    cancelBtn.style.color = "#344054";
+    cancelBtn.style.fontSize = "13px";
+    cancelBtn.style.fontWeight = "600";
     cancelBtn.style.cursor = "pointer";
+    cancelBtn.style.lineHeight = "1.25";
     cancelBtn.addEventListener("click", () => {
       settle(false);
     });
 
     const confirmBtn = document.createElement("button");
     confirmBtn.textContent = opts.confirmLabel;
-    confirmBtn.style.padding = "7px 16px";
+    confirmBtn.style.padding = "8px 16px";
+    confirmBtn.style.minHeight = "36px";
+    confirmBtn.style.border = "1px solid #3478f6";
+    confirmBtn.style.borderRadius = "8px";
+    confirmBtn.style.background = "#3478f6";
+    confirmBtn.style.color = "#ffffff";
+    confirmBtn.style.fontSize = "13px";
+    confirmBtn.style.fontWeight = "600";
     confirmBtn.style.cursor = "pointer";
-    confirmBtn.style.fontWeight = "bold";
+    confirmBtn.style.lineHeight = "1.25";
     confirmBtn.addEventListener("click", () => {
       settle(true);
     });

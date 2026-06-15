@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { reduceMatchingUi, type MatchingUiState, controlsFor, statusKeyFor } from "../ui/matchingUiState";
+import {
+  reduceMatchingUi,
+  type MatchingUiState,
+  controlsFor,
+  statusKeyFor,
+} from "../ui/matchingUiState";
 
 const idle: MatchingUiState = { kind: "idle" };
 const stepping: MatchingUiState = { kind: "stepping" };

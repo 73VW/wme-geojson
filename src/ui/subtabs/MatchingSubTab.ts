@@ -36,6 +36,7 @@ import {
   type MatchDriver,
 } from "../../controller/LazyMatchingPipeline";
 import { closuresFromSource, type GlobalClosureGroup } from "../../csv/closuresFromSource";
+import { groupByWindow } from "../groupByWindow";
 import { waitForMapIdle } from "../../utils/waitForMapIdle";
 import { openMtePreparePopup } from "../MtePreparePopup";
 import { createMteSdk } from "../../mte";
@@ -107,6 +108,7 @@ export class MatchingSubTab {
   private prepareMteBtn?: HTMLButtonElement;
   private csvUploadRow: HTMLElement | null = null;
   private csvErrorEl: HTMLElement | null = null;
+  private csvLoadingEl: HTMLElement | null = null;
   private csvRemoveBtn: HTMLElement | null = null;
   private resumeBannerRow: HTMLElement | null = null;
 
@@ -290,6 +292,9 @@ export class MatchingSubTab {
           ? "per-subline"
           : "single",
     });
+    if (entry.csvRows?.length) {
+      layer.setVisibleDistances(entry.csvRows.map((r) => r.distance));
+    }
 
     const controller = new WalkController(this.wmeSDK, displayGeometry);
     this.setController(controller);
@@ -396,6 +401,7 @@ export class MatchingSubTab {
     this.prepareMteBtn = undefined;
     this.csvUploadRow = null;
     this.csvErrorEl = null;
+    this.csvLoadingEl = null;
     this.csvRemoveBtn = null;
     this.resumeBannerRow = null;
     this.headerView = null;
@@ -517,6 +523,16 @@ export class MatchingSubTab {
     section.appendChild(errorEl);
     this.csvErrorEl = errorEl;
 
+    const loadingEl = document.createElement("p");
+    loadingEl.className = "wmegj-csv-loading";
+    loadingEl.style.fontSize = "11px";
+    loadingEl.style.margin = "2px 0 0 0";
+    loadingEl.style.color = "#667085";
+    loadingEl.style.display = "none";
+    loadingEl.textContent = i18next.t("panel.csvInput.loading");
+    section.appendChild(loadingEl);
+    this.csvLoadingEl = loadingEl;
+
     const removeBtn = wzButton({
       text: i18next.t("panel.csvInput.remove"),
       variant: "danger",
@@ -550,15 +566,35 @@ export class MatchingSubTab {
     this.csvErrorEl.style.display = "none";
   }
 
+  private showCsvLoading(): void {
+    if (!this.csvLoadingEl) return;
+    this.csvLoadingEl.style.display = "";
+  }
+
+  private hideCsvLoading(): void {
+    if (!this.csvLoadingEl) return;
+    this.csvLoadingEl.style.display = "none";
+  }
+
   private onCsvFileSelected(file: File): void {
     this.clearCsvError();
+    this.showCsvLoading();
     const reader = new FileReader();
     reader.onload = () => {
       const text = reader.result;
-      if (typeof text !== "string") return;
-      this.processCsvText(text);
+      if (typeof text !== "string") {
+        this.hideCsvLoading();
+        return;
+      }
+      // Yield one frame so the browser paints the loading indicator before
+      // the synchronous heavy computation in processCsvText begins.
+      setTimeout(() => {
+        this.processCsvText(text);
+        this.hideCsvLoading();
+      }, 0);
     };
     reader.onerror = () => {
+      this.hideCsvLoading();
       const message =
         reader.error instanceof DOMException
           ? reader.error.message
@@ -624,6 +660,35 @@ export class MatchingSubTab {
       onWarning: (message) => this.reportCsvWarning(message),
     });
     this.sourceStore.hydrate(source);
+
+    // Recompute display geometry from the new source (union of CSV-sliced lines)
+    // and redraw the track layer + range slider so they reflect the new geometry.
+    const displayGeometry: MultiLineString = {
+      type: "MultiLineString",
+      coordinates: source.lines.flatMap((line) => line.geometry.coordinates),
+    };
+    const entry = this.registry.getSelected();
+    if (entry && this.trackLayer) {
+      try {
+        this.wmeSDK.Map.removeLayer({ layerName: TrackLayer.LAYER_NAME });
+      } catch {
+        // layer may not exist yet
+      }
+      this.trackLayer.draw(
+        { ...entry.track, geometry: displayGeometry },
+        {
+          colorMode:
+            entry.slowupNumber !== undefined && displayGeometry.coordinates.length > 1
+              ? "per-subline"
+              : "single",
+        },
+      );
+      if (csvRows?.length) {
+        this.trackLayer.setVisibleDistances(csvRows.map((r) => r.distance));
+      }
+      this.setTrackLayer(this.trackLayer);
+    }
+
     this.dispatch({ type: "SOURCE_CHANGED" });
     this.store.setPhase("csv-loaded");
     this.hideResumeBanner();
@@ -1437,18 +1502,29 @@ export class MatchingSubTab {
           this.uiState.kind === "stepping" ||
           this.uiState.kind === "bursting" ||
           this.uiState.kind === "pausePending"
-        ) return;
+        )
+          return;
         const entry = this.registry.getSelected();
         if (!entry) return;
-        this.persistence.clear(entry.id);
-        this.lazyPipeline = null;
-        this.dispatch({ type: "RESTART" });
-        const fresh = this.buildSourceForEntry(entry);
-        this.sourceStore.hydrate(fresh);
-        this.dispatch({ type: "SOURCE_CHANGED" });
-        this.store.setPhase("csv-loaded");
-        this.resetGuidedSessionState();
-        this.renderSourceState();
+        // Clear any stale errors before rebuild so they don't duplicate on restart.
+        this.clearCsvError();
+        this.showCsvLoading();
+        // Defer heavy synchronous work so the loading indicator can render first.
+        setTimeout(() => {
+          try {
+            this.persistence.clear(entry.id);
+            this.lazyPipeline = null;
+            this.dispatch({ type: "RESTART" });
+            const fresh = this.buildSourceForEntry(entry);
+            this.sourceStore.hydrate(fresh);
+            this.dispatch({ type: "SOURCE_CHANGED" });
+            this.store.setPhase("csv-loaded");
+            this.resetGuidedSessionState();
+            this.renderSourceState();
+          } finally {
+            this.hideCsvLoading();
+          }
+        }, 0);
       })
       .catch((err: unknown) => {
         logger.error("MatchPanel: restart confirm modal rejected", err);
@@ -2019,21 +2095,22 @@ export class MatchingSubTab {
     const groups: ClosureRowGroup[] = [];
     const closuresBySegment: Record<number, ClosureRange[]> = {};
 
-    bySegment.forEach((entry) => {
-      entry.windows.forEach((win) => {
-        const rowIndex = rows.length;
-        rows.push({
-          distance: 0,
-          date: win.startISO.slice(0, 10),
-          startTime: win.startISO.slice(11, 16),
-          endTime: win.endISO.slice(11, 16),
-          segments: [entry.segmentId],
-        });
-        groups.push({ rowIndex, segmentIds: [entry.segmentId], geo: win.geo });
-        const existing = closuresBySegment[entry.segmentId] ?? [];
-        existing.push({ startISO: win.startISO, endISO: win.endISO, rowIndex });
-        closuresBySegment[entry.segmentId] = existing;
+    const windowGroups = groupByWindow(bySegment);
+    windowGroups.forEach(({ startISO, endISO, geo, segmentIds }) => {
+      const rowIndex = rows.length;
+      rows.push({
+        distance: 0,
+        date: startISO.slice(0, 10),
+        startTime: startISO.slice(11, 16),
+        endTime: endISO.slice(11, 16),
+        segments: segmentIds,
       });
+      groups.push({ rowIndex, segmentIds, geo });
+      for (const id of segmentIds) {
+        const existing = closuresBySegment[id] ?? [];
+        existing.push({ startISO, endISO, rowIndex });
+        closuresBySegment[id] = existing;
+      }
     });
 
     this.emitClosuresCsv(rows, groups, closuresBySegment, fields);
@@ -2091,15 +2168,19 @@ export class MatchingSubTab {
         color: #1f2937;
       }
 
+      .wmegj-panel-root * {
+        box-sizing: border-box;
+      }
+
       .wmegj-panel-title {
         margin: 0 0 10px 0;
-        font-size: 18px;
-        font-weight: 800;
+        font-size: 16px;
+        font-weight: 700;
         letter-spacing: 0;
       }
 
       .wmegj-section {
-        margin-bottom: 14px;
+        margin-bottom: 10px;
         padding: 0;
         border: 0;
         border-radius: 0;
@@ -2146,7 +2227,7 @@ export class MatchingSubTab {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-height: 34px;
+        min-height: 32px;
         padding: 0 12px;
         width: 100%;
         border: 1px solid transparent;
@@ -2185,7 +2266,7 @@ export class MatchingSubTab {
       .wmegj-button-stack {
         display: flex;
         flex-wrap: wrap;
-        gap: 6px;
+        gap: 4px;
       }
 
       .wmegj-guided-panel {
@@ -2317,8 +2398,8 @@ export class MatchingSubTab {
 
       .wmegj-guided-button {
         min-width: 0;
-        min-height: 42px;
-        padding: 9px 14px;
+        min-height: 36px;
+        padding: 7px 14px;
       }
 
       .wmegj-guided-button--validate,

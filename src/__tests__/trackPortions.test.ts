@@ -90,6 +90,68 @@ describe("computeMatchingWorkItems", () => {
       { rowIndex: 1, inputDistance: 12.4, kmA: 12.4, kmB: 80.0 },
     ]);
   });
+
+  it("clamps kmB to totalKm in fallback path when last row distance exceeds totalKm", () => {
+    // Real-world case: track is 172.98 km but last CSV row has distance 173.1
+    const workItems = computeMatchingWorkItems(
+      [
+        { distance: 170.0, startTime: "13:00", endTime: "14:00", date: "2026-04-30" },
+        { distance: 173.1, startTime: "13:05", endTime: "14:05", date: "2026-04-30" },
+      ],
+      172.98861778163098,
+    );
+
+    // Distances are strictly increasing, so only one work item (N-1 rule)
+    expect(workItems).toHaveLength(1);
+    expect(workItems[0]).toMatchObject({
+      rowIndex: 0,
+      inputDistance: 170.0,
+      kmA: 170.0,
+      kmB: 172.98861778163098,
+    });
+  });
+
+  it("clamps kmB to totalKm in strictly-increasing path when next row distance exceeds totalKm", () => {
+    // Three rows: distances strictly increasing, last exceeds totalKm
+    const workItems = computeMatchingWorkItems(
+      [
+        { distance: 100.0, startTime: "13:00", endTime: "14:00", date: "2026-04-30" },
+        { distance: 150.0, startTime: "13:10", endTime: "14:10", date: "2026-04-30" },
+        { distance: 175.0, startTime: "13:20", endTime: "14:20", date: "2026-04-30" },
+      ],
+      172.98861778163098,
+    );
+
+    // N-1 rule: 2 work items
+    expect(workItems).toHaveLength(2);
+    expect(workItems[0]).toMatchObject({ rowIndex: 0, kmA: 100.0, kmB: 150.0 });
+    // Second item's kmB would be 175.0 without clamping — must be capped at totalKm
+    expect(workItems[1]).toMatchObject({
+      rowIndex: 1,
+      inputDistance: 150.0,
+      kmA: 150.0,
+      kmB: 172.98861778163098,
+    });
+  });
+
+  it("clamps kmB to totalKm in fallback path when a middle row's next distance exceeds totalKm", () => {
+    // Non-strictly-increasing (repeated distance) forces fallback path
+    // Last row's distance exceeds totalKm
+    const workItems = computeMatchingWorkItems(
+      [
+        { distance: 100.0, startTime: "13:00", endTime: "14:00", date: "2026-04-30" },
+        { distance: 100.0, startTime: "13:05", endTime: "14:05", date: "2026-04-30" },
+        { distance: 173.1, startTime: "13:10", endTime: "14:10", date: "2026-04-30" },
+      ],
+      172.98861778163098,
+    );
+
+    expect(workItems).toHaveLength(3);
+    // Last row: no next row, so kmB = totalKm (already correct)
+    expect(workItems[2]).toMatchObject({ rowIndex: 2, kmA: 173.1, kmB: 172.98861778163098 });
+    // Second row: next row distance is 173.1, but clamped to totalKm
+    expect(workItems[1]).toMatchObject({ rowIndex: 1, kmA: 100.0, kmB: 172.98861778163098 });
+  });
 });
 
 // ─── sliceMultiLineByDistance ─────────────────────────────────────────────────

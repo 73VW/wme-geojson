@@ -191,7 +191,12 @@ describe("LazyMatchingPipeline", () => {
     // Build a source manually: one line with 200 validated sub-lines + a remaining pendingTail
     const geometry: MultiLineString = {
       type: "MultiLineString",
-      coordinates: [[[6.0, 46.0], [6.4, 46.0]]],
+      coordinates: [
+        [
+          [6.0, 46.0],
+          [6.4, 46.0],
+        ],
+      ],
     };
     const subLines: SubLine[] = Array.from({ length: 200 }, (_, i) => ({
       index: i,

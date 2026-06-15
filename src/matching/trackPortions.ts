@@ -87,16 +87,19 @@ export function computeMatchingWorkItems(
       rowIndex,
       inputDistance: row.distance,
       kmA: row.distance,
-      kmB: rows[rowIndex + 1].distance,
+      kmB: Math.min(rows[rowIndex + 1].distance, totalKm),
     }));
   }
 
-  return rows.map((row, rowIndex) => ({
-    rowIndex,
-    inputDistance: row.distance,
-    kmA: row.distance,
-    kmB: rowIndex + 1 < rows.length ? rows[rowIndex + 1].distance : totalKm,
-  }));
+  return rows.map((row, rowIndex) => {
+    const rawKmB = rowIndex + 1 < rows.length ? rows[rowIndex + 1].distance : totalKm;
+    return {
+      rowIndex,
+      inputDistance: row.distance,
+      kmA: row.distance,
+      kmB: Math.min(rawKmB, totalKm),
+    };
+  });
 }
 
 // ─── sliceMultiLineByDistance ─────────────────────────────────────────────────
