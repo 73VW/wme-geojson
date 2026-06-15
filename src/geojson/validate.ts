@@ -49,6 +49,51 @@ export function validateFeature(raw: unknown): SupportedFeature {
   return raw as SupportedFeature;
 }
 
+/**
+ * Validate a GeoJSON FeatureCollection and return its line features.
+ *
+ * Features whose geometry is not LineString/MultiLineString (Points, etc.)
+ * are dropped silently — a slowUp FeatureCollection mixes route lines with
+ * marker points and only the lines are matchable. Each surviving feature is
+ * run through the same per-feature validation as validateFeature (geometry
+ * type + WGS84 CRS sanity check). Throws TrackLoadError when raw is not a
+ * FeatureCollection or when zero line features survive.
+ */
+export function validateFeatureCollection(raw: unknown): SupportedFeature[] {
+  if (!raw || typeof raw !== "object") {
+    throw new TrackLoadError("Response is not a JSON object.");
+  }
+  const obj = raw as Record<string, unknown>;
+  if (obj["type"] !== "FeatureCollection") {
+    throw new TrackLoadError(
+      `Expected a GeoJSON FeatureCollection, got type="${String(obj["type"])}" instead.`,
+    );
+  }
+  const features = obj["features"];
+  if (!Array.isArray(features)) {
+    throw new TrackLoadError("FeatureCollection has no features array.");
+  }
+
+  const lines: SupportedFeature[] = [];
+  for (const feature of features) {
+    if (!feature || typeof feature !== "object") continue;
+    const geometry = (feature as Record<string, unknown>)["geometry"];
+    if (!geometry || typeof geometry !== "object") continue;
+    const geoType = (geometry as Record<string, unknown>)["type"];
+    if (geoType !== "LineString" && geoType !== "MultiLineString") {
+      // Drop Point / Polygon / etc. — only route lines are matchable.
+      continue;
+    }
+    // Reuse the single-feature validator for the geometry + CRS checks.
+    lines.push(validateFeature(feature));
+  }
+
+  if (lines.length === 0) {
+    throw new TrackLoadError("FeatureCollection contains no LineString/MultiLineString features.");
+  }
+  return lines;
+}
+
 function extractFirstCoordinate(
   geo: Record<string, unknown>,
   geoType: "LineString" | "MultiLineString",

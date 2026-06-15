@@ -278,10 +278,10 @@ export class WalkController {
   private aborted = false;
 
   /** Total track length used to detect "last portion" boundary behavior. */
-  private readonly trackTotalKm: number;
+  private trackTotalKm: number;
 
   /** Flattened full-track line used by projection-based fallback matching. */
-  private readonly fullTrackLine: {
+  private fullTrackLine: {
     type: "Feature";
     geometry: LineString;
     properties: null;
@@ -307,19 +307,51 @@ export class WalkController {
 
   constructor(
     private readonly wmeSDK: WmeSDK,
-    private readonly track: MultiLineString,
+    private track: MultiLineString,
   ) {
+    const derived = WalkController.deriveTrackFields(track);
+    this.fullTrackLine = derived.fullTrackLine;
+    this.trackTotalKm = derived.trackTotalKm;
+
+    // Track map stability for adaptive polling.
+    this._subscribeMapDataLoaded();
+  }
+
+  /**
+   * Re-scope matching to a new track geometry — e.g. the active Line's merged
+   * chain. The kmA/kmB passed to matchInCurrentViewport are interpreted
+   * relative to THIS geometry, and the "last portion" boundary heuristics use
+   * its length. No-op when the same geometry reference is passed again, so
+   * matching successive sub-lines of the same line preserves the segment cache.
+   */
+  setTrack(geometry: MultiLineString): void {
+    if (geometry === this.track) {
+      return;
+    }
+    this.track = geometry;
+    const derived = WalkController.deriveTrackFields(geometry);
+    this.fullTrackLine = derived.fullTrackLine;
+    this.trackTotalKm = derived.trackTotalKm;
+    // A different track means a different region: drop the inter-slice caches
+    // so stale segment snapshots/geometries are not reused across lines.
+    this._snapshotCache = null;
+    this.geometryCache.clear();
+  }
+
+  private static deriveTrackFields(track: MultiLineString): {
+    fullTrackLine: { type: "Feature"; geometry: LineString; properties: null } | null;
+    trackTotalKm: number;
+  } {
     const flattened = track.coordinates.flat();
-    this.fullTrackLine =
+    const fullTrackLine =
       flattened.length >= 2
         ? {
-            type: "Feature",
+            type: "Feature" as const,
             geometry: turfLineString(flattened).geometry,
             properties: null,
           }
         : null;
-
-    this.trackTotalKm = turfLength(
+    const trackTotalKm = turfLength(
       {
         type: "Feature",
         geometry: track,
@@ -327,9 +359,7 @@ export class WalkController {
       },
       { units: "kilometers" },
     );
-
-    // Track map stability for adaptive polling.
-    this._subscribeMapDataLoaded();
+    return { fullTrackLine, trackTotalKm };
   }
 
   /**

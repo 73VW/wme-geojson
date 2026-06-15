@@ -199,6 +199,45 @@ describe("WalkController.matchInCurrentViewport", () => {
     expect(progressPayloads[1]).toEqual({ visited: 1, total: 1, newIds: [202] });
   });
 
+  it("setTrack rescopes matching to the given line geometry (line-relative km)", async () => {
+    // 101 sits near the start of the whole track, 202 near the end.
+    const wmeSdk = makeWmeSdkForSegments([
+      {
+        id: 101,
+        coordinates: [
+          [6.145, 46.2],
+          [6.147, 46.2],
+        ],
+      },
+      {
+        id: 202,
+        coordinates: [
+          [6.165, 46.2],
+          [6.1665, 46.2],
+        ],
+      },
+    ]);
+    const controller = new WalkController(wmeSdk, makeTrack());
+
+    // Re-scope the controller to the TAIL line only. Its km-space starts at 0,
+    // so matching [0, len] must hit the segment inside the tail (202), not the
+    // head segment (101) a whole-track km-space would have sliced.
+    const tailLine: MultiLineString = {
+      type: "MultiLineString",
+      coordinates: [
+        [
+          [6.16, 46.2],
+          [6.17, 46.2],
+        ],
+      ],
+    };
+    controller.setTrack(tailLine);
+
+    await controller.matchInCurrentViewport(0, 5);
+
+    expect(controller.getMatchedIds()).toEqual([202]);
+  });
+
   it("emits empty progress when the sliced portion is empty", async () => {
     const wmeSdk = makeWmeSdkForSegments([]);
     const controller = new WalkController(wmeSdk, makeTrack());

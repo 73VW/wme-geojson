@@ -26,10 +26,20 @@
       "cancel": "Cancel"
     },
     "modal": {
-      "largeSelectionWarning": "You are about to select {{count}} segments. Large selections may be slow or fail. Continue?"
+      "largeSelectionWarning": "You are about to select {{count}} segments. Large selections may be slow or fail. Continue?",
+      "closureWindow": {
+        "title": "Closure window",
+        "start": "Start",
+        "end": "End",
+        "errorRequired": "Both start and end are required.",
+        "errorOrder": "End must be after start.",
+        "cancel": "Cancel",
+        "download": "Download"
+      }
     },
     "errors": {
-      "selectionFailed": "Selection failed: {{error}}"
+      "selectionFailed": "Selection failed: {{error}}",
+      "loadUrl": "Failed to load the URL: {{message}}"
     },
     "range": {
       "title": "Visible distance range",
@@ -75,7 +85,8 @@
       "processing": "Parsing CSV...",
       "labels": "Preparing labels...",
       "loading": "Loading file...",
-      "error": "Unable to read the file."
+      "error": "Unable to read the file.",
+      "remove": "Remove CSV (use a single time window)"
     },
     "openMatchingPanel": "Open matching panel",
     "startMatching": "Start matching",
@@ -88,6 +99,23 @@
     "resumeIndex": "Resuming at row {{index}} / {{total}}",
     "resume": "Resume",
     "startFresh": "Start fresh",
+    "subtabs": {
+      "lines": "Lines",
+      "matching": "Matching"
+    },
+    "lines": {
+      "urlLabel": "GeoJSON URL",
+      "urlLoad": "Load",
+      "sourceFeature": "Feature (1 line)",
+      "sourceCollection": "FeatureCollection ({{count}} lines)",
+      "empty": "No line in this source.",
+      "fallbackName": "Track {{km}} km long",
+      "detailsLoading": "Loading details…",
+      "detailsError": "Details unavailable",
+      "select": "Select",
+      "centerAll": "Center on all tracks",
+      "center": "Center"
+    },
     "matching": {
       "panelTitle": "Matching",
       "close": "Close",
@@ -102,22 +130,60 @@
         "running": "Matching in progress",
         "waiting": "Waiting for validation",
         "paused": "Paused",
+        "error": "Error",
         "done": "Done"
       },
+      "retry": "Retry",
+      "stepError": "Matching step failed: {{message}}",
+      "burstStalled": "Automatic matching stalled: the last step produced no sub-line to validate.",
       "mode": {
         "idle": "Not started",
         "interactive": "Manual mode",
         "burst": "Automatic mode"
       },
-      "rowHeader": "Row {{index}} / {{total}} — {{km}} km, {{startTime}} → {{endTime}}",
+      "rowHeader": "Line {{index}} / {{total}} — {{km}} km, {{startTime}} → {{endTime}}",
+      "rowHeaderWithSubLine": "Line {{index}} / {{total}} — {{km}} km, {{startTime}} → {{endTime}} | sub-line {{subIndex}}/{{subTotal}}",
+      "rowHeaderNoTime": "Line {{index}} / {{total}} — {{km}} km",
+      "rowHeaderWithSubLineNoTime": "Line {{index}} / {{total}} — {{km}} km | sub-line {{subIndex}}/{{subTotal}}",
       "validateOrCorrect": "Validate, or correct then validate",
       "segmentsMatched": "{{count}} segment(s) matched",
+      "matchingInProgress": "Matching segments…",
+      "subLinesTitle": "Current sub-lines",
+      "resumeBanner": "Session resumed at line {{line}} / sub-line {{subLine}}",
+      "debugTitle": "Debug — Current source",
+      "debugCursor": "Cursor: line {{line}} / sub-line {{subLine}}",
+      "debugCursorNone": "Cursor: none",
+      "debugLineItem": "Line {{index}}/{{total}} — {{kmA}} → {{kmB}} km",
+      "debugLineWindow": "window {{startTime}} → {{endTime}}",
+      "debugSubLineItem": "sub-line {{index}}: {{kmA}} → {{kmB}} km, z{{zoom}}, {{validated}}, {{count}} segment(s)",
+      "debugValidated": "validated",
+      "debugUnvalidated": "not validated",
+      "copyDebugJsonSourceOk": "Source JSON copied",
+      "mergeTitle": "Merge debug",
+      "mergeInactive": "Merge debug is inactive (single-track mode).",
+      "mergeSummaryEmpty": "No chain has contributed matching data yet (0/{{total}} done). Start matching and validate at least one chain.",
+      "mergeSummary": "Chains done {{done}}/{{total}} | raw segments {{raw}} | deduped segments {{deduped}}",
+      "mergeGeoJsonTitle": "Merged GeoJSON output",
+      "mergeGeoJsonInactive": "Merged GeoJSON unavailable (single-track mode).",
+      "mergeGeoJsonEmpty": "No merged geometry available yet.",
+      "mergeActiveMarker": "<- active",
+      "mergeStatus": {
+        "idle": "idle",
+        "matching": "matching",
+        "done": "done",
+        "skipped": "skipped",
+        "error": "error"
+      },
       "stepsTitle": "Live steps",
       "startManual": "Start manual",
       "startAutomatic": "Start automatic",
       "validate": "Validate",
       "skip": "Skip row",
       "back": "Back",
+      "syntheticBanner": "No CSV — the whole line will be closed over a single time window (entered at download).",
+      "noSelection": "Select a line in the Lines tab.",
+      "prepareMteBtn": "Prepare MTE",
+      "prepareMteDisabled": "SlowUp details not loaded",
       "reselectMatched": "Reselect matched",
       "rerunCurrentRow": "Rerun row",
       "burstRunning": "Burst mode: matched segments are auto-validated.",
@@ -143,10 +209,34 @@
         "processingLeaf": "Matching sub-line {{index}}/{{total}} ({{kmA}} → {{kmB}} km)",
         "leafMatched": "Sub-line {{index}}/{{total}} matched: {{count}} segment(s)",
         "waitingLeafValidation": "Sub-line {{index}}/{{total}} — validate or correct selection",
+        "mergePreparingTrack": "Preparing merged slowup track...",
+        "mergeRecomputing": "Recomputing merged chain state...",
+        "mergeInitialized": "Merge initialized for this slowup.",
         "completedSummary": "Matching complete: {{rowsValidated}} row(s) validated, {{totalSegments}} segment(s) selected. You can now download the closures file.",
         "pauseFinalizingStep": "Finalizing the current step before pausing…",
         "unknown": "Pipeline step"
-      }
+      },
+      "backToLines": "← Lines"
+    },
+    "mtePopup": {
+      "loading": "Loading…",
+      "error": "Error",
+      "close": "Close",
+      "copy": "Copy",
+      "refresh": "Refresh",
+      "titleLabel": "Title",
+      "dateLabel": "Date",
+      "urlLabel": "URL",
+      "mteIdLabel": "MTE ID",
+      "badgeStored": "from localStorage",
+      "badgeAutoUrl": "auto-detected (URL)",
+      "badgeAutoName": "auto-detected (name)",
+      "badgeManual": "manual override",
+      "badgeNone": "no linked MTE",
+      "candidatesHeader": "Candidates (MTE containing \"slowup\") — click to select:",
+      "noCandidates": "No MTE with \"slowup\" in its name.",
+      "blocked": "The window was blocked by the browser. Allow popups for this site.",
+      "polygonLabel": "GeoJSON polygon (track + 500m)"
     },
     "finalFields": {
       "title": "Export closures — final details",

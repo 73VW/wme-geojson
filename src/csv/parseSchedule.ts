@@ -1,7 +1,7 @@
 // Pure CSV parser for the roadbook schedule format.
 // No SDK, no DOM — safe to import in Node test environments.
 
-import type { CsvRow } from "../state/SessionStore";
+import type { CsvRow } from "./types";
 
 const EXPECTED_HEADER = "distance,start_time,end_time,date,segments";
 

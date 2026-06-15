@@ -32,14 +32,14 @@ Pure, no SDK dependency:
 - **`LineEntry`** (type): one line loaded from the source.
   ```ts
   interface LineEntry {
-    id: string;                  // stable, e.g. `${sourceUrl}#${featureIndex}`
-    track: NormalizedTrack;      // from existing geojson/normalize
-    displayName: string;         // computed: slowup title | properties.name | "Tracé de X km"
-    color: string;               // derived from id, stable across reloads
+    id: string; // stable, e.g. `${sourceUrl}#${featureIndex}`
+    track: NormalizedTrack; // from existing geojson/normalize
+    displayName: string; // computed: slowup title | properties.name | "Tracé de X km"
+    color: string; // derived from id, stable across reloads
     slowupNumber?: number;
     slowupDetails?: SlowupDetails;
-    slowupFetchStatus: 'idle' | 'loading' | 'ok' | 'error';
-    mode: 'csv' | 'synthetic';   // matching mode
+    slowupFetchStatus: "idle" | "loading" | "ok" | "error";
+    mode: "csv" | "synthetic"; // matching mode
     matchedIds?: Set<number>;
     csv?: ParsedSchedule;
     pipelineState: PipelineState;
@@ -72,6 +72,14 @@ The 2500-line `MatchPanel.ts` is split:
 - **`subtabs/LinesSubTab.ts`** (new): URL input, source-type info line, list of `LineEntry` with color pill + name + "Sélectionner". Triggers slowUp details fetches in parallel on mount/load.
 - **`subtabs/MatchingSubTab.ts`** (new): everything currently in MatchPanel — CSV import, walk, match, results, download. Reads the active `LineEntry` from `LineRegistry`. Empty-state when no line is selected.
 - **`components/promptClosureWindow.ts`** (new): modal prompting date/time start + end. Used by MatchingSubTab when `mode === 'synthetic'` at download time.
+
+**View / logic separation.** Each sub-tab is split into a _controller_ class (event wiring, state reads/writes against `LineRegistry`/`WalkController`) and one or more _view_ classes that own pure DOM rendering. A view class:
+
+- exposes a `render(props)` / `update(props)` method taking a plain props object — no direct `LineRegistry` or SDK access;
+- exposes its root `HTMLElement` and DOM-event callbacks (e.g. `onSelectClick`, `onLoadClick`) as injectable handlers;
+- holds no business logic — it is testable by mounting into a JSDOM container and asserting on the produced DOM.
+
+Concretely the split yields, alongside `LinesSubTab.ts` / `MatchingSubTab.ts` (controllers), dedicated view classes such as `LinesListView`, `LineRow`, `MatchingHeaderView`, `ResultsListView`, etc. The exact set is decided during the refactor commit; the rule is that no class mixes DOM construction with `LineRegistry`/SDK orchestration.
 
 ### Controller changes
 
@@ -110,11 +118,11 @@ User clicks "Télécharger"
 
 ### Map display rules
 
-| Context | TrackLayer state |
-| --- | --- |
+| Context                                        | TrackLayer state                        |
+| ---------------------------------------------- | --------------------------------------- |
 | Sub-tab 1 (Lignes) open, any number of entries | `drawPreview(allEntries)` — multi-color |
-| Sub-tab 2 (Matching) open, line X selected | `drawActive(X)` — magenta |
-| No entries loaded | layer destroyed |
+| Sub-tab 2 (Matching) open, line X selected     | `drawActive(X)` — magenta               |
+| No entries loaded                              | layer destroyed                         |
 
 ## Error handling
 
@@ -175,6 +183,7 @@ Each phase is independently mergeable.
 Out of scope for 7a: FeatureCollection parsing, multi-color preview, slowUp details.
 
 Tests (vitest, pure modules):
+
 - `featureCollectionLoader.test.ts`: single Feature → 1 entry; rawProperties preserved; `mode === 'synthetic'`.
 - `syntheticSchedule.test.ts`: length correct (turf-based); 1 row; start/end empty until window picked.
 - `LineRegistry.test.ts`: setEntries/setSelected/updateEntry events; clear semantics.
@@ -193,6 +202,7 @@ DoD: lint + tests pass; manual checks — `?geojson=...` still auto-loads; can s
 Out of scope for 7b: slowUp details, slowUp-driven date defaults.
 
 Tests:
+
 - `featureCollectionLoader.test.ts` extended: drops points; keeps LineString and MultiLineString; mixed input.
 - `color.test.ts`: deterministic for a given id; reasonable distribution across N ids.
 - `displayName.test.ts` extended: "Tracé de X km" fallback for entries without `name`.
@@ -209,6 +219,7 @@ DoD: `https://schweizmobil.ch/api/4/slowups.geojson` loads N lines; can select, 
 - `promptClosureWindow` reads `slowupDetails?.date` for default.
 
 Tests:
+
 - `slowupClient.test.ts`: URL construction includes `?lang=`; parses `[{...}]` shape; HTTP error rejects.
 - `displayName.test.ts` extended: slowUp title + date wins over `properties.name`.
 

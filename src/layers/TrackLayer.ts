@@ -13,6 +13,17 @@ const TRACK_STROKE_COLOR = "#ff00aa";
 const TRACK_STROKE_WIDTH = 4;
 const TRACK_STROKE_OPACITY = 0.85;
 
+const SUBLINE_PALETTE = [
+  "#ff006e",
+  "#3a86ff",
+  "#fb5607",
+  "#8338ec",
+  "#2a9d8f",
+  "#f4a261",
+  "#06d6a0",
+  "#ef476f",
+] as const;
+
 const SLICE_STROKE_COLOR = "#00d9ff";
 const SLICE_STROKE_WIDTH = 7;
 const SLICE_STROKE_OPACITY = 0.75;
@@ -27,6 +38,12 @@ const LABEL_POINT_COLOR = "#ff00aa";
 const LINE_KIND = "line";
 const LABEL_KIND = "label";
 const SLICE_KIND = "slice";
+
+type TrackColorMode = "single" | "per-subline";
+
+interface DrawOptions {
+  colorMode?: TrackColorMode;
+}
 
 /**
  * Wraps the WME SDK layer for displaying a GeoJSON track and its
@@ -65,6 +82,7 @@ export class TrackLayer {
   // Optional slice highlight drawn on top of the base track. Cleared on every
   // redraw and re-emitted last so it stays visually above the base lines.
   private highlightedSlice: MultiLineString | null = null;
+  private colorMode: TrackColorMode = "single";
 
   constructor(private readonly wmeSDK: WmeSDK) {}
 
@@ -73,8 +91,9 @@ export class TrackLayer {
    * `wme-ready`. Computes distance labels for every vertex; subsequent calls
    * to setVisibleRange operate on the cached labels.
    */
-  draw(track: NormalizedTrack): void {
+  draw(track: NormalizedTrack, options: DrawOptions = {}): void {
     this.currentTrack = track;
+    this.colorMode = options.colorMode ?? "single";
     this.allLabels = computeDistanceLabels(track.geometry);
     this.totalKm = this.allLabels.length > 0 ? this.allLabels[this.allLabels.length - 1].km : 0;
 
@@ -96,6 +115,10 @@ export class TrackLayer {
           const km = feature?.properties.km;
           return typeof km === "number" ? formatLabelKm(km) : "";
         },
+        getLineColor: ({ feature }) => {
+          const lineColor = feature?.properties.lineColor;
+          return typeof lineColor === "string" && lineColor !== "" ? lineColor : TRACK_STROKE_COLOR;
+        },
       },
       styleRules: this.buildStyleRules(),
     });
@@ -114,7 +137,7 @@ export class TrackLayer {
 
   /**
    * Return the MultiLineString geometry of the currently-drawn track, or null
-   * if no track has been drawn yet. Used by MatchingPipeline to build the
+   * if no track has been drawn yet. Used by LazyMatchingPipeline to build the
    * NormalizedTrack it needs for bbox bisection without re-reading from disk.
    */
   getTrackGeometry(): NormalizedTrack["geometry"] | null {
@@ -215,7 +238,7 @@ export class TrackLayer {
     const baseId = track.trackId !== null ? String(track.trackId) : `track-${Date.now()}`;
 
     track.geometry.coordinates.forEach((lineCoords, index) => {
-      this.addLineFeature(`${baseId}-line-${index}`, lineCoords);
+      this.addLineFeature(`${baseId}-line-${index}`, lineCoords, index);
     });
 
     this.drawLabels(labels);
@@ -307,14 +330,15 @@ export class TrackLayer {
       const clippedCoords = sliceLineByDistance(lineCoords, localLo, localHi);
       if (clippedCoords.length < 2) return;
 
-      this.addLineFeature(`${baseId}-line-${index}`, clippedCoords);
+      this.addLineFeature(`${baseId}-line-${index}`, clippedCoords, index);
     });
   }
 
-  private addLineFeature(featureId: string, lineCoords: Position[]): void {
+  private addLineFeature(featureId: string, lineCoords: Position[], subLineIndex: number): void {
     // The SDK rejects 3D coords with "Only 2D points are supported" — strip
     // any elevation here even though NormalizedTrack keeps the 3D data intact.
     const coords2d: Position[] = lineCoords.map((c) => [c[0], c[1]]);
+    const lineColor = this.getLineColor(subLineIndex);
 
     this.wmeSDK.Map.addFeatureToLayer({
       layerName: TrackLayer.LAYER_NAME,
@@ -322,9 +346,17 @@ export class TrackLayer {
         id: featureId,
         type: "Feature",
         geometry: { type: "LineString", coordinates: coords2d },
-        properties: { kind: LINE_KIND, featureId },
+        properties: { kind: LINE_KIND, featureId, lineColor },
       },
     });
+  }
+
+  private getLineColor(subLineIndex: number): string {
+    if (this.colorMode !== "per-subline") {
+      return TRACK_STROKE_COLOR;
+    }
+
+    return SUBLINE_PALETTE[subLineIndex % SUBLINE_PALETTE.length];
   }
 
   private addLabelFeature(label: DistanceLabel): void {
@@ -351,7 +383,7 @@ export class TrackLayer {
       {
         predicate: (props: { kind?: string | number | null }) => props.kind === LINE_KIND,
         style: {
-          strokeColor: TRACK_STROKE_COLOR,
+          strokeColor: "${getLineColor}",
           strokeWidth: TRACK_STROKE_WIDTH,
           strokeOpacity: TRACK_STROKE_OPACITY,
           strokeLinecap: "round" as const,

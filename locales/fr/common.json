@@ -26,10 +26,20 @@
       "cancel": "Annuler"
     },
     "modal": {
-      "largeSelectionWarning": "Vous êtes sur le point de sélectionner {{count}} segments. Les grandes sélections peuvent être lentes ou échouer. Continuer ?"
+      "largeSelectionWarning": "Vous êtes sur le point de sélectionner {{count}} segments. Les grandes sélections peuvent être lentes ou échouer. Continuer ?",
+      "closureWindow": {
+        "title": "Fenêtre de fermeture",
+        "start": "Début",
+        "end": "Fin",
+        "errorRequired": "Le début et la fin sont obligatoires.",
+        "errorOrder": "La fin doit être après le début.",
+        "cancel": "Annuler",
+        "download": "Télécharger"
+      }
     },
     "errors": {
-      "selectionFailed": "Échec de la sélection : {{error}}"
+      "selectionFailed": "Échec de la sélection : {{error}}",
+      "loadUrl": "Échec du chargement de l'URL : {{message}}"
     },
     "range": {
       "title": "Plage de distance visible",
@@ -75,7 +85,8 @@
       "processing": "Analyse du CSV...",
       "labels": "Préparation des labels...",
       "loading": "Chargement du fichier...",
-      "error": "Impossible de lire le fichier."
+      "error": "Impossible de lire le fichier.",
+      "remove": "Retirer le CSV (fenêtre temporelle unique)"
     },
     "openMatchingPanel": "Ouvrir le panneau de correspondance",
     "startMatching": "Lancer la correspondance",
@@ -88,6 +99,23 @@
     "resumeIndex": "Reprise à la ligne {{index}} / {{total}}",
     "resume": "Reprendre",
     "startFresh": "Recommencer depuis le début",
+    "subtabs": {
+      "lines": "Lignes",
+      "matching": "Matching"
+    },
+    "lines": {
+      "urlLabel": "URL GeoJSON",
+      "urlLoad": "Charger",
+      "sourceFeature": "Feature (1 ligne)",
+      "sourceCollection": "FeatureCollection ({{count}} lignes)",
+      "empty": "Aucune ligne dans cette source.",
+      "fallbackName": "Tracé de {{km}} km",
+      "detailsLoading": "Chargement des détails…",
+      "detailsError": "Détails indisponibles",
+      "select": "Sélectionner",
+      "centerAll": "Centrer sur tous les tracés",
+      "center": "Centrer"
+    },
     "matching": {
       "panelTitle": "Correspondance",
       "close": "Fermer",
@@ -102,22 +130,60 @@
         "running": "Matching en cours",
         "waiting": "En attente de validation",
         "paused": "En pause",
+        "error": "Erreur",
         "done": "Terminé"
       },
+      "retry": "Réessayer",
+      "stepError": "Échec de l'étape de matching : {{message}}",
+      "burstStalled": "Le matching automatique s'est arrêté : la dernière étape n'a produit aucune sous-ligne à valider.",
       "mode": {
         "idle": "Mode non démarré",
         "interactive": "Mode manuel",
         "burst": "Mode automatique"
       },
       "rowHeader": "Ligne {{index}} / {{total}} — {{km}} km, {{startTime}} → {{endTime}}",
+      "rowHeaderWithSubLine": "Ligne {{index}} / {{total}} — {{km}} km, {{startTime}} → {{endTime}} | sous-ligne {{subIndex}}/{{subTotal}}",
+      "rowHeaderNoTime": "Ligne {{index}} / {{total}} — {{km}} km",
+      "rowHeaderWithSubLineNoTime": "Ligne {{index}} / {{total}} — {{km}} km | sous-ligne {{subIndex}}/{{subTotal}}",
       "validateOrCorrect": "Validez ou corrigez et validez",
       "segmentsMatched": "{{count}} segment(s) trouvé(s)",
+      "matchingInProgress": "Recherche des segments…",
+      "subLinesTitle": "Sous-lignes courantes",
+      "resumeBanner": "Session reprise à la ligne {{line}} / sous-ligne {{subLine}}",
+      "debugTitle": "Debug — Source courante",
+      "debugCursor": "Curseur : ligne {{line}} / sous-ligne {{subLine}}",
+      "debugCursorNone": "Curseur : aucun",
+      "debugLineItem": "Ligne {{index}}/{{total}} — {{kmA}} → {{kmB}} km",
+      "debugLineWindow": "fenêtre {{startTime}} → {{endTime}}",
+      "debugSubLineItem": "sous-ligne {{index}} : {{kmA}} → {{kmB}} km, z{{zoom}}, {{validated}}, {{count}} segment(s)",
+      "debugValidated": "validée",
+      "debugUnvalidated": "non validée",
+      "copyDebugJsonSourceOk": "JSON de la Source copié",
+      "mergeTitle": "Debug merge",
+      "mergeInactive": "Le debug merge est inactif (mode mono-tracé).",
+      "mergeSummaryEmpty": "Aucune chaîne n'a encore contribué de données de matching (0/{{total}} terminée). Lance le matching et valide au moins une chaîne.",
+      "mergeSummary": "Chaînes terminées {{done}}/{{total}} | segments bruts {{raw}} | segments dédupliqués {{deduped}}",
+      "mergeGeoJsonTitle": "GeoJSON résultant du merge",
+      "mergeGeoJsonInactive": "GeoJSON merge indisponible (mode mono-tracé).",
+      "mergeGeoJsonEmpty": "Aucune géométrie merge disponible pour l'instant.",
+      "mergeActiveMarker": "<- active",
+      "mergeStatus": {
+        "idle": "en attente",
+        "matching": "en cours",
+        "done": "terminée",
+        "skipped": "ignorée",
+        "error": "erreur"
+      },
       "stepsTitle": "Étapes en direct",
       "startManual": "Démarrer (manuel)",
       "startAutomatic": "Démarrer (automatique)",
       "validate": "Valider",
       "skip": "Passer la ligne",
       "back": "Retour",
+      "syntheticBanner": "Pas de CSV — la ligne entière sera fermée sur une seule fenêtre temporelle (saisie au téléchargement).",
+      "noSelection": "Sélectionne une ligne dans l'onglet Lignes.",
+      "prepareMteBtn": "Préparer MTE",
+      "prepareMteDisabled": "Détails du slowup non chargés",
       "reselectMatched": "Resélectionner",
       "rerunCurrentRow": "Relancer la ligne",
       "burstRunning": "Mode burst : les segments trouvés sont validés automatiquement.",
@@ -143,10 +209,34 @@
         "processingLeaf": "Matching de la sous-ligne {{index}}/{{total}} ({{kmA}} → {{kmB}} km)",
         "leafMatched": "Sous-ligne {{index}}/{{total}} matchée : {{count}} segment(s)",
         "waitingLeafValidation": "Sous-ligne {{index}}/{{total}} — validez ou corrigez la sélection",
+        "mergePreparingTrack": "Préparation du tracé slowup fusionné...",
+        "mergeRecomputing": "Recalcul de l'état merge des chaînes...",
+        "mergeInitialized": "Merge initialisé pour ce slowup.",
         "completedSummary": "Matching terminé : {{rowsValidated}} ligne(s) validée(s), {{totalSegments}} segment(s) sélectionné(s). Vous pouvez télécharger le fichier de fermetures.",
         "pauseFinalizingStep": "Finalisation de l'étape avant mise en pause…",
         "unknown": "Étape du pipeline"
-      }
+      },
+      "backToLines": "← Lignes"
+    },
+    "mtePopup": {
+      "loading": "Chargement…",
+      "error": "Erreur",
+      "close": "Fermer",
+      "copy": "Copier",
+      "refresh": "Rafraîchir",
+      "titleLabel": "Titre",
+      "dateLabel": "Date",
+      "urlLabel": "URL",
+      "mteIdLabel": "MTE ID",
+      "badgeStored": "depuis localStorage",
+      "badgeAutoUrl": "auto-détecté (URL)",
+      "badgeAutoName": "auto-détecté (nom)",
+      "badgeManual": "override manuel",
+      "badgeNone": "aucun MTE lié",
+      "candidatesHeader": "Candidats (MTE contenant « slowup ») — clique pour sélectionner :",
+      "noCandidates": "Aucun MTE dont le nom contient « slowup ».",
+      "blocked": "La fenêtre a été bloquée par le navigateur. Autorise les popups pour ce site.",
+      "polygonLabel": "Polygon GeoJSON (track + 500m)"
     },
     "finalFields": {
       "title": "Exporter les fermetures — détails finaux",

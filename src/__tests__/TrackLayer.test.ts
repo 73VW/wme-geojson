@@ -8,6 +8,7 @@ interface AddedFeature {
   coordinates?: unknown;
   kind: unknown;
   km?: unknown;
+  lineColor?: unknown;
 }
 
 function makeSdkMock(features: AddedFeature[]) {
@@ -25,6 +26,7 @@ function makeSdkMock(features: AddedFeature[]) {
             coordinates: (args.feature.geometry as { coordinates?: unknown }).coordinates,
             kind: args.feature.properties?.kind,
             km: (args.feature.properties as { km?: unknown } | undefined)?.km,
+            lineColor: (args.feature.properties as { lineColor?: unknown } | undefined)?.lineColor,
           });
         },
       ),
@@ -100,5 +102,37 @@ describe("TrackLayer label visibility", () => {
     const label = features.find((feature) => feature.geometryType === "Point");
     expect(label?.km).toBe(halfwayKm);
     expect(label?.coordinates).toEqual([7.01, 46.0]);
+  });
+
+  it("uses distinct colors for different sub-lines in per-subline mode", () => {
+    const features: AddedFeature[] = [];
+    const sdk = makeSdkMock(features);
+    const layer = new TrackLayer(sdk);
+    const track: NormalizedTrack = {
+      trackId: 1,
+      geometry: {
+        type: "MultiLineString",
+        coordinates: [
+          [
+            [7.0, 46.0],
+            [7.01, 46.0],
+          ],
+          [
+            [7.02, 46.0],
+            [7.03, 46.0],
+          ],
+        ],
+      },
+    };
+
+    layer.draw(track, { colorMode: "per-subline" });
+
+    const lineColors = features
+      .filter((feature) => feature.geometryType === "LineString" && feature.kind === "line")
+      .map((feature) => feature.lineColor)
+      .filter((color): color is string => typeof color === "string");
+
+    expect(lineColors).toHaveLength(2);
+    expect(lineColors[0]).not.toBe(lineColors[1]);
   });
 });

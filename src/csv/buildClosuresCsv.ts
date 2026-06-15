@@ -1,7 +1,7 @@
 // Pure CSV builder for the Advanced Closures import format.
 // No SDK, no DOM — safe to import in Node test environments.
 
-import type { CsvRow, ClosureRange } from "../state/SessionStore";
+import type { CsvRow, ClosureRange } from "./types";
 
 export interface FinalFields {
   reason: string; // e.g. "Tour de Romandie 2026"

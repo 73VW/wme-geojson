@@ -151,6 +151,124 @@ export function wzTextInput(props: WzTextInputProps): HTMLElement {
 }
 
 // ---------------------------------------------------------------------------
+// wz-tabs
+// ---------------------------------------------------------------------------
+
+export interface WzTabSpec {
+  /** Tab label shown in the tab bar. */
+  label: string;
+  /** Tab body content. */
+  content: HTMLElement;
+}
+
+export interface WzTabsHandle {
+  /** The root element to insert into the DOM. */
+  root: HTMLElement;
+  /** Activate the tab at `index` (0-based). */
+  setActiveTab(index: number): void;
+}
+
+/**
+ * Create a <wz-tabs> element with one <wz-tab> per spec (or a plain
+ * button-toggle fallback when WME is not running).
+ */
+export function wzTabs(tabs: WzTabSpec[]): WzTabsHandle {
+  const tagName = "wz-tabs";
+  const isRegistered =
+    typeof customElements !== "undefined" && customElements.get(tagName) !== undefined;
+
+  if (isRegistered) {
+    let activeTabIndex = 0;
+    const tabsEl = document.createElement(tagName);
+    tabsEl.setAttribute("fixed", "");
+    const tabEls: HTMLElement[] = [];
+    tabs.forEach((spec, index) => {
+      const tabEl = document.createElement("wz-tab");
+      tabEl.setAttribute("label", spec.label);
+      tabEl.setAttribute("tooltip", spec.label);
+      // wz-tabs activates no tab on its own — mark the first one active so the
+      // panel opens on a populated tab instead of a blank pane.
+      if (index === 0) {
+        tabEl.setAttribute("is-active", "");
+      }
+      tabEl.appendChild(spec.content);
+      tabsEl.appendChild(tabEl);
+      tabEls.push(tabEl);
+    });
+
+    // When the sidebar pane is hidden on load (display:none), <wz-tabs> measures
+    // the active label at 0 width and the indicator renders as a zero-width line.
+    // An IntersectionObserver fires once the pane first becomes visible; we then
+    // re-click the active shadow label so the component re-measures and sizes the
+    // indicator correctly.
+    if (typeof IntersectionObserver !== "undefined") {
+      const observer = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            observer.disconnect();
+            const labels = tabsEl.shadowRoot?.querySelectorAll(".wz-tab-label");
+            const label = labels?.[activeTabIndex];
+            if (label instanceof HTMLElement) {
+              label.click();
+            }
+            break;
+          }
+        }
+      });
+      observer.observe(tabsEl);
+    }
+
+    return {
+      root: tabsEl,
+      setActiveTab(index: number): void {
+        activeTabIndex = index;
+        // Clicking the matching shadow-DOM label is the reliable mechanism.
+        const labels = tabsEl.shadowRoot?.querySelectorAll(".wz-tab-label");
+        const label = labels?.[index];
+        if (label instanceof HTMLElement) {
+          label.click();
+        } else {
+          // Fallback if the shadow bar has not rendered yet: drive is-active.
+          tabEls.forEach((t, i) => {
+            if (i === index) t.setAttribute("is-active", "");
+            else t.removeAttribute("is-active");
+          });
+        }
+      },
+    };
+  }
+
+  warnMissingTag(tagName);
+  // Plain button-toggle fallback for non-WME / test environments.
+  const root = document.createElement("div");
+  const toggle = document.createElement("div");
+  toggle.className = "wmegj-subtab-toggle";
+  const buttons: HTMLButtonElement[] = [];
+  root.appendChild(toggle);
+
+  const setActiveTab = (index: number): void => {
+    tabs.forEach((spec, i) => {
+      spec.content.style.display = i === index ? "" : "none";
+      buttons[i]?.classList.toggle("wmegj-subtab-active", i === index);
+    });
+  };
+
+  tabs.forEach((spec, i) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = spec.label;
+    btn.addEventListener("click", () => setActiveTab(i));
+    toggle.appendChild(btn);
+    buttons.push(btn);
+    root.appendChild(spec.content);
+  });
+
+  setActiveTab(0);
+
+  return { root, setActiveTab };
+}
+
+// ---------------------------------------------------------------------------
 // file input (raw <input type="file">)
 // ---------------------------------------------------------------------------
 

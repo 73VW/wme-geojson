@@ -11,9 +11,9 @@
  * are not counted as distance, matching the behaviour of `computeDistanceLabels`.
  */
 
-import type { BBox, MultiLineString, Position } from "geojson";
-import { bbox as turfBbox } from "@turf/turf";
-import type { CsvRow } from "../state/SessionStore";
+import type { BBox, Feature, MultiLineString, MultiPolygon, Polygon, Position } from "geojson";
+import { bbox as turfBbox, buffer as turfBuffer } from "@turf/turf";
+import type { CsvRow } from "../csv/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -87,16 +87,19 @@ export function computeMatchingWorkItems(
       rowIndex,
       inputDistance: row.distance,
       kmA: row.distance,
-      kmB: rows[rowIndex + 1].distance,
+      kmB: Math.min(rows[rowIndex + 1].distance, totalKm),
     }));
   }
 
-  return rows.map((row, rowIndex) => ({
-    rowIndex,
-    inputDistance: row.distance,
-    kmA: row.distance,
-    kmB: rowIndex + 1 < rows.length ? rows[rowIndex + 1].distance : totalKm,
-  }));
+  return rows.map((row, rowIndex) => {
+    const rawKmB = rowIndex + 1 < rows.length ? rows[rowIndex + 1].distance : totalKm;
+    return {
+      rowIndex,
+      inputDistance: row.distance,
+      kmA: row.distance,
+      kmB: Math.min(rawKmB, totalKm),
+    };
+  });
 }
 
 // ─── sliceMultiLineByDistance ─────────────────────────────────────────────────
@@ -160,6 +163,51 @@ export function bboxOfMultiLineString(geometry: MultiLineString): BBox | null {
   const allCoords = geometry.coordinates.flat();
   if (allCoords.length === 0) return null;
   return turfBbox({ type: "Feature", geometry, properties: null });
+}
+
+/**
+ * Narrow the BBox of a MultiLineString to a 4-element [minX, minY, maxX, maxY] tuple.
+ * Returns `null` for empty geometry (same semantics as bboxOfMultiLineString).
+ */
+export function bbox4OfMultiLineString(
+  geometry: MultiLineString,
+): [number, number, number, number] | null {
+  const box = bboxOfMultiLineString(geometry);
+  if (!box) return null;
+  return [box[0], box[1], box[2], box[3]];
+}
+
+/**
+ * Inflate a MultiLineString by `meters` and return the resulting polygon
+ * Feature. Used to produce a GeoJSON polygon that hugs the track, suitable
+ * for pasting into the MTE creation form (which accepts a GeoJSON polygon).
+ *
+ * Returns `null` for empty geometries.
+ */
+export function inflatedTrackPolygon(
+  geometry: MultiLineString,
+  meters: number,
+): Feature<Polygon | MultiPolygon> | null {
+  if (geometry.coordinates.flat().length === 0) return null;
+  const feature: Feature<MultiLineString> = { type: "Feature", geometry, properties: {} };
+  const buffered = turfBuffer(feature, meters, { units: "meters" });
+  if (!buffered) return null;
+  // Drop any inner rings so a donut-shaped buffer becomes a filled outline —
+  // the MTE form wants a single solid envelope, not an annulus.
+  return {
+    ...buffered,
+    geometry: stripPolygonHoles(buffered.geometry),
+  };
+}
+
+function stripPolygonHoles(geometry: Polygon | MultiPolygon): Polygon | MultiPolygon {
+  if (geometry.type === "Polygon") {
+    return { type: "Polygon", coordinates: [geometry.coordinates[0]] };
+  }
+  return {
+    type: "MultiPolygon",
+    coordinates: geometry.coordinates.map((rings) => [rings[0]]),
+  };
 }
 
 /**
