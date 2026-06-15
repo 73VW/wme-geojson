@@ -363,6 +363,8 @@ export class MatchingSubTab {
   }
 
   unmount(): void {
+    this.uiState = { kind: "idle" };
+    this.lazyPipeline = null;
     this.controller?.dispose();
     this.controller = null;
     this.persistence.flush();
