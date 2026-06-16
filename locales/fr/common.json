@@ -106,6 +106,7 @@
     "lines": {
       "urlLabel": "URL GeoJSON",
       "urlLoad": "Charger",
+      "urlClear": "Retirer le tracé chargé depuis l'URL",
       "sourceFeature": "Feature (1 ligne)",
       "sourceCollection": "FeatureCollection ({{count}} lignes)",
       "empty": "Aucune ligne dans cette source.",

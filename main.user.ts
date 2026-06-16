@@ -3,7 +3,11 @@ import { initI18n } from "./locales/i18n";
 import { SessionStore } from "./src/state/SessionStore";
 import { LineRegistry } from "./src/lines/LineRegistry";
 import { MatchPanel } from "./src/ui/MatchPanel";
-import { loadAndAttachLines } from "./src/bootstrap/loadAndAttachTrack";
+import {
+  loadAndAttachLines,
+  loadAndAttachFile,
+  restoreUploadedFile,
+} from "./src/bootstrap/loadAndAttachTrack";
 import { getGeojsonUrlFromLocation } from "./src/utils/queryParams";
 import { logger } from "./src/utils/logger";
 
@@ -28,8 +32,11 @@ async function initScript(): Promise<void> {
   const panel = new MatchPanel(wmeSDK, store, registry);
 
   panel.setLoadFn((url: string) => loadAndAttachLines(url, registry, panel));
+  panel.setLoadFileFn((file: File) => loadAndAttachFile(file, registry, panel));
 
   await panel.mount();
+
+  await restoreUploadedFile(registry, panel);
 
   const url = getGeojsonUrlFromLocation();
   if (url) {

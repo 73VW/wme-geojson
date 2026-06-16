@@ -21,6 +21,7 @@ export class MatchPanel {
   private linesSubTab: LinesSubTab | null = null;
   private matchingSubTab: MatchingSubTab | null = null;
   private loadFn: ((url: string) => Promise<void>) | null = null;
+  private loadFileFn: ((file: File) => Promise<void>) | null = null;
   private previewLayer: LinesPreviewLayer | null = null;
   // Whether the Lignes sub-tab content is currently on screen. Drives the
   // multi-colour preview — see the IntersectionObserver wired in mount().
@@ -35,6 +36,16 @@ export class MatchPanel {
   /** Injected by main.user.ts to break the loadAndAttachLines import cycle. */
   setLoadFn(fn: (url: string) => Promise<void>): void {
     this.loadFn = fn;
+  }
+
+  /** Injected by main.user.ts to break the loadAndAttachFile import cycle. */
+  setLoadFileFn(fn: (file: File) => Promise<void>): void {
+    this.loadFileFn = fn;
+  }
+
+  /** Surface a successfully loaded/restored filename in the Lignes sub-tab. */
+  notifyFileLoaded(name: string): void {
+    this.linesSubTab?.setLoadedFile(name);
   }
 
   async mount(): Promise<void> {
@@ -54,6 +65,11 @@ export class MatchPanel {
     this.linesSubTab = new LinesSubTab({
       registry: this.registry,
       loadFn: this.loadFn,
+      loadFileFn:
+        this.loadFileFn ??
+        (async () => {
+          logger.error("MatchPanel.mount: loadFileFn not set");
+        }),
       onLineSelected: () => this.tabs?.setActiveTab(1),
       onCenterAll: () => this.centerOnAllLines(),
       onCenterLine: (id) => this.centerOnLine(id),

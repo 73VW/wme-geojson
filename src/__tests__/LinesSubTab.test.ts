@@ -140,6 +140,7 @@ describe("LinesSubTab", () => {
     const subTab = new LinesSubTab({
       registry,
       loadFn: vi.fn(),
+      loadFileFn: vi.fn(),
       onLineSelected: vi.fn(),
       onCenterAll: vi.fn(),
       onCenterLine: vi.fn(),
@@ -204,6 +205,7 @@ describe("LinesSubTab", () => {
     const subTab = new LinesSubTab({
       registry,
       loadFn: vi.fn(),
+      loadFileFn: vi.fn(),
       onLineSelected: vi.fn(),
       onCenterAll: vi.fn(),
       onCenterLine: vi.fn(),
@@ -231,6 +233,7 @@ describe("LinesSubTab", () => {
     const subTab = new LinesSubTab({
       registry,
       loadFn: vi.fn(),
+      loadFileFn: vi.fn(),
       onLineSelected: vi.fn(),
       onCenterAll: vi.fn(),
       onCenterLine: vi.fn(),

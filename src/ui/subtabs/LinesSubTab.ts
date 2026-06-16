@@ -9,11 +9,15 @@ import type { LineEntry } from "../../lines/types";
 import { fetchSlowupDetails } from "../../lines/slowupClient";
 import { parseSlowupDateUTC } from "../../lines/slowupDate";
 import { LinesListView } from "../views/LinesListView";
+import { clearUploadedFile } from "../../persistence/uploadedFile";
+import { clearLoadedUrl } from "../../bootstrap/loadAndAttachTrack";
 
 export interface LinesSubTabDeps {
   registry: LineRegistry;
   /** Fetches the URL and populates the registry. Handles its own errors. */
   loadFn: (url: string) => Promise<void>;
+  /** Reads the file and populates the registry. Handles its own errors. */
+  loadFileFn: (file: File) => Promise<void>;
   /** Called after a line is selected, so the shell can switch sub-tabs. */
   onLineSelected: () => void;
   /** Zooms the WME map to the bounding box of all loaded lines. */
@@ -69,6 +73,9 @@ export class LinesSubTab {
     this.deps = deps;
     this.view = new LinesListView({
       onLoadUrl: (url) => void this.handleLoad(url),
+      onClearUrl: () => this.handleClearUrl(),
+      onLoadFile: (file) => void this.deps.loadFileFn(file),
+      onClearFile: () => this.handleClearFile(),
       onSelect: (id) => this.handleSelect(id),
       onCenterAll: deps.onCenterAll,
       onCenterLine: deps.onCenterLine,
@@ -92,6 +99,22 @@ export class LinesSubTab {
 
   showError(message: string): void {
     this.view.showError(message);
+  }
+
+  /** Called by MatchPanel when a file is successfully loaded or restored. */
+  setLoadedFile(name: string): void {
+    this.view.setLoadedFile(name);
+  }
+
+  private handleClearFile(): void {
+    clearUploadedFile();
+    this.deps.registry.setEntries([]);
+    this.view.setLoadedFile(null);
+  }
+
+  private handleClearUrl(): void {
+    this.view.clearError();
+    clearLoadedUrl(this.deps.registry);
   }
 
   private async handleLoad(url: string): Promise<void> {
