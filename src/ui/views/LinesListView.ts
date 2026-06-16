@@ -43,20 +43,45 @@ export class LinesListView {
     const urlRow = document.createElement("section");
     urlRow.className = "wmegj-section";
 
+    const urlLabelEl = document.createElement("p");
+    urlLabelEl.className = "wmegj-input-label";
+    urlLabelEl.textContent = i18next.t("panel.lines.urlLabel");
+    urlRow.appendChild(urlLabelEl);
+
+    // Wraps just the input (no label) so the "×" can be absolutely
+    // positioned against the input's own box, like a native clear icon.
+    const urlFieldWrap = document.createElement("div");
+    urlFieldWrap.style.position = "relative";
+
     this.urlInputHost = wzTextInput({
-      label: i18next.t("panel.lines.urlLabel"),
       type: "url",
       placeholder: "https://…",
       onInput: (value) => {
         this.currentUrl = value;
       },
     });
-    urlRow.appendChild(this.urlInputHost);
+    urlFieldWrap.appendChild(this.urlInputHost);
 
-    const loadRow = document.createElement("div");
-    loadRow.style.display = "flex";
-    loadRow.style.alignItems = "center";
-    loadRow.style.gap = "4px";
+    const clearUrlBtn = document.createElement("button");
+    clearUrlBtn.className = "wmegj-url-clear";
+    clearUrlBtn.style.position = "absolute";
+    clearUrlBtn.style.right = "8px";
+    clearUrlBtn.style.top = "50%";
+    clearUrlBtn.style.transform = "translateY(-50%)";
+    clearUrlBtn.style.background = "none";
+    clearUrlBtn.style.border = "none";
+    clearUrlBtn.style.cursor = "pointer";
+    clearUrlBtn.style.fontSize = "16px";
+    clearUrlBtn.style.lineHeight = "1";
+    clearUrlBtn.style.padding = "2px";
+    clearUrlBtn.style.display = "none";
+    clearUrlBtn.textContent = "×";
+    clearUrlBtn.title = i18next.t("panel.lines.urlClear");
+    clearUrlBtn.addEventListener("click", () => props.onClearUrl());
+    urlFieldWrap.appendChild(clearUrlBtn);
+
+    urlRow.appendChild(urlFieldWrap);
+    this.clearUrlBtn = clearUrlBtn;
 
     const loadBtn = wzButton({
       text: i18next.t("panel.lines.urlLoad"),
@@ -64,22 +89,7 @@ export class LinesListView {
       onClick: () => props.onLoadUrl(this.currentUrl.trim()),
     });
     loadBtn.classList.add("wmegj-load-btn");
-    loadRow.appendChild(loadBtn);
-
-    const clearUrlBtn = document.createElement("button");
-    clearUrlBtn.className = "wmegj-url-clear";
-    clearUrlBtn.style.background = "none";
-    clearUrlBtn.style.border = "none";
-    clearUrlBtn.style.cursor = "pointer";
-    clearUrlBtn.style.fontSize = "14px";
-    clearUrlBtn.style.display = "none";
-    clearUrlBtn.textContent = "×";
-    clearUrlBtn.title = i18next.t("panel.lines.urlClear");
-    clearUrlBtn.addEventListener("click", () => props.onClearUrl());
-    loadRow.appendChild(clearUrlBtn);
-
-    urlRow.appendChild(loadRow);
-    this.clearUrlBtn = clearUrlBtn;
+    urlRow.appendChild(loadBtn);
 
     this.errorEl = document.createElement("p");
     this.errorEl.className = "wmegj-url-error";
