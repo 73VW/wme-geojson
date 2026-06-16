@@ -32,6 +32,7 @@ export class LinesListView {
   private readonly onCenterLine: (id: string) => void;
   private readonly fileBadgeEl: HTMLDivElement;
   private readonly fileBadgeNameEl: HTMLSpanElement;
+  private readonly clearUrlBtn: HTMLButtonElement;
 
   constructor(props: LinesListProps) {
     this.onSelect = props.onSelect;
@@ -52,13 +53,18 @@ export class LinesListView {
     });
     urlRow.appendChild(this.urlInputHost);
 
+    const loadRow = document.createElement("div");
+    loadRow.style.display = "flex";
+    loadRow.style.alignItems = "center";
+    loadRow.style.gap = "4px";
+
     const loadBtn = wzButton({
       text: i18next.t("panel.lines.urlLoad"),
       variant: "primary",
       onClick: () => props.onLoadUrl(this.currentUrl.trim()),
     });
     loadBtn.classList.add("wmegj-load-btn");
-    urlRow.appendChild(loadBtn);
+    loadRow.appendChild(loadBtn);
 
     const clearUrlBtn = document.createElement("button");
     clearUrlBtn.className = "wmegj-url-clear";
@@ -66,14 +72,14 @@ export class LinesListView {
     clearUrlBtn.style.border = "none";
     clearUrlBtn.style.cursor = "pointer";
     clearUrlBtn.style.fontSize = "14px";
-    clearUrlBtn.style.marginLeft = "4px";
+    clearUrlBtn.style.display = "none";
     clearUrlBtn.textContent = "×";
     clearUrlBtn.title = i18next.t("panel.lines.urlClear");
-    clearUrlBtn.addEventListener("click", () => {
-      this.setUrl("");
-      props.onClearUrl();
-    });
-    urlRow.appendChild(clearUrlBtn);
+    clearUrlBtn.addEventListener("click", () => props.onClearUrl());
+    loadRow.appendChild(clearUrlBtn);
+
+    urlRow.appendChild(loadRow);
+    this.clearUrlBtn = clearUrlBtn;
 
     this.errorEl = document.createElement("p");
     this.errorEl.className = "wmegj-url-error";
@@ -158,6 +164,11 @@ export class LinesListView {
     this.urlInputHost.setAttribute("value", url);
     const nested = this.urlInputHost.querySelector("input");
     if (nested) nested.value = url;
+  }
+
+  /** Show or hide the "×" button that clears a URL-loaded track. */
+  setUrlLoaded(loaded: boolean): void {
+    this.clearUrlBtn.style.display = loaded ? "inline" : "none";
   }
 
   setEntries(entries: readonly LineEntry[]): void {

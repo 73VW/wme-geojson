@@ -104,6 +104,13 @@ export class LinesSubTab {
   /** Called by MatchPanel when a file is successfully loaded or restored. */
   setLoadedFile(name: string): void {
     this.view.setLoadedFile(name);
+    this.view.setUrlLoaded(false);
+  }
+
+  /** Called by MatchPanel when a URL is successfully loaded (manual or auto). */
+  setUrlLoaded(): void {
+    this.view.setUrlLoaded(true);
+    this.view.setLoadedFile(null);
   }
 
   private handleClearFile(): void {
@@ -114,6 +121,8 @@ export class LinesSubTab {
 
   private handleClearUrl(): void {
     this.view.clearError();
+    this.view.setUrl("");
+    this.view.setUrlLoaded(false);
     clearLoadedUrl(this.deps.registry);
   }
 

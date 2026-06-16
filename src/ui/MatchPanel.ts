@@ -48,6 +48,11 @@ export class MatchPanel {
     this.linesSubTab?.setLoadedFile(name);
   }
 
+  /** Surface a successfully loaded URL (manual or auto from query param). */
+  notifyUrlLoaded(): void {
+    this.linesSubTab?.setUrlLoaded();
+  }
+
   async mount(): Promise<void> {
     if (this.tabPane) return;
 
