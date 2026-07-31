@@ -10,7 +10,13 @@
   "features": {
     "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
   },
-  "initializeCommand": "${localWorkspaceFolder}/.devcontainer/init.sh"
+  "initializeCommand": "${localWorkspaceFolder}/.devcontainer/init.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": ["Anthropic.claude-code"]
+    }
+  },
+  "mounts": ["source=wme-geojson-node-home,target=/home/node/,type=volume"]
   // Features to add to the dev container. More info: https://containers.dev/features.
   // "features": {},
   // Use 'forwardPorts' to make a list of ports inside the container available locally.
