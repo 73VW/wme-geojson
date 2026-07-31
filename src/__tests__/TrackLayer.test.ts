@@ -11,6 +11,18 @@ interface AddedFeature {
   lineColor?: unknown;
 }
 
+type MockFeature = { geometry: { type: string }; properties?: { kind?: unknown } };
+
+function recordFeature(features: AddedFeature[], feature: MockFeature): void {
+  features.push({
+    geometryType: feature.geometry.type,
+    coordinates: (feature.geometry as { coordinates?: unknown }).coordinates,
+    kind: feature.properties?.kind,
+    km: (feature.properties as { km?: unknown } | undefined)?.km,
+    lineColor: (feature.properties as { lineColor?: unknown } | undefined)?.lineColor,
+  });
+}
+
 function makeSdkMock(features: AddedFeature[]) {
   return {
     Map: {
@@ -19,17 +31,12 @@ function makeSdkMock(features: AddedFeature[]) {
       removeAllFeaturesFromLayer: vi.fn(() => {
         features.length = 0;
       }),
-      addFeatureToLayer: vi.fn(
-        (args: { feature: { geometry: { type: string }; properties?: { kind?: unknown } } }) => {
-          features.push({
-            geometryType: args.feature.geometry.type,
-            coordinates: (args.feature.geometry as { coordinates?: unknown }).coordinates,
-            kind: args.feature.properties?.kind,
-            km: (args.feature.properties as { km?: unknown } | undefined)?.km,
-            lineColor: (args.feature.properties as { lineColor?: unknown } | undefined)?.lineColor,
-          });
-        },
-      ),
+      addFeatureToLayer: vi.fn((args: { feature: MockFeature }) => {
+        recordFeature(features, args.feature);
+      }),
+      addFeaturesToLayer: vi.fn((args: { features: MockFeature[] }) => {
+        args.features.forEach((feature) => recordFeature(features, feature));
+      }),
     },
   } as unknown as WmeSDK;
 }
