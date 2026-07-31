@@ -579,8 +579,10 @@ export class MatchingSubTab {
   private onCsvFileSelected(file: File): void {
     this.clearCsvError();
     this.showCsvLoading();
+    console.time("wmegj:csv:fileRead"); // ponytail: perf probe, remove once import-slowness is root-caused
     const reader = new FileReader();
     reader.onload = () => {
+      console.timeEnd("wmegj:csv:fileRead");
       const text = reader.result;
       if (typeof text !== "string") {
         this.hideCsvLoading();
@@ -589,8 +591,10 @@ export class MatchingSubTab {
       // Yield one frame so the browser paints the loading indicator before
       // the synchronous heavy computation in processCsvText begins.
       setTimeout(() => {
+        console.time("wmegj:csv:total");
         this.processCsvText(text);
         this.hideCsvLoading();
+        console.timeEnd("wmegj:csv:total");
       }, 0);
     };
     reader.onerror = () => {
@@ -613,13 +617,17 @@ export class MatchingSubTab {
     const entry = this.registry.getSelected();
     if (!entry || entry.slowupNumber !== undefined) return;
     let rows: CsvRow[];
+    console.time("wmegj:csv:parseSchedule"); // ponytail: perf probe, remove once import-slowness is root-caused
     try {
       rows = parseSchedule(text);
     } catch (err) {
+      console.timeEnd("wmegj:csv:parseSchedule");
       logger.error("MatchingSubTab.processCsvText: parseSchedule failed", err);
       this.showCsvError(i18next.t("panel.csvInput.error"));
       return;
     }
+    console.timeEnd("wmegj:csv:parseSchedule");
+    console.log(`wmegj:csv:rowCount=${rows.length}`);
 
     this.registry.updateEntry(entry.id, {
       mode: "csv",
@@ -651,15 +659,22 @@ export class MatchingSubTab {
     track: LineEntry["track"],
     csvRows: CsvRow[] | undefined,
   ): void {
+    // ponytail: perf probes below, remove once import-slowness is root-caused
     this.persistence.clear(sourceId);
     this.lazyPipeline = null;
+    console.time("wmegj:csv:buildGeojsonSource");
     const source = buildGeojsonSource({
       sourceId,
       track,
       csvRows,
       onWarning: (message) => this.reportCsvWarning(message),
     });
+    console.timeEnd("wmegj:csv:buildGeojsonSource");
+    console.log(`wmegj:csv:lineCount=${source.lines.length}`);
+
+    console.time("wmegj:csv:hydrate");
     this.sourceStore.hydrate(source);
+    console.timeEnd("wmegj:csv:hydrate");
 
     // Recompute display geometry from the new source (union of CSV-sliced lines)
     // and redraw the track layer + range slider so they reflect the new geometry.
@@ -669,6 +684,7 @@ export class MatchingSubTab {
     };
     const entry = this.registry.getSelected();
     if (entry && this.trackLayer) {
+      console.time("wmegj:csv:trackLayerDraw");
       try {
         this.wmeSDK.Map.removeLayer({ layerName: TrackLayer.LAYER_NAME });
       } catch {
@@ -687,13 +703,16 @@ export class MatchingSubTab {
         this.trackLayer.setVisibleDistances(csvRows.map((r) => r.distance));
       }
       this.setTrackLayer(this.trackLayer);
+      console.timeEnd("wmegj:csv:trackLayerDraw");
     }
 
+    console.time("wmegj:csv:dispatchAndRender");
     this.dispatch({ type: "SOURCE_CHANGED" });
     this.store.setPhase("csv-loaded");
     this.hideResumeBanner();
     this.resetGuidedSessionState({ closePanel: true });
     this.renderSourceState();
+    console.timeEnd("wmegj:csv:dispatchAndRender");
   }
 
   // ---------------------------------------------------------------------------
