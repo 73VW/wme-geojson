@@ -6,6 +6,7 @@ import type { MultiLineString } from "geojson";
 import type { NormalizedTrack } from "../geojson/types";
 import { fetchGeoJson } from "../geojson/Loader";
 import { gpxToGeoJson } from "../geojson/gpxToGeoJson";
+import { kmlToGeoJson } from "../geojson/kmlToGeoJson";
 import { validateFeature, validateFeatureCollection } from "../geojson/validate";
 import { normalizeTrack } from "../geojson/normalize";
 import { computeDisplayName } from "./displayName";
@@ -132,12 +133,15 @@ export function buildEntriesFromData(raw: unknown, sourceUrl: string): LineEntry
 
 /**
  * Parse file text content into LineEntry[].
- * Detects format by filename extension (.gpx → GPX, else → GeoJSON).
+ * Detects format by filename extension (.gpx → GPX, .kml → KML, else → GeoJSON).
  */
 export function buildEntriesFromText(text: string, filename: string): LineEntry[] {
-  if (filename.toLowerCase().endsWith(".gpx")) {
-    const raw = gpxToGeoJson(text);
-    return buildEntriesFromData(raw, filename);
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".gpx")) {
+    return buildEntriesFromData(gpxToGeoJson(text), filename);
+  }
+  if (lower.endsWith(".kml")) {
+    return buildEntriesFromData(kmlToGeoJson(text), filename);
   }
   const raw: unknown = JSON.parse(text);
   return buildEntriesFromData(raw, filename);
