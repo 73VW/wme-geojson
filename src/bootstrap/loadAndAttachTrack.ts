@@ -9,7 +9,7 @@ import type { MatchPanel } from "../ui/MatchPanel";
 import { clearUploadedFile, loadUploadedFile, saveUploadedFile } from "../persistence/uploadedFile";
 
 /**
- * Read a File object, parse it (GeoJSON or GPX), persist to localStorage,
+ * Read a File object, parse it (GeoJSON, GPX, or KML), persist to localStorage,
  * and populate the registry. Calls panel.showLoadError on failure.
  * Calls panel.notifyFileLoaded(filename) on success.
  */

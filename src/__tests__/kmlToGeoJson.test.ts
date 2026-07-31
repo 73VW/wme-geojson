@@ -71,4 +71,43 @@ describe("kmlToGeoJson", () => {
     expect(entries).toHaveLength(1);
     expect(entries[0]?.track.geometry.type).toBe("MultiLineString");
   });
+
+  it("parses namespace-prefixed KML (kml: prefix)", () => {
+    const prefixed = `<kml:kml xmlns:kml="http://www.opengis.net/kml/2.2"><kml:Document><kml:Placemark><kml:name>P</kml:name><kml:LineString><kml:coordinates>1,2 3,4</kml:coordinates></kml:LineString></kml:Placemark></kml:Document></kml:kml>`;
+    const raw = kmlToGeoJson(prefixed) as {
+      type: string;
+      geometry: { type: string; coordinates: number[][][] };
+      properties: { name: string | null };
+    };
+    expect(raw.type).toBe("Feature");
+    expect(raw.geometry.coordinates).toEqual([
+      [
+        [1, 2],
+        [3, 4],
+      ],
+    ]);
+    expect(raw.properties.name).toBe("P");
+  });
+
+  it("tolerates a space after the comma in coordinate tuples", () => {
+    const spaced = `<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+      <Placemark><name>P</name><LineString><coordinates>6.62, 46.50, 1 6.63, 46.51, 2</coordinates></LineString></Placemark>
+    </Document></kml>`;
+    const raw = kmlToGeoJson(spaced) as {
+      geometry: { coordinates: number[][][] };
+    };
+    expect(raw.geometry.coordinates).toEqual([
+      [
+        [6.62, 46.5],
+        [6.63, 46.51],
+      ],
+    ]);
+  });
+
+  it("throws when the only LineString has empty coordinates", () => {
+    const emptyCoords = `<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+      <Placemark><name>P</name><LineString><coordinates></coordinates></LineString></Placemark>
+    </Document></kml>`;
+    expect(() => kmlToGeoJson(emptyCoords)).toThrow("KML file contains no LineStrings");
+  });
 });
