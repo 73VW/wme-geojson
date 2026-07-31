@@ -56,4 +56,12 @@ describe("kmlToGeoJson", () => {
     </Document></kml>`;
     expect(() => kmlToGeoJson(pointsOnly)).toThrow("KML file contains no LineStrings");
   });
+
+  it("preserves & and < inside a CDATA-wrapped name", () => {
+    const withEntities = `<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+      <Placemark><name><![CDATA[A & B <Test>]]></name><LineString><coordinates>1,2 3,4</coordinates></LineString></Placemark>
+    </Document></kml>`;
+    const raw = kmlToGeoJson(withEntities) as { properties: { name: string | null } };
+    expect(raw.properties.name).toBe("A & B <Test>");
+  });
 });

@@ -5,10 +5,12 @@
  */
 export function kmlToGeoJson(kmlText: string): unknown {
   // ponytail: happy-dom's XML parser errors on any CDATA section (test-env
-  // bug, not a spec issue — real browsers treat CDATA content identically to
-  // escaped text). Unwrapping it here is a no-op in production and only
-  // works around the test environment; drop this if happy-dom fixes it.
-  const normalized = kmlText.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1");
+  // bug, not a spec issue — real browsers parse CDATA fine). Unwrap-and-escape
+  // to plain escaped text so the result is semantically identical XML in every
+  // parser; drop this if happy-dom fixes it.
+  const normalized = kmlText.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, (_, content: string) =>
+    content.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"),
+  );
   const doc = new DOMParser().parseFromString(normalized, "application/xml");
   const placemarks = Array.from(doc.getElementsByTagName("Placemark"));
 
