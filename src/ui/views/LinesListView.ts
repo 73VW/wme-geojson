@@ -103,12 +103,12 @@ export class LinesListView {
 
     const fileInput = document.createElement("input");
     fileInput.type = "file";
-    fileInput.accept = ".geojson,.gpx";
+    fileInput.accept = ".geojson,.gpx,.kml";
     fileInput.style.display = "none";
     fileRow.appendChild(fileInput);
 
     const chooseBtn = wzButton({
-      text: "📂 Choisir un fichier (.geojson / .gpx)",
+      text: "📂 Choisir un fichier (.geojson / .gpx / .kml)",
       variant: "secondary",
       onClick: () => fileInput.click(),
     });

@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 import { kmlToGeoJson } from "../geojson/kmlToGeoJson";
+import { buildEntriesFromText } from "../lines/featureCollectionLoader";
 
 const KML = `<?xml version="1.0" encoding="utf-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
@@ -63,5 +64,11 @@ describe("kmlToGeoJson", () => {
     </Document></kml>`;
     const raw = kmlToGeoJson(withEntities) as { properties: { name: string | null } };
     expect(raw.properties.name).toBe("A & B <Test>");
+  });
+
+  it("routes .kml files through buildEntriesFromText", () => {
+    const entries = buildEntriesFromText(KML, "E01.kml");
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.track.geometry.type).toBe("MultiLineString");
   });
 });
