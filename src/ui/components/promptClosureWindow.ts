@@ -59,7 +59,7 @@ export async function promptClosureWindow(
 
     const dialog = el("dialog");
     dialog.style.border = "none";
-    dialog.style.borderRadius = "8px";
+    dialog.style.borderRadius = "10px";
     dialog.style.padding = "28px 32px";
     dialog.style.maxWidth = "420px";
     dialog.style.width = "90vw";
@@ -87,12 +87,12 @@ export async function promptClosureWindow(
       label.textContent = labelText;
       label.style.fontSize = "13px";
       label.style.fontWeight = "600";
-      label.style.color = "#333";
+      label.style.color = "#344054";
       input.id = id;
       input.style.padding = "6px 8px";
       input.style.fontSize = "13px";
-      input.style.border = "1px solid #ccc";
-      input.style.borderRadius = "4px";
+      input.style.border = "1px solid #c7d0d9";
+      input.style.borderRadius = "8px";
       wrap.appendChild(label);
       wrap.appendChild(input);
       return wrap;
@@ -105,22 +105,37 @@ export async function promptClosureWindow(
     const buttonRow = el("div");
     buttonRow.style.display = "flex";
     buttonRow.style.justifyContent = "flex-end";
-    buttonRow.style.gap = "10px";
+    buttonRow.style.gap = "8px";
     buttonRow.style.marginTop = "8px";
 
     const cancelBtn = el("button");
     cancelBtn.type = "button";
     cancelBtn.textContent = i18next.t("panel.modal.closureWindow.cancel");
-    cancelBtn.style.padding = "7px 16px";
+    cancelBtn.style.padding = "8px 16px";
+    cancelBtn.style.minHeight = "36px";
+    cancelBtn.style.border = "1px solid #c7d0d9";
+    cancelBtn.style.borderRadius = "8px";
+    cancelBtn.style.background = "#ffffff";
+    cancelBtn.style.color = "#344054";
+    cancelBtn.style.fontSize = "13px";
+    cancelBtn.style.fontWeight = "600";
     cancelBtn.style.cursor = "pointer";
+    cancelBtn.style.lineHeight = "1.25";
     cancelBtn.addEventListener("click", () => settle(null));
 
     const okBtn = el("button");
     okBtn.type = "submit";
     okBtn.textContent = i18next.t("panel.modal.closureWindow.download");
-    okBtn.style.padding = "7px 16px";
+    okBtn.style.padding = "8px 16px";
+    okBtn.style.minHeight = "36px";
+    okBtn.style.border = "1px solid #3478f6";
+    okBtn.style.borderRadius = "8px";
+    okBtn.style.background = "#3478f6";
+    okBtn.style.color = "#ffffff";
+    okBtn.style.fontSize = "13px";
+    okBtn.style.fontWeight = "600";
     okBtn.style.cursor = "pointer";
-    okBtn.style.fontWeight = "bold";
+    okBtn.style.lineHeight = "1.25";
 
     buttonRow.appendChild(cancelBtn);
     buttonRow.appendChild(okBtn);

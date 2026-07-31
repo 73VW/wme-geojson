@@ -26,13 +26,13 @@ function labeledInput(labelText: string, inputEl: HTMLInputElement, id: string):
   label.textContent = labelText;
   label.style.fontSize = "13px";
   label.style.fontWeight = "600";
-  label.style.color = "#333";
+  label.style.color = "#344054";
 
   inputEl.id = id;
   inputEl.style.padding = "6px 8px";
   inputEl.style.fontSize = "13px";
-  inputEl.style.border = "1px solid #ccc";
-  inputEl.style.borderRadius = "4px";
+  inputEl.style.border = "1px solid #c7d0d9";
+  inputEl.style.borderRadius = "8px";
 
   wrapper.appendChild(label);
   wrapper.appendChild(inputEl);
@@ -120,7 +120,7 @@ export async function promptFinalFields(
     // Using <dialog> for native focus trapping and Esc key handling.
     const dialog = el("dialog");
     dialog.style.border = "none";
-    dialog.style.borderRadius = "8px";
+    dialog.style.borderRadius = "10px";
     dialog.style.padding = "28px 32px";
     dialog.style.maxWidth = "420px";
     dialog.style.width = "90vw";
@@ -181,14 +181,22 @@ export async function promptFinalFields(
     const buttonRow = el("div");
     buttonRow.style.display = "flex";
     buttonRow.style.justifyContent = "flex-end";
-    buttonRow.style.gap = "10px";
+    buttonRow.style.gap = "8px";
     buttonRow.style.marginTop = "8px";
 
     const cancelBtn = el("button");
     cancelBtn.type = "button";
     cancelBtn.textContent = i18next.t("panel.finalFields.cancel");
-    cancelBtn.style.padding = "7px 16px";
+    cancelBtn.style.padding = "8px 16px";
+    cancelBtn.style.minHeight = "36px";
+    cancelBtn.style.border = "1px solid #c7d0d9";
+    cancelBtn.style.borderRadius = "8px";
+    cancelBtn.style.background = "#ffffff";
+    cancelBtn.style.color = "#344054";
+    cancelBtn.style.fontSize = "13px";
+    cancelBtn.style.fontWeight = "600";
     cancelBtn.style.cursor = "pointer";
+    cancelBtn.style.lineHeight = "1.25";
     cancelBtn.addEventListener("click", () => {
       settle(null);
     });
@@ -196,9 +204,16 @@ export async function promptFinalFields(
     const okBtn = el("button");
     okBtn.type = "submit";
     okBtn.textContent = i18next.t("panel.finalFields.ok");
-    okBtn.style.padding = "7px 16px";
+    okBtn.style.padding = "8px 16px";
+    okBtn.style.minHeight = "36px";
+    okBtn.style.border = "1px solid #3478f6";
+    okBtn.style.borderRadius = "8px";
+    okBtn.style.background = "#3478f6";
+    okBtn.style.color = "#ffffff";
+    okBtn.style.fontSize = "13px";
+    okBtn.style.fontWeight = "600";
     okBtn.style.cursor = "pointer";
-    okBtn.style.fontWeight = "bold";
+    okBtn.style.lineHeight = "1.25";
 
     buttonRow.appendChild(cancelBtn);
     buttonRow.appendChild(okBtn);
