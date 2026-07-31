@@ -100,6 +100,10 @@ export function clearLoadedUrl(registry: LineRegistry): void {
   const params = new URLSearchParams(window.location.search);
   params.delete("geojson");
   const query = params.toString();
-  history.replaceState(null, "", query ? `${window.location.pathname}?${query}` : window.location.pathname);
+  history.replaceState(
+    null,
+    "",
+    query ? `${window.location.pathname}?${query}` : window.location.pathname,
+  );
   registry.setEntries([]);
 }
