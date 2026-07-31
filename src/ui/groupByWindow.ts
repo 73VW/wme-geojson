@@ -13,7 +13,7 @@ export function groupByWindow(bySegment: readonly ClosuresBySegment[]): WindowGr
 
   for (const entry of bySegment) {
     for (const win of entry.windows) {
-      const key = `${win.startISO}|${win.endISO}`;
+      const key = `${win.startISO}|${win.endISO}|${win.geo.lon}|${win.geo.lat}|${win.geo.zoom}`;
       const existing = map.get(key);
       if (existing) {
         existing.segmentIds.push(entry.segmentId);

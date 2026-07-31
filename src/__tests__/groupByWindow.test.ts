@@ -52,6 +52,17 @@ describe("groupByWindow", () => {
     expect(group2.segmentIds).toEqual([100]);
   });
 
+  it("two segments, same window but different geo → two WindowGroups", () => {
+    const bySegment: ClosuresBySegment[] = [
+      { segmentId: 100, windows: [{ ...WIN_1, geo: GEO_A }] },
+      { segmentId: 101, windows: [{ ...WIN_1, geo: GEO_B }] },
+    ];
+    const result = groupByWindow(bySegment);
+    expect(result).toHaveLength(2);
+    expect(result.find((g) => g.geo === GEO_A)?.segmentIds).toEqual([100]);
+    expect(result.find((g) => g.geo === GEO_B)?.segmentIds).toEqual([101]);
+  });
+
   it("three segments with same window → one WindowGroup with three segmentIds", () => {
     const bySegment: ClosuresBySegment[] = [
       { segmentId: 100, windows: [{ ...WIN_1 }] },
