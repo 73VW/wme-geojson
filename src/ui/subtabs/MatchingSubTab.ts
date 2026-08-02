@@ -36,7 +36,7 @@ import {
   type MatchDriver,
 } from "../../controller/LazyMatchingPipeline";
 import { closuresFromSource, type GlobalClosureGroup } from "../../csv/closuresFromSource";
-import { groupByWindow } from "../groupByWindow";
+import { groupByWindow, roadbookRowIndex } from "../groupByWindow";
 import { waitForMapIdle } from "../../utils/waitForMapIdle";
 import { openMtePreparePopup } from "../MtePreparePopup";
 import { createMteSdk } from "../../mte";
@@ -293,7 +293,12 @@ export class MatchingSubTab {
           : "single",
     });
     if (entry.csvRows?.length) {
-      layer.setVisibleDistances(entry.csvRows.map((r) => r.distance));
+      // Display geometry starts at the first roadbook distance (leading slice
+      // dropped when it is > 0), so anchor label placement on that origin.
+      layer.setVisibleDistances(
+        entry.csvRows.map((r) => r.distance),
+        entry.csvRows[0].distance,
+      );
     }
 
     const controller = new WalkController(this.wmeSDK, displayGeometry);
@@ -621,6 +626,7 @@ export class MatchingSubTab {
       return;
     }
 
+
     this.registry.updateEntry(entry.id, {
       mode: "csv",
       csvRows: rows,
@@ -684,7 +690,10 @@ export class MatchingSubTab {
         },
       );
       if (csvRows?.length) {
-        this.trackLayer.setVisibleDistances(csvRows.map((r) => r.distance));
+        this.trackLayer.setVisibleDistances(
+          csvRows.map((r) => r.distance),
+          csvRows[0].distance,
+        );
       }
       this.setTrackLayer(this.trackLayer);
     }
@@ -1887,6 +1896,11 @@ export class MatchingSubTab {
       return section;
     }
 
+    // Slider values stay in display-geometry km (what setVisibleRange expects);
+    // only the numbers shown to the operator add the roadbook origin, matching
+    // the km labels on the map.
+    const originKm = this.registry.getSelected()?.csvRows?.[0]?.distance ?? 0;
+
     const heading = document.createElement("p");
     heading.style.margin = "0 0 4px 0";
     heading.style.fontSize = "12px";
@@ -1898,8 +1912,8 @@ export class MatchingSubTab {
     valueLabel.style.margin = "0 0 6px 0";
     valueLabel.style.fontSize = "12px";
     valueLabel.textContent = i18next.t("panel.range.window", {
-      min: "0.00",
-      max: totalKm.toFixed(2),
+      min: originKm.toFixed(2),
+      max: (originKm + totalKm).toFixed(2),
     });
     section.appendChild(valueLabel);
 
@@ -1942,8 +1956,8 @@ export class MatchingSubTab {
       pendingLo = lo;
       pendingHi = hi;
       valueLabel.textContent = i18next.t("panel.range.window", {
-        min: lo.toFixed(2),
-        max: hi.toFixed(2),
+        min: (lo + originKm).toFixed(2),
+        max: (hi + originKm).toFixed(2),
       });
       if (pendingFrame === 0) {
         pendingFrame = requestAnimationFrame(() => {
@@ -2089,22 +2103,15 @@ export class MatchingSubTab {
     });
     if (!fields) return;
 
-    // Synthesize the legacy ClosureRowGroup/ClosureRange/CsvRow shapes:
-    // one synthetic row per (segment, window).
-    const rows: CsvRow[] = [];
+    // Reference the real roadbook rows so the exported comments carry the
+    // true line number / distance, and so the export sorts in roadbook order.
+    const roadbookRows = this.registry.getSelected()?.csvRows ?? [];
     const groups: ClosureRowGroup[] = [];
     const closuresBySegment: Record<number, ClosureRange[]> = {};
 
     const windowGroups = groupByWindow(bySegment);
     windowGroups.forEach(({ startISO, endISO, geo, segmentIds }) => {
-      const rowIndex = rows.length;
-      rows.push({
-        distance: 0,
-        date: startISO.slice(0, 10),
-        startTime: startISO.slice(11, 16),
-        endTime: endISO.slice(11, 16),
-        segments: segmentIds,
-      });
+      const rowIndex = roadbookRowIndex(startISO, roadbookRows);
       groups.push({ rowIndex, segmentIds, geo });
       for (const id of segmentIds) {
         const existing = closuresBySegment[id] ?? [];
@@ -2113,7 +2120,7 @@ export class MatchingSubTab {
       }
     });
 
-    this.emitClosuresCsv(rows, groups, closuresBySegment, fields);
+    this.emitClosuresCsv(roadbookRows, groups, closuresBySegment, fields);
   }
 
   private emitClosuresCsv(

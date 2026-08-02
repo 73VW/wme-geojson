@@ -104,6 +104,39 @@ describe("TrackLayer label visibility", () => {
     expect(label?.coordinates).toEqual([7.01, 46.0]);
   });
 
+  it("places origin-offset labels at (distance − origin) but keeps the roadbook km as text", () => {
+    // Display geometry that starts at roadbook km 5.7 (leading slice dropped):
+    // the label "5.7" must sit at the very start of the displayed track, and
+    // the next roadbook distance halfway along it.
+    const features: AddedFeature[] = [];
+    const sdk = makeSdkMock(features);
+    const layer = new TrackLayer(sdk);
+    const track: NormalizedTrack = {
+      trackId: 1,
+      geometry: {
+        type: "MultiLineString",
+        coordinates: [
+          [
+            [7.0, 46.0],
+            [7.02, 46.0],
+          ],
+        ],
+      },
+    };
+
+    layer.draw(track);
+    const originKm = 5.7;
+    const halfwayKm = layer.getTotalKm() / 2;
+    layer.setVisibleDistances([originKm, originKm + halfwayKm], originKm);
+
+    const labels = features.filter((feature) => feature.geometryType === "Point");
+    expect(labels).toHaveLength(2);
+    expect(labels[0].coordinates).toEqual([7.0, 46.0]);
+    expect(labels[0].km).toBe(originKm);
+    expect(labels[1].coordinates).toEqual([7.01, 46.0]);
+    expect(labels[1].km).toBe(originKm + halfwayKm);
+  });
+
   it("uses distinct colors for different sub-lines in per-subline mode", () => {
     const features: AddedFeature[] = [];
     const sdk = makeSdkMock(features);

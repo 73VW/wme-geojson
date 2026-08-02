@@ -11,6 +11,8 @@ export interface DistanceLabel {
   km: number;
   subLineIndex: number;
   vertexIndex: number;
+  /** Text shown on the label when it differs from the position km (origin-offset roadbooks). */
+  labelKm?: number;
 }
 
 /**
@@ -53,6 +55,7 @@ export function computeDistanceLabels(geometry: MultiLineString): DistanceLabel[
 export function computeDistanceLabelsAtDistances(
   geometry: MultiLineString,
   distancesKm: ReadonlyArray<number>,
+  originKm = 0,
 ): DistanceLabel[] {
   const labels: DistanceLabel[] = [];
   const seenKeys = new Set<string>();
@@ -64,8 +67,14 @@ export function computeDistanceLabelsAtDistances(
     if (seenKeys.has(key)) continue;
     seenKeys.add(key);
 
-    const label = computeDistanceLabelAtDistance(geometry, km);
-    if (label) labels.push(label);
+    // The geometry may start at roadbook km `originKm` (leading slice not
+    // displayed): place the label at (km − originKm) along the geometry but
+    // keep the roadbook value as the label text.
+    const positionKm = km - originKm;
+    if (positionKm < 0) continue;
+
+    const label = computeDistanceLabelAtDistance(geometry, positionKm);
+    if (label) labels.push({ ...label, labelKm: km });
   }
 
   return labels.sort((a, b) => a.km - b.km);

@@ -164,7 +164,7 @@ export class TrackLayer {
    * visible range. The track stroke is unaffected — only labels are filtered.
    * Composes with setVisibleRange as an intersection.
    */
-  setVisibleDistances(distancesKm: ReadonlyArray<number> | null): void {
+  setVisibleDistances(distancesKm: ReadonlyArray<number> | null, originKm = 0): void {
     if (!this.currentTrack) return;
     if (!distancesKm || distancesKm.length === 0) {
       this.currentDistanceLabels = null;
@@ -172,6 +172,7 @@ export class TrackLayer {
       this.currentDistanceLabels = computeDistanceLabelsAtDistances(
         this.currentTrack.geometry,
         distancesKm,
+        originKm,
       );
     }
     this.redraw();
@@ -367,7 +368,7 @@ export class TrackLayer {
         id: featureId,
         type: "Feature",
         geometry: { type: "Point", coordinates: label.coord },
-        properties: { kind: LABEL_KIND, featureId, km: label.km },
+        properties: { kind: LABEL_KIND, featureId, km: label.labelKm ?? label.km },
       },
     });
   }

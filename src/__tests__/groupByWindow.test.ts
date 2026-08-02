@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { groupByWindow } from "../ui/groupByWindow";
+import { groupByWindow, roadbookRowIndex } from "../ui/groupByWindow";
 import type { ClosuresBySegment } from "../csv/closuresFromSource";
+import type { CsvRow } from "../csv/types";
 
 const GEO_A = { lon: 7.1, lat: 46.1, zoom: 15 };
 const GEO_B = { lon: 8.2, lat: 47.2, zoom: 17 };
@@ -52,6 +53,20 @@ describe("groupByWindow", () => {
     expect(group2.segmentIds).toEqual([100]);
   });
 
+  it("same window but different geos → one WindowGroup per geo, each keeping its own geo", () => {
+    const bySegment: ClosuresBySegment[] = [
+      { segmentId: 100, windows: [{ ...WIN_1, geo: GEO_A }] },
+      { segmentId: 101, windows: [{ ...WIN_1, geo: GEO_B }] },
+      { segmentId: 102, windows: [{ ...WIN_1, geo: GEO_A }] },
+    ];
+    const result = groupByWindow(bySegment);
+    expect(result).toHaveLength(2);
+    const groupA = result.find((g) => g.geo === GEO_A)!;
+    const groupB = result.find((g) => g.geo === GEO_B)!;
+    expect(groupA.segmentIds).toEqual([100, 102]);
+    expect(groupB.segmentIds).toEqual([101]);
+  });
+
   it("three segments with same window → one WindowGroup with three segmentIds", () => {
     const bySegment: ClosuresBySegment[] = [
       { segmentId: 100, windows: [{ ...WIN_1 }] },
@@ -64,5 +79,21 @@ describe("groupByWindow", () => {
     expect(result[0].segmentIds).toContain(100);
     expect(result[0].segmentIds).toContain(101);
     expect(result[0].segmentIds).toContain(102);
+  });
+});
+
+describe("roadbookRowIndex", () => {
+  const rows: CsvRow[] = [
+    { distance: 41.0, startTime: "12:17", endTime: "15:23", date: "2026-08-03", segments: null },
+    { distance: 47.5, startTime: "12:29", endTime: "15:35", date: "2026-08-03", segments: null },
+  ];
+
+  it("maps a window start back to the roadbook row it came from", () => {
+    expect(roadbookRowIndex("2026-08-03T12:17", rows)).toBe(0);
+    expect(roadbookRowIndex("2026-08-03T12:29", rows)).toBe(1);
+  });
+
+  it("falls back to 0 when no row matches", () => {
+    expect(roadbookRowIndex("2026-08-04T09:00", rows)).toBe(0);
   });
 });
