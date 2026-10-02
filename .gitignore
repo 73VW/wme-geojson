@@ -3,3 +3,4 @@ node_modules/
 .mcp.json
 .vscode/mcp.json
 .vscode/settings.json
+header-dev.js
