@@ -20,10 +20,12 @@
 ### Task 1: `kmlToGeoJson` converter
 
 **Files:**
+
 - Create: `src/geojson/kmlToGeoJson.ts`
 - Test: `src/__tests__/kmlToGeoJson.test.ts`
 
 **Interfaces:**
+
 - Consumes: nothing (pure function over a string).
 - Produces: `kmlToGeoJson(kmlText: string): unknown` — returns a GeoJSON `Feature` (one line placemark) or `FeatureCollection` (several), throws `Error("KML file contains no LineStrings")` otherwise. Task 2 imports it from `../geojson/kmlToGeoJson`.
 
@@ -167,11 +169,13 @@ git commit -m "feat(lines): add KML to GeoJSON converter"
 ### Task 2: Wire `.kml` into file upload
 
 **Files:**
+
 - Modify: `src/lines/featureCollectionLoader.ts:137-144` (`buildEntriesFromText`)
 - Modify: `src/ui/views/LinesListView.ts:106` and `src/ui/views/LinesListView.ts:111`
 - Test: `src/__tests__/kmlToGeoJson.test.ts` (extend)
 
 **Interfaces:**
+
 - Consumes: `kmlToGeoJson(kmlText: string): unknown` from `../geojson/kmlToGeoJson` (Task 1).
 - Produces: `buildEntriesFromText(text, filename)` now handles filenames ending in `.kml` (case-insensitive). No signature change.
 
@@ -184,11 +188,11 @@ import { buildEntriesFromText } from "../lines/featureCollectionLoader";
 ```
 
 ```ts
-  it("routes .kml files through buildEntriesFromText", () => {
-    const entries = buildEntriesFromText(KML, "E01.kml");
-    expect(entries).toHaveLength(1);
-    expect(entries[0]?.track.geometry.type).toBe("MultiLineString");
-  });
+it("routes .kml files through buildEntriesFromText", () => {
+  const entries = buildEntriesFromText(KML, "E01.kml");
+  expect(entries).toHaveLength(1);
+  expect(entries[0]?.track.geometry.type).toBe("MultiLineString");
+});
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
