@@ -42,7 +42,7 @@ import { waitForMapIdle } from "../../utils/waitForMapIdle";
 import { isMatchingComplete } from "../../domain/isMatchingComplete";
 import { segmentPermalink } from "../../utils/segmentPermalink";
 import { pollUntil } from "../../utils/pollUntil";
-import { planClosureStops, type ClosureItem } from "../../csv/planClosureStops";
+import { closureDateToMs, planClosureStops, type ClosureItem } from "../../csv/planClosureStops";
 import {
   applyClosures,
   type ApplyReport,
@@ -2840,17 +2840,6 @@ function slugifyFilename(name: string | undefined | null): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-}
-
-/**
- * RoadClosure.startDate/endDate come back as strings in the closure's local
- * time ("YYYY-MM-DD HH:MM", possibly with seconds) — unlike addClosure, which
- * takes Unix ms. A purely numeric string is treated as ms. null never matches.
- */
-function closureDateToMs(value: string | null): number {
-  if (value === null) return NaN;
-  if (/^\d+$/.test(value)) return Number(value);
-  return new Date(value.replace(" ", "T")).getTime();
 }
 
 /** Clé mteStore : refid pour un slowup, id de la ligne pour une autre fermeture. */

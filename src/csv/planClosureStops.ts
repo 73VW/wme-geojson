@@ -23,11 +23,26 @@ export interface ClosureStop {
   closures: PlannedClosure[];
 }
 
-/** "YYYY-MM-DDTHH:MM" (no offset) → Unix ms, interpreted as local time. */
+/**
+ * "YYYY-MM-DDTHH:MM" (no offset) → Unix ms. WME displays addClosure
+ * timestamps as wall-clock UTC, so the time is encoded as UTC: reading it in
+ * the browser timezone shifted Swiss closures by one or two hours.
+ */
 export function isoToMs(iso: string): number {
-  const ms = new Date(iso).getTime();
+  const ms = new Date(`${iso}Z`).getTime();
   if (Number.isNaN(ms)) throw new Error(`[planClosureStops] Invalid date: "${iso}"`);
   return ms;
+}
+
+/**
+ * RoadClosure.startDate/endDate ("YYYY-MM-DD HH:MM", wall-clock) → ms with the
+ * same UTC convention as isoToMs, so existing closures are recognised. A
+ * purely numeric string is treated as ms. null never matches.
+ */
+export function closureDateToMs(value: string | null): number {
+  if (value === null) return NaN;
+  if (/^\d+$/.test(value)) return Number(value);
+  return new Date(`${value.replace(" ", "T")}Z`).getTime();
 }
 
 export function planClosureStops(items: readonly ClosureItem[]): ClosureStop[] {

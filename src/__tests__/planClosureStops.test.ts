@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { directionsFor, isoToMs, planClosureStops } from "../csv/planClosureStops";
+import { closureDateToMs, directionsFor, isoToMs, planClosureStops } from "../csv/planClosureStops";
 
 const viewA = { lon: 6.1, lat: 46.2, zoom: 17 };
 const viewB = { lon: 6.3, lat: 46.4, zoom: 16 };
@@ -41,8 +41,9 @@ describe("planClosureStops", () => {
 });
 
 describe("isoToMs", () => {
-  it("reads the ISO string as local time", () => {
-    expect(isoToMs("2026-05-31T09:00")).toBe(new Date(2026, 4, 31, 9, 0).getTime());
+  // WME shows addClosure timestamps as wall-clock UTC: 06:30 must be sent as 06:30Z.
+  it("encodes the wall-clock time as UTC, whatever the browser timezone", () => {
+    expect(isoToMs("2026-10-30T06:30")).toBe(Date.UTC(2026, 9, 30, 6, 30));
   });
   it("throws on garbage", () => {
     expect(() => isoToMs("nope")).toThrow();
@@ -58,5 +59,14 @@ describe("directionsFor", () => {
   });
   it("closes only B→A on a B→A one-way", () => {
     expect(directionsFor({ isAtoB: false, isBtoA: true })).toEqual([false]);
+  });
+});
+
+describe("closureDateToMs", () => {
+  it("reads WME's closure date string with the same UTC convention as isoToMs", () => {
+    expect(closureDateToMs("2026-10-30 06:30")).toBe(isoToMs("2026-10-30T06:30"));
+  });
+  it("never matches a null date", () => {
+    expect(closureDateToMs(null)).toBeNaN();
   });
 });
