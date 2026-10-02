@@ -30,6 +30,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K): HTMLElementTagNameMa
  */
 export async function promptClosureWindow(
   defaults: ClosureWindowDefaults,
+  mode: "download" | "apply" = "download",
 ): Promise<ClosureWindow[] | null> {
   return new Promise<ClosureWindow[] | null>((resolve) => {
     let settled = false;
@@ -176,7 +177,9 @@ export async function promptClosureWindow(
 
     const okBtn = el("button");
     okBtn.type = "submit";
-    okBtn.textContent = i18next.t("panel.modal.closureWindow.download");
+    okBtn.textContent = i18next.t(
+      mode === "apply" ? "panel.modal.closureWindow.apply" : "panel.modal.closureWindow.download",
+    );
     okBtn.style.padding = "7px 16px";
     okBtn.style.cursor = "pointer";
     okBtn.style.fontWeight = "bold";

@@ -67,12 +67,15 @@ export function resolveDefaultMteId(
 export interface PromptFinalFieldsOptions {
   defaults?: Partial<FinalFields>;
   mteKey?: MteKey;
+  /** "apply" adds closures in WME: no CSV, so no comment column and no comma rule. */
+  mode?: "download" | "apply";
 }
 
 export async function promptFinalFields(
   options: PromptFinalFieldsOptions = {},
 ): Promise<FinalFields | null> {
-  const { defaults, mteKey } = options;
+  const { defaults, mteKey, mode = "download" } = options;
+  const isApply = mode === "apply";
 
   return new Promise<FinalFields | null>((resolve) => {
     let settled = false;
@@ -133,7 +136,9 @@ export async function promptFinalFields(
     // --- Title ----------------------------------------------------------------
 
     const title = el("h3");
-    title.textContent = i18next.t("panel.finalFields.title");
+    title.textContent = i18next.t(
+      isApply ? "panel.finalFields.titleApply" : "panel.finalFields.title",
+    );
     title.style.margin = "0 0 16px 0";
     title.style.fontSize = "16px";
     title.style.fontWeight = "700";
@@ -149,7 +154,11 @@ export async function promptFinalFields(
 
     // Reason row
     form.appendChild(
-      labeledInput(i18next.t("panel.finalFields.reason"), reasonInput, "pff-reason"),
+      labeledInput(
+        i18next.t(isApply ? "panel.finalFields.reasonApply" : "panel.finalFields.reason"),
+        reasonInput,
+        "pff-reason",
+      ),
     );
 
     // Ignore traffic row — checkbox with inline label
@@ -173,10 +182,12 @@ export async function promptFinalFields(
     // MTE ID row
     form.appendChild(labeledInput(i18next.t("panel.finalFields.mteId"), mteIdInput, "pff-mte-id"));
 
-    // Comment row
-    form.appendChild(
-      labeledInput(i18next.t("panel.finalFields.comment"), commentInput, "pff-comment"),
-    );
+    // Comment row — only the CSV has a comment column.
+    if (!isApply) {
+      form.appendChild(
+        labeledInput(i18next.t("panel.finalFields.comment"), commentInput, "pff-comment"),
+      );
+    }
 
     form.appendChild(errorBanner);
 
@@ -199,7 +210,7 @@ export async function promptFinalFields(
 
     const okBtn = el("button");
     okBtn.type = "submit";
-    okBtn.textContent = i18next.t("panel.finalFields.ok");
+    okBtn.textContent = i18next.t(isApply ? "panel.finalFields.okApply" : "panel.finalFields.ok");
     okBtn.style.padding = "7px 16px";
     okBtn.style.cursor = "pointer";
     okBtn.style.fontWeight = "bold";
@@ -219,7 +230,8 @@ export async function promptFinalFields(
       // Guard comma in user-facing fields early so the error appears in the
       // modal rather than propagating to buildClosuresCsv as an unhandled throw.
       const commaError = i18next.t("panel.finalFields.errorCommaInField");
-      if (reason.includes(",") || comment.includes(",") || mteId.includes(",")) {
+      const hasComma = reason.includes(",") || comment.includes(",") || mteId.includes(",");
+      if (!isApply && hasComma) {
         showError(commaError);
         return;
       }

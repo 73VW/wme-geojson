@@ -36,7 +36,8 @@
         "addLine": "+ Ajouter un horaire",
         "removeLine": "Supprimer cet horaire",
         "cancel": "Annuler",
-        "download": "Télécharger"
+        "download": "Télécharger",
+        "apply": "Appliquer"
       }
     },
     "errors": {
@@ -253,7 +254,10 @@
       "comment": "Commentaire (optionnel)",
       "ok": "Exporter",
       "cancel": "Annuler",
-      "errorCommaInField": "Les champs ne doivent pas contenir de virgule (le CSV de sortie utilise la virgule comme séparateur)."
+      "errorCommaInField": "Les champs ne doivent pas contenir de virgule (le CSV de sortie utilise la virgule comme séparateur).",
+      "titleApply": "Appliquer les fermetures — détails finaux",
+      "reasonApply": "Description (utilisée seulement sans MTE ; sinon le nom du MTE)",
+      "okApply": "Appliquer"
     },
     "mteInfo": {
       "title": "Préparer MTE — informations de l'événement",

@@ -2227,11 +2227,14 @@ export class MatchingSubTab {
 
     const today = new Date().toISOString().slice(0, 10);
     const slowupDate = this.registry.getSelected()?.slowupDetails?.date;
-    const windows = await promptClosureWindow({
-      date: slowupDate ?? today,
-      startTime: "09:00",
-      endTime: "17:30",
-    });
+    const windows = await promptClosureWindow(
+      {
+        date: slowupDate ?? today,
+        startTime: "09:00",
+        endTime: "17:30",
+      },
+      "apply",
+    );
     if (!windows) return null;
     return windows.flatMap((window) =>
       closures.groups.map((group) => ({
@@ -2251,7 +2254,10 @@ export class MatchingSubTab {
     }
     const items = await this.collectClosureItems();
     if (!items) return;
-    const fields = await promptFinalFields({ mteKey: mteKeyOf(this.registry.getSelected()) });
+    const fields = await promptFinalFields({
+      mteKey: mteKeyOf(this.registry.getSelected()),
+      mode: "apply",
+    });
     if (!fields) return;
 
     this.applyingClosures = true;

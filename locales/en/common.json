@@ -36,7 +36,8 @@
         "addLine": "+ Add a time slot",
         "removeLine": "Remove this time slot",
         "cancel": "Cancel",
-        "download": "Download"
+        "download": "Download",
+        "apply": "Apply"
       }
     },
     "errors": {
@@ -253,7 +254,10 @@
       "comment": "Comment (optional)",
       "ok": "Export",
       "cancel": "Cancel",
-      "errorCommaInField": "Fields must not contain a comma (the output CSV uses comma as delimiter)."
+      "errorCommaInField": "Fields must not contain a comma (the output CSV uses comma as delimiter).",
+      "titleApply": "Apply closures — final details",
+      "reasonApply": "Description (used only without an MTE; otherwise the MTE name)",
+      "okApply": "Apply"
     },
     "mteInfo": {
       "title": "Prepare MTE — event details",
