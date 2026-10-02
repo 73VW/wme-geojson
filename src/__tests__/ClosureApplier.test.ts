@@ -63,6 +63,13 @@ describe("applyClosures", () => {
     expect(report).toEqual({ added: 1, skipped: 1, failures: [] });
   });
 
+  it("does not add the same closure twice when a segment sits in two views", async () => {
+    const driver = fakeDriver();
+    const report = await applyClosures([stop([1]), stop([1])], options, driver);
+    expect(driver.addClosure).toHaveBeenCalledTimes(2);
+    expect(report).toEqual({ added: 2, skipped: 2, failures: [] });
+  });
+
   it("records a segment missing from the data model and continues", async () => {
     const driver = fakeDriver({
       getSegment: vi.fn((id) => (id === 1 ? null : { isAtoB: true, isBtoA: false })),

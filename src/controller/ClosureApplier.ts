@@ -51,6 +51,9 @@ export async function applyClosures(
 ): Promise<ApplyReport> {
   const report: ApplyReport = { added: 0, skipped: 0, failures: [] };
   const { trafficEventId, isPermanent } = options;
+  // A segment crossing a sub-line cut sits in two views. Track what this run
+  // added instead of trusting getAll() to return unsaved closures.
+  const addedKeys = new Set<string>();
 
   for (const [index, stop] of stops.entries()) {
     driver.setMapCenter(stop.geo.lon, stop.geo.lat, stop.geo.zoom);
@@ -77,12 +80,14 @@ export async function applyClosures(
       }
       for (const isForward of directionsFor(segment)) {
         const directed = { ...closure, isForward };
-        if (driver.hasClosure(directed)) {
+        const key = `${closure.segmentId}|${isForward}|${closure.startMs}|${closure.endMs}`;
+        if (addedKeys.has(key) || driver.hasClosure(directed)) {
           report.skipped++;
           continue;
         }
         try {
           driver.addClosure({ ...directed, description, isPermanent, trafficEventId });
+          addedKeys.add(key);
           report.added++;
         } catch (err) {
           const reason = err instanceof Error ? err.message : String(err);
