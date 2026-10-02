@@ -134,13 +134,14 @@ export function buildEntriesFromData(raw: unknown, sourceUrl: string): LineEntry
 /**
  * Parse file text content into LineEntry[].
  * Detects format by filename extension (.gpx → GPX, .kml → KML, else → GeoJSON).
+ * For .kmz, `text` is the KML already extracted from the archive.
  */
 export function buildEntriesFromText(text: string, filename: string): LineEntry[] {
   const lower = filename.toLowerCase();
   if (lower.endsWith(".gpx")) {
     return buildEntriesFromData(gpxToGeoJson(text), filename);
   }
-  if (lower.endsWith(".kml")) {
+  if (lower.endsWith(".kml") || lower.endsWith(".kmz")) {
     return buildEntriesFromData(kmlToGeoJson(text), filename);
   }
   const raw: unknown = JSON.parse(text);

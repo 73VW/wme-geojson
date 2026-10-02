@@ -2,6 +2,7 @@
 // Drawing and controller creation happen later, when a line is selected
 // in the MatchingSubTab.
 
+import { kmzToKml } from "../geojson/kmzToKml";
 import { buildEntriesFromText, loadLines } from "../lines/featureCollectionLoader";
 import type { LineRegistry } from "../lines/LineRegistry";
 import { logger } from "../utils/logger";
@@ -9,7 +10,7 @@ import type { MatchPanel } from "../ui/MatchPanel";
 import { clearUploadedFile, loadUploadedFile, saveUploadedFile } from "../persistence/uploadedFile";
 
 /**
- * Read a File object, parse it (GeoJSON, GPX, or KML), persist to localStorage,
+ * Read a File object, parse it (GeoJSON, GPX, KML or KMZ), persist to localStorage,
  * and populate the registry. Calls panel.showLoadError on failure.
  * Calls panel.notifyFileLoaded(filename) on success.
  */
@@ -20,7 +21,10 @@ export async function loadAndAttachFile(
 ): Promise<void> {
   let text: string;
   try {
-    text = await file.text();
+    // KMZ is persisted as its extracted KML text, under the original filename.
+    text = file.name.toLowerCase().endsWith(".kmz")
+      ? await kmzToKml(await file.arrayBuffer())
+      : await file.text();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error("loadAndAttachFile: failed to read file", err);
