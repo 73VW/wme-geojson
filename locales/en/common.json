@@ -186,7 +186,7 @@
       "syntheticBanner": "No CSV — the whole line will be closed over a single time window (entered at download).",
       "noSelection": "Select a line in the Lines tab.",
       "prepareMteBtn": "Prepare MTE",
-      "prepareMteDisabled": "SlowUp details not loaded",
+      "prepareMteDisabled": "No line selected",
       "reselectMatched": "Reselect matched",
       "rerunCurrentRow": "Rerun row",
       "burstRunning": "Burst mode: matched segments are auto-validated.",
@@ -239,7 +239,9 @@
       "candidatesHeader": "Candidates (MTE containing \"slowup\") — click to select:",
       "noCandidates": "No MTE with \"slowup\" in its name.",
       "blocked": "The window was blocked by the browser. Allow popups for this site.",
-      "polygonLabel": "GeoJSON polygon (track + 500m)"
+      "polygonLabel": "GeoJSON polygon (track + 500m)",
+      "candidatesHeaderDate": "Candidates (MTEs active on {{date}}) — click to select:",
+      "noCandidatesDate": "No MTE active on {{date}}."
     },
     "finalFields": {
       "title": "Export closures — final details",
@@ -250,6 +252,17 @@
       "ok": "Export",
       "cancel": "Cancel",
       "errorCommaInField": "Fields must not contain a comma (the output CSV uses comma as delimiter)."
+    },
+    "mteInfo": {
+      "title": "Prepare MTE — event details",
+      "titleLabel": "Title",
+      "startDate": "Start (date and time)",
+      "endDate": "End (date and time)",
+      "description": "Description (copied into all 4 languages)",
+      "url": "URL (optional)",
+      "ok": "Continue",
+      "errorRequired": "Title and dates are required.",
+      "errorDates": "End must be on or after start."
     }
   }
 }

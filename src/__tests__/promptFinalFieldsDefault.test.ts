@@ -25,4 +25,9 @@ describe("resolveDefaultMteId", () => {
     mteStore.set(19, "FROM_STORE");
     expect(resolveDefaultMteId(undefined, undefined)).toBe("");
   });
+
+  it("falls back to mteStore for a non-slowup line id", () => {
+    mteStore.set("line#0", "FROM_STORE");
+    expect(resolveDefaultMteId(undefined, "line#0")).toBe("FROM_STORE");
+  });
 });

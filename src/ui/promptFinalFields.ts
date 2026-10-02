@@ -5,17 +5,21 @@
 
 import i18next from "i18next";
 import type { FinalFields } from "../csv/buildClosuresCsv";
-import { mteStore } from "../mte/mteStore";
+import { mteStore, type MteKey } from "../mte/mteStore";
 
 // ---------------------------------------------------------------------------
 // DOM helpers — thin wrappers to avoid repetition without adding a framework
 // ---------------------------------------------------------------------------
 
-function el<K extends keyof HTMLElementTagNameMap>(tag: K): HTMLElementTagNameMap[K] {
+export function el<K extends keyof HTMLElementTagNameMap>(tag: K): HTMLElementTagNameMap[K] {
   return document.createElement(tag);
 }
 
-function labeledInput(labelText: string, inputEl: HTMLInputElement, id: string): HTMLDivElement {
+export function labeledInput(
+  labelText: string,
+  inputEl: HTMLInputElement | HTMLTextAreaElement,
+  id: string,
+): HTMLDivElement {
   const wrapper = el("div");
   wrapper.style.display = "flex";
   wrapper.style.flexDirection = "column";
@@ -53,22 +57,22 @@ function labeledInput(labelText: string, inputEl: HTMLInputElement, id: string):
  */
 export function resolveDefaultMteId(
   explicit: string | undefined,
-  refid: number | undefined,
+  mteKey: MteKey | undefined,
 ): string {
   if (explicit !== undefined && explicit.length > 0) return explicit;
-  if (refid !== undefined) return mteStore.get(refid) ?? "";
+  if (mteKey !== undefined) return mteStore.get(mteKey) ?? "";
   return "";
 }
 
 export interface PromptFinalFieldsOptions {
   defaults?: Partial<FinalFields>;
-  refid?: number;
+  mteKey?: MteKey;
 }
 
 export async function promptFinalFields(
   options: PromptFinalFieldsOptions = {},
 ): Promise<FinalFields | null> {
-  const { defaults, refid } = options;
+  const { defaults, mteKey } = options;
 
   return new Promise<FinalFields | null>((resolve) => {
     let settled = false;
@@ -96,7 +100,7 @@ export async function promptFinalFields(
 
     const mteIdInput = el("input");
     mteIdInput.type = "text";
-    mteIdInput.value = resolveDefaultMteId(defaults?.mteId, refid);
+    mteIdInput.value = resolveDefaultMteId(defaults?.mteId, mteKey);
 
     const commentInput = el("input");
     commentInput.type = "text";

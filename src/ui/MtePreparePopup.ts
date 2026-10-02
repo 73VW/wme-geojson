@@ -12,12 +12,24 @@ import i18next from "i18next";
 import type { Feature, MultiPolygon, Polygon } from "geojson";
 import { fetchSlowupFullDetails } from "../lines/slowupClient";
 import type { SlowupFullDetails } from "../lines/types";
-import { byUrl, candidatesByName, mteStore, type MteRef, type MteSdk } from "../mte";
+import {
+  byUrl,
+  candidatesByBbox,
+  candidatesByName,
+  mteStore,
+  type MteKey,
+  type MteRef,
+  type MteSdk,
+} from "../mte";
+import type { ManualMteInfo } from "./promptMteInfo";
 
 const NAME_FILTER_NEEDLE = "slowup";
 
 export interface MtePreparePopupDeps {
-  refid: number;
+  /** Clé mteStore : refid pour un slowup, id de ligne sinon. */
+  mteKey: MteKey;
+  /** Slowup : détails récupérés via SchweizMobil. Sinon : infos saisies. */
+  source: { refid: number } | { manual: ManualMteInfo };
   slowupBbox: [number, number, number, number];
   /** Track buffered by 500m (or null if geometry empty). Used as the polygon
    * GeoJSON the user pastes into the MTE creation form. */
@@ -25,15 +37,26 @@ export interface MtePreparePopupDeps {
   mteSdk: MteSdk;
 }
 
-// Une fenêtre par refid : si l'utilisateur reclique, on focus celle déjà
+/** Ce que le popup affiche, quelle que soit l'origine des infos. */
+interface PopupContent {
+  heading: string;
+  dateText: string;
+  abstracts: Record<"en" | "fr" | "de" | "it", string>;
+  urlLink: string;
+  candidates(mtes: MteRef[]): MteRef[];
+  candidatesHeader: string;
+  noCandidates: string;
+}
+
+// Une fenêtre par clé : si l'utilisateur reclique, on focus celle déjà
 // ouverte plutôt que d'en empiler une seconde.
-const openWindows = new Map<number, Window>();
+const openWindows = new Map<MteKey, Window>();
 
 const POPUP_FEATURES = "width=640,height=860,scrollbars=yes,resizable=yes,menubar=no,toolbar=no";
 
 export async function openMtePreparePopup(deps: MtePreparePopupDeps): Promise<void> {
-  // 1. Refocus s'il y a déjà une fenêtre ouverte pour ce refid.
-  const existing = openWindows.get(deps.refid);
+  // 1. Refocus s'il y a déjà une fenêtre ouverte pour cette clé.
+  const existing = openWindows.get(deps.mteKey);
   if (existing && !existing.closed) {
     existing.focus();
     return;
@@ -41,15 +64,15 @@ export async function openMtePreparePopup(deps: MtePreparePopupDeps): Promise<vo
 
   // 2. window.open DOIT être appelé dans le gesture handler synchrone,
   //    sinon les popup blockers bloquent. On ouvre AVANT le fetch.
-  const popup = window.open("", `wme-mte-prep-${deps.refid}`, POPUP_FEATURES);
+  const popup = window.open("", `wme-mte-prep-${deps.mteKey}`, POPUP_FEATURES);
   if (!popup) {
     alert(i18next.t("panel.mtePopup.blocked"));
     return;
   }
 
-  openWindows.set(deps.refid, popup);
+  openWindows.set(deps.mteKey, popup);
   popup.addEventListener("beforeunload", () => {
-    openWindows.delete(deps.refid);
+    openWindows.delete(deps.mteKey);
   });
 
   const doc = popup.document;
@@ -59,9 +82,12 @@ export async function openMtePreparePopup(deps: MtePreparePopupDeps): Promise<vo
   const { titleEl, bodyEl } = renderShell(doc);
 
   // 3. Fetch lazy après que la fenêtre est ouverte.
-  let details: SlowupFullDetails;
+  let content: PopupContent;
   try {
-    details = await fetchSlowupFullDetails(deps.refid);
+    content =
+      "refid" in deps.source
+        ? slowupContent(await fetchSlowupFullDetails(deps.source.refid))
+        : manualContent(deps.source.manual, deps.slowupBbox);
   } catch (err) {
     if (popup.closed) return;
     titleEl.textContent = i18next.t("panel.mtePopup.error");
@@ -71,8 +97,39 @@ export async function openMtePreparePopup(deps: MtePreparePopupDeps): Promise<vo
 
   if (popup.closed) return;
 
-  doc.title = `SlowUP ${details.title}`;
-  renderContent(popup, titleEl, bodyEl, details, deps);
+  doc.title = content.heading;
+  renderContent(popup, titleEl, bodyEl, content, deps);
+}
+
+function slowupContent(details: SlowupFullDetails): PopupContent {
+  return {
+    heading: `SlowUP ${details.title}`,
+    dateText: formatDateForEditor(details.date),
+    abstracts: details.abstracts,
+    urlLink: details.urlLink,
+    candidates: (mtes) => candidatesByName(mtes, NAME_FILTER_NEEDLE),
+    candidatesHeader: i18next.t("panel.mtePopup.candidatesHeader"),
+    noCandidates: i18next.t("panel.mtePopup.noCandidates"),
+  };
+}
+
+function manualContent(info: ManualMteInfo, bbox: [number, number, number, number]): PopupContent {
+  const day = info.startDate.slice(0, 10);
+  const start = formatDateTimeForEditor(info.startDate);
+  const end = formatDateTimeForEditor(info.endDate);
+  const d = info.description;
+  return {
+    heading: info.title,
+    dateText: `${start} - ${end}`,
+    abstracts: { en: d, fr: d, de: d, it: d },
+    urlLink: info.urlLink,
+    // Le SDK n'expose pas la géométrie des MTE : seul le filtre par date agit.
+    candidates: (mtes) => candidatesByBbox(mtes, bbox, day).map((c) => c.mte),
+    candidatesHeader: i18next.t("panel.mtePopup.candidatesHeaderDate", {
+      date: formatDateForEditor(day),
+    }),
+    noCandidates: i18next.t("panel.mtePopup.noCandidatesDate", { date: formatDateForEditor(day) }),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -161,11 +218,11 @@ function renderContent(
   popup: Window,
   titleEl: HTMLElement,
   bodyEl: HTMLElement,
-  details: SlowupFullDetails,
+  content: PopupContent,
   deps: MtePreparePopupDeps,
 ): void {
   const doc = popup.document;
-  titleEl.textContent = `SlowUP ${details.title}`;
+  titleEl.textContent = content.heading;
   bodyEl.replaceChildren();
 
   // Order matches the MTE editor form: geojson, date, title, abstracts
@@ -177,26 +234,23 @@ function renderContent(
     );
   }
 
-  bodyEl.appendChild(
-    copyRow(doc, popup, i18next.t("panel.mtePopup.dateLabel"), formatDateForEditor(details.date)),
-  );
-  bodyEl.appendChild(
-    copyRow(doc, popup, i18next.t("panel.mtePopup.titleLabel"), `SlowUP ${details.title}`),
-  );
+  bodyEl.appendChild(copyRow(doc, popup, i18next.t("panel.mtePopup.dateLabel"), content.dateText));
+  bodyEl.appendChild(copyRow(doc, popup, i18next.t("panel.mtePopup.titleLabel"), content.heading));
 
   bodyEl.appendChild(divider(doc));
 
   for (const lang of ["en", "fr", "de", "it"] as const) {
     bodyEl.appendChild(
-      textBlock(doc, popup, `Abstract ${lang.toUpperCase()}`, details.abstracts[lang]),
+      textBlock(doc, popup, `Abstract ${lang.toUpperCase()}`, content.abstracts[lang]),
     );
   }
 
   bodyEl.appendChild(divider(doc));
 
-  bodyEl.appendChild(copyRow(doc, popup, i18next.t("panel.mtePopup.urlLabel"), details.urlLink));
-
-  bodyEl.appendChild(divider(doc));
+  if (content.urlLink) {
+    bodyEl.appendChild(copyRow(doc, popup, i18next.t("panel.mtePopup.urlLabel"), content.urlLink));
+    bodyEl.appendChild(divider(doc));
+  }
 
   // MTE ID section
   const mteSection = doc.createElement("div");
@@ -234,17 +288,17 @@ function renderContent(
   function runResolution(): void {
     const mtes = deps.mteSdk.listMtes();
     console.info(
-      "[mtePopup] resolving for refid",
-      deps.refid,
+      "[mtePopup] resolving for",
+      deps.mteKey,
       "/ title:",
-      details.title,
-      "/ slowup urlLink:",
-      details.urlLink,
+      content.heading,
+      "/ urlLink:",
+      content.urlLink,
       "/ normalized MTEs:",
       mtes,
     );
-    const stored = mteStore.get(deps.refid);
-    const autoUrl = byUrl(mtes, details.urlLink);
+    const stored = mteStore.get(deps.mteKey);
+    const autoUrl = byUrl(mtes, content.urlLink);
     candidatesContainer.replaceChildren();
 
     if (stored) {
@@ -252,33 +306,33 @@ function renderContent(
       badge.textContent = i18next.t("panel.mtePopup.badgeStored");
     } else if (autoUrl) {
       mteInput.value = autoUrl.id;
-      mteStore.set(deps.refid, autoUrl.id);
+      mteStore.set(deps.mteKey, autoUrl.id);
       badge.textContent = i18next.t("panel.mtePopup.badgeAutoUrl");
     } else {
       mteInput.value = "";
       badge.textContent = i18next.t("panel.mtePopup.badgeNone");
     }
 
-    // Toujours afficher la liste pré-filtrée des MTE dont le nom contient
-    // « slowup » (insensible à la casse). L'utilisateur clique pour
+    // Toujours afficher la liste pré-filtrée (nom « slowup » pour un slowup,
+    // MTE actifs à la date de début sinon). L'utilisateur clique pour
     // sélectionner manuellement. Quand le SDK exposera un urlLink, l'auto
     // détection ci-dessus prendra le relais sans changement supplémentaire.
-    const candidates = candidatesByName(mtes, NAME_FILTER_NEEDLE);
+    const candidates = content.candidates(mtes);
     if (candidates.length === 0) {
       const empty = doc.createElement("p");
       empty.className = "empty";
-      empty.textContent = i18next.t("panel.mtePopup.noCandidates");
+      empty.textContent = content.noCandidates;
       candidatesContainer.appendChild(empty);
     } else {
       const header = doc.createElement("p");
       header.className = "candidates-header";
-      header.textContent = i18next.t("panel.mtePopup.candidatesHeader");
+      header.textContent = content.candidatesHeader;
       candidatesContainer.appendChild(header);
       for (const m of candidates) {
         candidatesContainer.appendChild(
           candidateRow(doc, m, () => {
             mteInput.value = m.id;
-            mteStore.set(deps.refid, m.id);
+            mteStore.set(deps.mteKey, m.id);
             badge.textContent = i18next.t("panel.mtePopup.badgeManual");
           }),
         );
@@ -287,7 +341,7 @@ function renderContent(
   }
 
   mteInput.addEventListener("input", () => {
-    mteStore.set(deps.refid, mteInput.value);
+    mteStore.set(deps.mteKey, mteInput.value);
     badge.textContent = i18next.t("panel.mtePopup.badgeManual");
   });
 
@@ -307,6 +361,12 @@ function formatDateForEditor(isoDate: string): string {
   if (!match) return isoDate;
   const [, yyyy, mm, dd] = match;
   return `${dd}/${mm}/${yyyy}`;
+}
+
+// "YYYY-MM-DDTHH:mm" (datetime-local) → "DD/MM/YYYY HH:mm".
+function formatDateTimeForEditor(value: string): string {
+  const [date, time = ""] = value.split("T");
+  return `${formatDateForEditor(date)} ${time}`.trim();
 }
 
 function copyRow(doc: Document, popup: Window, label: string, value: string): HTMLElement {

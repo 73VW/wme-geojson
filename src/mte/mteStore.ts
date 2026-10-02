@@ -19,27 +19,30 @@ function writeAll(map: Record<string, string>): void {
   }
 }
 
+// Clé : refid pour un slowup, id de la ligne (string) pour une autre fermeture.
+export type MteKey = number | string;
+
 export const mteStore = {
-  get(refid: number): string | undefined {
+  get(key: MteKey): string | undefined {
     const map = readAll();
-    const value = map[String(refid)];
+    const value = map[String(key)];
     return value && value.length > 0 ? value : undefined;
   },
 
-  set(refid: number, mteId: string): void {
+  set(key: MteKey, mteId: string): void {
     const trimmed = mteId.trim();
     if (trimmed.length === 0) {
-      this.clear(refid);
+      this.clear(key);
       return;
     }
     const map = readAll();
-    map[String(refid)] = trimmed;
+    map[String(key)] = trimmed;
     writeAll(map);
   },
 
-  clear(refid: number): void {
+  clear(key: MteKey): void {
     const map = readAll();
-    delete map[String(refid)];
+    delete map[String(key)];
     writeAll(map);
   },
 };

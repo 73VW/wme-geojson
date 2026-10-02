@@ -186,7 +186,7 @@
       "syntheticBanner": "Pas de CSV — la ligne entière sera fermée sur une seule fenêtre temporelle (saisie au téléchargement).",
       "noSelection": "Sélectionne une ligne dans l'onglet Lignes.",
       "prepareMteBtn": "Préparer MTE",
-      "prepareMteDisabled": "Détails du slowup non chargés",
+      "prepareMteDisabled": "Aucune ligne sélectionnée",
       "reselectMatched": "Resélectionner",
       "rerunCurrentRow": "Relancer la ligne",
       "burstRunning": "Mode burst : les segments trouvés sont validés automatiquement.",
@@ -239,7 +239,9 @@
       "candidatesHeader": "Candidats (MTE contenant « slowup ») — clique pour sélectionner :",
       "noCandidates": "Aucun MTE dont le nom contient « slowup ».",
       "blocked": "La fenêtre a été bloquée par le navigateur. Autorise les popups pour ce site.",
-      "polygonLabel": "Polygon GeoJSON (track + 500m)"
+      "polygonLabel": "Polygon GeoJSON (track + 500m)",
+      "candidatesHeaderDate": "Candidats (MTE actifs le {{date}}) — clique pour sélectionner :",
+      "noCandidatesDate": "Aucun MTE actif le {{date}}."
     },
     "finalFields": {
       "title": "Exporter les fermetures — détails finaux",
@@ -250,6 +252,17 @@
       "ok": "Exporter",
       "cancel": "Annuler",
       "errorCommaInField": "Les champs ne doivent pas contenir de virgule (le CSV de sortie utilise la virgule comme séparateur)."
+    },
+    "mteInfo": {
+      "title": "Préparer MTE — informations de l'événement",
+      "titleLabel": "Titre",
+      "startDate": "Début (date et heure)",
+      "endDate": "Fin (date et heure)",
+      "description": "Description (recopiée dans les 4 langues)",
+      "url": "URL (optionnelle)",
+      "ok": "Continuer",
+      "errorRequired": "Le titre et les dates sont obligatoires.",
+      "errorDates": "La fin doit être après le début."
     }
   }
 }

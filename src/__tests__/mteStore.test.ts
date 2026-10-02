@@ -48,6 +48,13 @@ describe("mteStore", () => {
     expect(mteStore.get(2)).toBe("BBB");
   });
 
+  it("accepts string keys (non-slowup line ids) alongside refids", () => {
+    mteStore.set(123, "AAA");
+    mteStore.set("https://x/a.geojson#0", "BBB");
+    expect(mteStore.get(123)).toBe("AAA");
+    expect(mteStore.get("https://x/a.geojson#0")).toBe("BBB");
+  });
+
   it("recovers from corrupted localStorage JSON", () => {
     window.localStorage.setItem(MTE_STORE_KEY, "not-json{");
     expect(mteStore.get(123)).toBeUndefined();

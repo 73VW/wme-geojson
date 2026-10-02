@@ -39,8 +39,9 @@ import {
 import { closuresFromSource, type GlobalClosureGroup } from "../../csv/closuresFromSource";
 import { groupByWindow, roadbookRowIndex } from "../groupByWindow";
 import { waitForMapIdle } from "../../utils/waitForMapIdle";
-import { openMtePreparePopup } from "../MtePreparePopup";
-import { createMteSdk } from "../../mte";
+import { openMtePreparePopup, type MtePreparePopupDeps } from "../MtePreparePopup";
+import { promptMteInfo } from "../promptMteInfo";
+import { createMteSdk, type MteKey } from "../../mte";
 import {
   controlsFor,
   reduceMatchingUi,
@@ -1841,9 +1842,8 @@ export class MatchingSubTab {
     const btn = this.prepareMteBtn;
     if (!btn) return;
 
-    const refid = entry?.slowupDetails?.refid;
-    btn.disabled = !refid;
-    if (refid) {
+    btn.disabled = !entry;
+    if (entry) {
       btn.title = "";
       btn.removeAttribute("disabled");
     } else {
@@ -1854,16 +1854,26 @@ export class MatchingSubTab {
 
   private async openMtePopup(): Promise<void> {
     const entry = this.registry.getSelected();
-    const refid = entry?.slowupDetails?.refid;
-    if (!entry || !refid) return;
+    if (!entry) return;
 
     const slowupBbox = this.computeSlowupBbox(entry.track);
     if (!slowupBbox) return;
 
+    const refid = entry.slowupDetails?.refid;
+    let source: MtePreparePopupDeps["source"];
+    if (refid) {
+      source = { refid };
+    } else {
+      const manual = await promptMteInfo({ title: entry.displayName });
+      if (!manual) return;
+      source = { manual };
+    }
+
     const slowupPolygon = inflatedTrackPolygon(entry.track.geometry, 500);
 
     await openMtePreparePopup({
-      refid,
+      mteKey: mteKeyOf(entry),
+      source,
       slowupBbox,
       slowupPolygon,
       mteSdk: createMteSdk(this.wmeSDK),
@@ -2056,7 +2066,7 @@ export class MatchingSubTab {
     if (!windows) return;
 
     const fields = await promptFinalFields({
-      refid: this.registry.getSelected()?.slowupDetails?.refid,
+      mteKey: mteKeyOf(this.registry.getSelected()),
     });
     if (!fields) return;
 
@@ -2072,7 +2082,7 @@ export class MatchingSubTab {
     }>,
   ): Promise<void> {
     const fields = await promptFinalFields({
-      refid: this.registry.getSelected()?.slowupDetails?.refid,
+      mteKey: mteKeyOf(this.registry.getSelected()),
     });
     if (!fields) return;
 
@@ -2551,4 +2561,12 @@ function slugifyFilename(name: string | undefined | null): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+/** Clé mteStore : refid pour un slowup, id de la ligne pour une autre fermeture. */
+function mteKeyOf(entry: LineEntry): MteKey;
+function mteKeyOf(entry: LineEntry | null): MteKey | undefined;
+function mteKeyOf(entry: LineEntry | null): MteKey | undefined {
+  if (!entry) return undefined;
+  return entry.slowupDetails?.refid ?? entry.id;
 }
