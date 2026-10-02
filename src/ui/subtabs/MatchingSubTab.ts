@@ -40,6 +40,7 @@ import { closuresFromSource, type GlobalClosureGroup } from "../../csv/closuresF
 import { groupByWindow, roadbookRowIndex } from "../groupByWindow";
 import { waitForMapIdle } from "../../utils/waitForMapIdle";
 import { isMatchingComplete } from "../../domain/isMatchingComplete";
+import { segmentPermalink } from "../../utils/segmentPermalink";
 import { planClosureStops, type ClosureItem } from "../../csv/planClosureStops";
 import {
   applyClosures,
@@ -127,6 +128,7 @@ export class MatchingSubTab {
   private applyClosuresBtn?: HTMLButtonElement;
   private downloadClosuresBtn?: HTMLButtonElement;
   private applyClosuresStatusEl: HTMLElement | null = null;
+  private linkedMteEl: HTMLElement | null = null;
   private applyingClosures = false;
   private csvUploadRow: HTMLElement | null = null;
   private csvErrorEl: HTMLElement | null = null;
@@ -431,6 +433,7 @@ export class MatchingSubTab {
     this.applyClosuresBtn = undefined;
     this.downloadClosuresBtn = undefined;
     this.applyClosuresStatusEl = null;
+    this.linkedMteEl = null;
     this.csvUploadRow = null;
     this.csvErrorEl = null;
     this.csvLoadingEl = null;
@@ -1850,6 +1853,11 @@ export class MatchingSubTab {
     prepareMteBtn.addEventListener("click", () => void this.openMtePopup());
     section.appendChild(prepareMteBtn);
     this.prepareMteBtn = prepareMteBtn;
+
+    const linkedMte = document.createElement("div");
+    linkedMte.className = "wmegj-guided-status";
+    section.appendChild(linkedMte);
+    this.linkedMteEl = linkedMte;
     this.updatePrepareMteBtn(this.registry.getSelected());
 
     const applyBtn = wzButton({
@@ -1883,7 +1891,21 @@ export class MatchingSubTab {
     return section;
   }
 
+  /** Shows which MTE the closures will be linked to — name if loaded, else its ID. */
+  private updateLinkedMte(entry: LineEntry | null): void {
+    const el = this.linkedMteEl;
+    if (!el) return;
+    const mteId = entry ? mteStore.get(mteKeyOf(entry)) : undefined;
+    el.style.display = mteId ? "" : "none";
+    if (!mteId) return;
+    const mte = this.wmeSDK.DataModel.MajorTrafficEvents.getById({ majorTrafficEventId: mteId });
+    const name = mte ? pickName(mte.names) : "";
+    el.textContent = i18next.t("panel.matching.linkedMte", { name: name || mteId });
+    el.title = mteId;
+  }
+
   private updatePrepareMteBtn(entry: LineEntry | null): void {
+    this.updateLinkedMte(entry);
     const btn = this.prepareMteBtn;
     if (!btn) return;
 
@@ -1940,6 +1962,7 @@ export class MatchingSubTab {
       watchMteSaved(this.wmeSDK, draftId, (id) => {
         logger.info(`MTE enregistré : ${draftId} → ${id}`);
         mteStore.set(mteKey, id);
+        this.updateLinkedMte(this.registry.getSelected());
       });
       return;
     } catch (err) {
@@ -1954,6 +1977,7 @@ export class MatchingSubTab {
       slowupPolygon,
       mteSdk: createMteSdk(this.wmeSDK),
     });
+    this.updateLinkedMte(this.registry.getSelected());
   }
 
   private computeSlowupBbox(track: NormalizedTrack): [number, number, number, number] | null {
@@ -2259,6 +2283,7 @@ export class MatchingSubTab {
       mode: "apply",
     });
     if (!fields) return;
+    this.updateLinkedMte(this.registry.getSelected());
 
     this.applyingClosures = true;
     this.updateClosureButtons();
@@ -2275,7 +2300,7 @@ export class MatchingSubTab {
         (index, count) =>
           this.setApplyStatus(i18next.t("panel.applyClosuresProgress", { index, count })),
       );
-      this.setApplyStatus(this.formatApplyReport(report));
+      this.renderApplyReport(report);
     } catch (err) {
       logger.error("MatchingSubTab.onApplyClosuresClick failed", err);
       this.setApplyStatus(err instanceof Error ? err.message : String(err));
@@ -2324,16 +2349,33 @@ export class MatchingSubTab {
     if (this.applyClosuresStatusEl) this.applyClosuresStatusEl.textContent = text;
   }
 
-  private formatApplyReport(report: ApplyReport): string {
-    const lines = [
-      i18next.t("panel.applyClosuresDone", { added: report.added, skipped: report.skipped }),
-    ];
-    if (report.failures.length > 0) {
-      const ids = [...new Set(report.failures.map((failure) => failure.segmentId))].join(", ");
-      lines.push(i18next.t("panel.applyClosuresFailures", { count: report.failures.length, ids }));
-      logger.warn("MatchingSubTab: closure failures", report.failures);
+  /** Summary plus one permalink per failed segment (new tab: keeps this tab's unsaved closures). */
+  private renderApplyReport(report: ApplyReport): void {
+    const el = this.applyClosuresStatusEl;
+    if (!el) return;
+    el.textContent = i18next.t("panel.applyClosuresDone", {
+      added: report.added,
+      skipped: report.skipped,
+    });
+    if (report.failures.length === 0) return;
+    logger.warn("MatchingSubTab: closure failures", report.failures);
+
+    const bySegment = new Map(report.failures.map((failure) => [failure.segmentId, failure]));
+    el.append("\n" + i18next.t("panel.applyClosuresFailures", { count: bySegment.size }));
+    const list = document.createElement("ul");
+    list.style.margin = "4px 0 0 0";
+    list.style.paddingLeft = "16px";
+    for (const { segmentId, reason, geo } of bySegment.values()) {
+      const link = document.createElement("a");
+      link.href = segmentPermalink(window.location.href, geo, segmentId);
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.textContent = String(segmentId);
+      const item = document.createElement("li");
+      item.append(link, ` — ${reason}`);
+      list.appendChild(item);
     }
-    return lines.join("\n");
+    el.appendChild(list);
   }
 
   private triggerDownload(content: string, filename: string, mimeType: string): void {

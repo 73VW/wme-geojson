@@ -222,7 +222,8 @@
         "pauseFinalizingStep": "Finalizing the current step before pausing…",
         "unknown": "Pipeline step"
       },
-      "backToLines": "← Lines"
+      "backToLines": "← Lines",
+      "linkedMte": "Linked MTE: {{name}}"
     },
     "mtePopup": {
       "loading": "Loading…",
@@ -274,7 +275,7 @@
     "applyClosuresDisabled": "Finish matching every sub-line first",
     "applyClosuresProgress": "Adding closures… view {{index}}/{{count}}",
     "applyClosuresDone": "{{added}} closure(s) added, {{skipped}} already present. Click Save in WME.",
-    "applyClosuresFailures": "{{count}} closure(s) failed — segments: {{ids}}. Run again after fixing to retry only these.",
+    "applyClosuresFailures": "{{count}} segment(s) failed (links open in a new tab). Run again after fixing to retry only these.",
     "applyClosuresNoEditing": "Editing is not allowed right now (permissions or read-only mode)."
   }
 }
