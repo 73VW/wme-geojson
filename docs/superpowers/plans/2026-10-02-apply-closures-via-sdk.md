@@ -4,11 +4,12 @@
 
 **Goal:** Once matching is complete, a new "Apply closures" button adds the road closures directly in WME with `wmeSDK.DataModel.RoadClosures.addClosure`, moving the map sub-line view by sub-line view (bbox by bbox) so every segment is in the data model when its closure is added.
 
-**Architecture:** The export already knows, for every closure group, the `MapAnchor` (`sub.view`) the segments were matched in — that view is the bbox that guarantees the segments are loaded. A pure planner (`src/csv/planClosureStops.ts`) turns the existing closure data into an ordered list of *stops* (one per distinct view, each carrying its closures). A controller (`src/controller/ClosureApplier.ts`) walks the stops through a small driver interface (same pattern as `MapDriver` in `LazyMatchingPipeline`), skips closures that already exist, and collects per-segment failures instead of aborting. `MatchingSubTab` wires the SDK driver, the button gating and the progress/summary display.
+**Architecture:** The export already knows, for every closure group, the `MapAnchor` (`sub.view`) the segments were matched in — that view is the bbox that guarantees the segments are loaded. A pure planner (`src/csv/planClosureStops.ts`) turns the existing closure data into an ordered list of _stops_ (one per distinct view, each carrying its closures). A controller (`src/controller/ClosureApplier.ts`) walks the stops through a small driver interface (same pattern as `MapDriver` in `LazyMatchingPipeline`), skips closures that already exist, and collects per-segment failures instead of aborting. `MatchingSubTab` wires the SDK driver, the button gating and the progress/summary display.
 
 **Tech Stack:** TypeScript strict, vitest, `wme-sdk-typings`, i18next.
 
 **Spec:** this conversation's request (no separate spec doc):
+
 - Replace "download CSV" with direct closure creation via `RoadClosures.addClosure`, moving bbox by bbox.
 - The apply button is disabled until matching is done. An MTE is **not** required.
 
@@ -49,10 +50,12 @@
 "Matching done" = every line has no `pendingTail` left, at least one sub-line, and every sub-line validated. `uiState.kind === "done"` / phase `"done"` are not usable: they reset to `csv-loaded` when the guided panel closes and are not restored from persistence.
 
 **Files:**
+
 - Create: `src/domain/isMatchingComplete.ts`
 - Test: `src/__tests__/isMatchingComplete.test.ts`
 
 **Interfaces:**
+
 - Produces: `export function isMatchingComplete(source: Source | null): boolean`
 
 - [ ] **Step 1: Write the failing test**
@@ -150,26 +153,41 @@ git commit -m "feat(closures): add isMatchingComplete predicate"
 ### Task 2: `planClosureStops` (pure planner)
 
 Both export modes already resolve to "segments + window + view":
+
 - `global-times`: `windows × closures.groups` (same expansion as `buildGlobalClosureRows`).
 - `per-line-times`: `groupByWindow(closures.bySegment)` → `WindowGroup { startISO, endISO, geo, segmentIds }`.
 
 The planner merges items sharing the same view into one stop so the map moves once per bbox, keeping first-seen (roadbook) order.
 
 **Files:**
+
 - Create: `src/csv/planClosureStops.ts`
 - Test: `src/__tests__/planClosureStops.test.ts`
 
 **Interfaces:**
+
 - Consumes: `MapAnchor` from `src/domain/types.ts`.
 - Produces:
 
 ```ts
-export interface ClosureItem { startISO: string; endISO: string; geo: MapAnchor; segmentIds: number[] }
-export interface PlannedClosure { segmentId: number; startMs: number; endMs: number }
-export interface ClosureStop { geo: MapAnchor; closures: PlannedClosure[] }
-export function isoToMs(iso: string): number
-export function planClosureStops(items: readonly ClosureItem[]): ClosureStop[]
-export function directionsFor(segment: { isAtoB: boolean; isBtoA: boolean }): boolean[]
+export interface ClosureItem {
+  startISO: string;
+  endISO: string;
+  geo: MapAnchor;
+  segmentIds: number[];
+}
+export interface PlannedClosure {
+  segmentId: number;
+  startMs: number;
+  endMs: number;
+}
+export interface ClosureStop {
+  geo: MapAnchor;
+  closures: PlannedClosure[];
+}
+export function isoToMs(iso: string): number;
+export function planClosureStops(items: readonly ClosureItem[]): ClosureStop[];
+export function directionsFor(segment: { isAtoB: boolean; isBtoA: boolean }): boolean[];
 ```
 
 - [ ] **Step 1: Write the failing test**
@@ -194,7 +212,12 @@ describe("planClosureStops", () => {
   it("merges items sharing a view and drops exact duplicates", () => {
     const stops = planClosureStops([
       { startISO: "2026-05-31T09:00", endISO: "2026-05-31T12:00", geo: viewA, segmentIds: [1, 1] },
-      { startISO: "2026-05-31T14:00", endISO: "2026-05-31T17:00", geo: { ...viewA }, segmentIds: [1] },
+      {
+        startISO: "2026-05-31T14:00",
+        endISO: "2026-05-31T17:00",
+        geo: { ...viewA },
+        segmentIds: [1],
+      },
     ]);
     expect(stops).toHaveLength(1);
     expect(stops[0].closures).toEqual([
@@ -205,7 +228,9 @@ describe("planClosureStops", () => {
 
   it("skips empty items", () => {
     expect(
-      planClosureStops([{ startISO: "2026-05-31T09:00", endISO: "2026-05-31T17:00", geo: viewA, segmentIds: [] }]),
+      planClosureStops([
+        { startISO: "2026-05-31T09:00", endISO: "2026-05-31T17:00", geo: viewA, segmentIds: [] },
+      ]),
     ).toEqual([]);
   });
 });
@@ -322,10 +347,12 @@ git commit -m "feat(closures): plan closure stops by sub-line view"
 Walks the stops: center → wait idle → (check MTE) → per closure, per direction: skip if it already exists, else add. Failures are collected, never thrown, so one bad segment does not lose the rest of the run. Re-running is safe thanks to `hasClosure`.
 
 **Files:**
+
 - Create: `src/controller/ClosureApplier.ts`
 - Test: `src/__tests__/ClosureApplier.test.ts`
 
 **Interfaces:**
+
 - Consumes: `ClosureStop`, `directionsFor` from Task 2.
 - Produces:
 
@@ -338,17 +365,35 @@ export interface ClosureDriver {
   hasTrafficEvent(id: string): boolean;
   hasClosure(c: { segmentId: number; isForward: boolean; startMs: number; endMs: number }): boolean;
   addClosure(c: {
-    segmentId: number; isForward: boolean; startMs: number; endMs: number;
-    description: string; isPermanent: boolean; trafficEventId: string | null;
+    segmentId: number;
+    isForward: boolean;
+    startMs: number;
+    endMs: number;
+    description: string;
+    isPermanent: boolean;
+    trafficEventId: string | null;
   }): void;
 }
-export interface ApplyOptions { description: string; isPermanent: boolean; trafficEventId: string | null }
-export interface ClosureFailure { segmentId: number; reason: string }
-export interface ApplyReport { added: number; skipped: number; failures: ClosureFailure[] }
+export interface ApplyOptions {
+  description: string;
+  isPermanent: boolean;
+  trafficEventId: string | null;
+}
+export interface ClosureFailure {
+  segmentId: number;
+  reason: string;
+}
+export interface ApplyReport {
+  added: number;
+  skipped: number;
+  failures: ClosureFailure[];
+}
 export async function applyClosures(
-  stops: readonly ClosureStop[], options: ApplyOptions, driver: ClosureDriver,
+  stops: readonly ClosureStop[],
+  options: ApplyOptions,
+  driver: ClosureDriver,
   onProgress?: (stopIndex: number, stopCount: number) => void,
-): Promise<ApplyReport>
+): Promise<ApplyReport>;
 ```
 
 - [ ] **Step 1: Write the failing test**
@@ -381,15 +426,22 @@ describe("applyClosures", () => {
     const order: string[] = [];
     const driver = fakeDriver({
       setMapCenter: vi.fn(() => order.push("center")),
-      waitIdle: vi.fn(async () => { order.push("idle"); }),
+      waitIdle: vi.fn(async () => {
+        order.push("idle");
+      }),
       addClosure: vi.fn(() => order.push("add")),
     });
     const report = await applyClosures([stop([1])], options, driver);
     expect(order).toEqual(["center", "idle", "add", "add"]);
     expect(report).toEqual({ added: 2, skipped: 0, failures: [] });
     expect(driver.addClosure).toHaveBeenCalledWith({
-      segmentId: 1, isForward: true, startMs: 1, endMs: 2,
-      description: "slowUp", isPermanent: true, trafficEventId: null,
+      segmentId: 1,
+      isForward: true,
+      startMs: 1,
+      endMs: 2,
+      description: "slowUp",
+      isPermanent: true,
+      trafficEventId: null,
     });
   });
 
@@ -400,7 +452,9 @@ describe("applyClosures", () => {
   });
 
   it("records a segment missing from the data model and continues", async () => {
-    const driver = fakeDriver({ getSegment: vi.fn((id) => (id === 1 ? null : { isAtoB: true, isBtoA: false })) });
+    const driver = fakeDriver({
+      getSegment: vi.fn((id) => (id === 1 ? null : { isAtoB: true, isBtoA: false })),
+    });
     const report = await applyClosures([stop([1, 2])], options, driver);
     expect(report.added).toBe(1);
     expect(report.failures).toEqual([{ segmentId: 1, reason: "segment not loaded" }]);
@@ -408,7 +462,9 @@ describe("applyClosures", () => {
 
   it("records addClosure errors and continues", async () => {
     const driver = fakeDriver({
-      addClosure: vi.fn((c) => { if (c.segmentId === 1) throw new Error("locked"); }),
+      addClosure: vi.fn((c) => {
+        if (c.segmentId === 1) throw new Error("locked");
+      }),
     });
     const report = await applyClosures([stop([1, 2])], options, driver);
     expect(report.added).toBe(2);
@@ -420,7 +476,11 @@ describe("applyClosures", () => {
 
   it("fails the whole stop when the MTE is not loaded", async () => {
     const driver = fakeDriver({ hasTrafficEvent: vi.fn(() => false) });
-    const report = await applyClosures([stop([1, 2])], { ...options, trafficEventId: "123" }, driver);
+    const report = await applyClosures(
+      [stop([1, 2])],
+      { ...options, trafficEventId: "123" },
+      driver,
+    );
     expect(driver.addClosure).not.toHaveBeenCalled();
     expect(report.failures).toEqual([
       { segmentId: 1, reason: "MTE 123 not loaded" },
@@ -431,7 +491,10 @@ describe("applyClosures", () => {
   it("reports progress per stop", async () => {
     const onProgress = vi.fn();
     await applyClosures([stop([1]), stop([2])], options, fakeDriver(), onProgress);
-    expect(onProgress.mock.calls).toEqual([[1, 2], [2, 2]]);
+    expect(onProgress.mock.calls).toEqual([
+      [1, 2],
+      [2, 2],
+    ]);
   });
 });
 ```
@@ -551,10 +614,12 @@ git commit -m "feat(closures): apply closures stop by stop through a driver"
 ### Task 4: Wire the "Apply closures" button in `MatchingSubTab`
 
 **Files:**
+
 - Modify: `src/ui/subtabs/MatchingSubTab.ts` (download row builder ~L1820-1848, `renderSourceState` subscription ~L230, export section ~L2066-2160)
 - Modify: `locales/en/common.json`, `locales/fr/common.json`
 
 **Interfaces:**
+
 - Consumes: `isMatchingComplete` (Task 1), `planClosureStops`, `ClosureItem` (Task 2), `applyClosures`, `ClosureDriver`, `ApplyReport` (Task 3), existing `closuresFromSource`, `groupByWindow`, `promptClosureWindow`, `promptFinalFields`, `mteKeyOf`, `waitForMapIdle`.
 
 - [ ] **Step 0: Verify the `RoadClosure.startDate` format (needed by `hasClosure`)**
@@ -565,6 +630,7 @@ In WME with one existing closure loaded, run in the console:
 - [ ] **Step 1: Add the i18n keys**
 
 `locales/en/common.json`, under `panel`:
+
 ```json
 "applyClosures": "Apply closures in WME",
 "applyClosuresDisabled": "Finish matching every sub-line first",
@@ -573,7 +639,9 @@ In WME with one existing closure loaded, run in the console:
 "applyClosuresFailures": "{{count}} closure(s) failed — segments: {{ids}}. Run again after fixing to retry only these.",
 "applyClosuresNoEditing": "Editing is not allowed right now (permissions or read-only mode)."
 ```
+
 `locales/fr/common.json`, under `panel`:
+
 ```json
 "applyClosures": "Appliquer les fermetures dans WME",
 "applyClosuresDisabled": "Terminez d'abord le matching de toutes les sous-lignes",
@@ -582,6 +650,7 @@ In WME with one existing closure loaded, run in the console:
 "applyClosuresFailures": "{{count}} fermeture(s) en échec — segments : {{ids}}. Relancez après correction pour ne réessayer que celles-ci.",
 "applyClosuresNoEditing": "L'édition n'est pas autorisée actuellement (droits ou mode lecture seule)."
 ```
+
 Rename the existing `panel.downloadClosures` value to `"Download closures CSV (fallback)"` / `"Télécharger le CSV de fermetures (secours)"`.
 
 - [ ] **Step 2: Button + status element in the download row**
@@ -771,7 +840,11 @@ Imports to add:
 ```ts
 import { isMatchingComplete } from "../../domain/isMatchingComplete";
 import { planClosureStops, type ClosureItem } from "../../csv/planClosureStops";
-import { applyClosures, type ApplyReport, type ClosureDriver } from "../../controller/ClosureApplier";
+import {
+  applyClosures,
+  type ApplyReport,
+  type ClosureDriver,
+} from "../../controller/ClosureApplier";
 ```
 
 - [ ] **Step 6: Typecheck, lint, tests, build**
@@ -802,3 +875,13 @@ git commit -m "feat(closures): apply closures directly in WME, view by view"
 - **Auto-save / save every N edits**: WME may cap pending edits on very large runs — check with a full slowUp in Step 7; if it bites, call `wmeSDK.Editing.save()` every N stops.
 - **Retry with a wider view for "segment not loaded"**: the re-run is idempotent, so the user can just click again.
 - **Removing the CSV export**: kept as a disabled-until-done secondary button; delete it once the SDK path has proven itself.
+
+## Changes during implementation
+
+- Closure description is the linked MTE's name (`ClosureDriver.getTrafficEventName` replaces `hasTrafficEvent`); the reason is only the fallback.
+- Times are sent as wall-clock UTC (`isoToMs` appends `Z`): WME displays addClosure timestamps as UTC, local time shifted closures by 1 h. `closureDateToMs` moved to `planClosureStops.ts` with the same convention.
+- A run-local set prevents adding the same closure twice when a segment sits in two views; "not loaded" failures are dropped once the segment is reached from another view.
+- Failures carry their view and are listed in the panel as WME permalinks (new tab).
+- MTEs are only in the data model once the WME Events tab is opened (SDK bug https://issuetracker.google.com/issues/533467151): the linked MTE is checked up front (3 × 1 s), then a popup asks to open the tab and retry.
+- Prompts have an apply mode (Apply labels, no comment field, commas allowed); the closure window is prefilled from the linked MTE's dates.
+- The panel shows the linked MTE under "Prepare MTE".
