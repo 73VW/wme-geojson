@@ -1826,15 +1826,6 @@ export class MatchingSubTab {
     section.style.flexDirection = "column";
     section.style.gap = "4px";
 
-    const closuresBtn = wzButton({
-      text: i18next.t("panel.downloadClosures"),
-      variant: "primary",
-      onClick: () => {
-        this.onDownloadClosuresClick();
-      },
-    });
-    section.appendChild(closuresBtn);
-
     const prepareMteBtn = wzButton({
       text: i18next.t("panel.matching.prepareMteBtn"),
       variant: "secondary",
@@ -1843,6 +1834,15 @@ export class MatchingSubTab {
     section.appendChild(prepareMteBtn);
     this.prepareMteBtn = prepareMteBtn;
     this.updatePrepareMteBtn(this.registry.getSelected());
+
+    const closuresBtn = wzButton({
+      text: i18next.t("panel.downloadClosures"),
+      variant: "primary",
+      onClick: () => {
+        this.onDownloadClosuresClick();
+      },
+    });
+    section.appendChild(closuresBtn);
 
     return section;
   }
