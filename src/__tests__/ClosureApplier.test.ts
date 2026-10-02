@@ -76,7 +76,26 @@ describe("applyClosures", () => {
     });
     const report = await applyClosures([stop([1, 2])], options, driver);
     expect(report.added).toBe(1);
-    expect(report.failures).toEqual([{ segmentId: 1, reason: "segment not loaded" }]);
+    expect(report.failures).toEqual([
+      { segmentId: 1, reason: "segment not loaded", geo: { lon: 6, lat: 46, zoom: 17 } },
+    ]);
+  });
+
+  it("drops a not-loaded failure once the segment is closed from another view", async () => {
+    let calls = 0;
+    const driver = fakeDriver({
+      getSegment: vi.fn(() => (calls++ === 0 ? null : { isAtoB: false, isBtoA: false })),
+    });
+    const report = await applyClosures([stop([1]), stop([1])], options, driver);
+    expect(report).toEqual({ added: 2, skipped: 0, failures: [] });
+  });
+
+  it("gives the view of the failing stop so the UI can build a permalink", async () => {
+    const driver = fakeDriver({ getSegment: vi.fn(() => null) });
+    const report = await applyClosures([stop([1])], options, driver);
+    expect(report.failures).toEqual([
+      { segmentId: 1, reason: "segment not loaded", geo: { lon: 6, lat: 46, zoom: 17 } },
+    ]);
   });
 
   it("records addClosure errors and continues", async () => {
@@ -88,8 +107,8 @@ describe("applyClosures", () => {
     const report = await applyClosures([stop([1, 2])], options, driver);
     expect(report.added).toBe(2);
     expect(report.failures).toEqual([
-      { segmentId: 1, reason: "locked" },
-      { segmentId: 1, reason: "locked" },
+      { segmentId: 1, reason: "locked", geo: { lon: 6, lat: 46, zoom: 17 } },
+      { segmentId: 1, reason: "locked", geo: { lon: 6, lat: 46, zoom: 17 } },
     ]);
   });
 
@@ -102,8 +121,8 @@ describe("applyClosures", () => {
     );
     expect(driver.addClosure).not.toHaveBeenCalled();
     expect(report.failures).toEqual([
-      { segmentId: 1, reason: "MTE 123 not loaded" },
-      { segmentId: 2, reason: "MTE 123 not loaded" },
+      { segmentId: 1, reason: "MTE 123 not loaded", geo: { lon: 6, lat: 46, zoom: 17 } },
+      { segmentId: 2, reason: "MTE 123 not loaded", geo: { lon: 6, lat: 46, zoom: 17 } },
     ]);
   });
 

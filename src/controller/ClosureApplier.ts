@@ -5,6 +5,7 @@
 // rest of a long run, and hasClosure makes a re-run safe.
 
 import { directionsFor, type ClosureStop } from "../csv/planClosureStops";
+import type { MapAnchor } from "../domain/types";
 
 export interface ClosureDriver {
   setMapCenter(lon: number, lat: number, zoom: number): void;
@@ -35,6 +36,8 @@ export interface ApplyOptions {
 export interface ClosureFailure {
   segmentId: number;
   reason: string;
+  /** View of the stop where it failed — lets the UI build a permalink. */
+  geo: MapAnchor;
 }
 
 export interface ApplyReport {
@@ -54,6 +57,10 @@ export async function applyClosures(
   // A segment crossing a sub-line cut sits in two views. Track what this run
   // added instead of trusting getAll() to return unsaved closures.
   const addedKeys = new Set<string>();
+  // A segment on a sub-line cut can be missing at the edge of one view and
+  // closed from the next: such "not loaded" failures are dropped at the end.
+  const notLoaded: ClosureFailure[] = [];
+  const reachedSegments = new Set<number>();
 
   for (const [index, stop] of stops.entries()) {
     driver.setMapCenter(stop.geo.lon, stop.geo.lat, stop.geo.zoom);
@@ -64,7 +71,7 @@ export async function applyClosures(
       const mteName = driver.getTrafficEventName(trafficEventId);
       if (mteName === null) {
         for (const { segmentId } of stop.closures) {
-          report.failures.push({ segmentId, reason: `MTE ${trafficEventId} not loaded` });
+          notLoaded.push({ segmentId, reason: `MTE ${trafficEventId} not loaded`, geo: stop.geo });
         }
         onProgress?.(index + 1, stops.length);
         continue;
@@ -75,9 +82,14 @@ export async function applyClosures(
     for (const closure of stop.closures) {
       const segment = driver.getSegment(closure.segmentId);
       if (!segment) {
-        report.failures.push({ segmentId: closure.segmentId, reason: "segment not loaded" });
+        notLoaded.push({
+          segmentId: closure.segmentId,
+          reason: "segment not loaded",
+          geo: stop.geo,
+        });
         continue;
       }
+      reachedSegments.add(closure.segmentId);
       for (const isForward of directionsFor(segment)) {
         const directed = { ...closure, isForward };
         const key = `${closure.segmentId}|${isForward}|${closure.startMs}|${closure.endMs}`;
@@ -91,11 +103,13 @@ export async function applyClosures(
           report.added++;
         } catch (err) {
           const reason = err instanceof Error ? err.message : String(err);
-          report.failures.push({ segmentId: closure.segmentId, reason });
+          report.failures.push({ segmentId: closure.segmentId, reason, geo: stop.geo });
         }
       }
     }
     onProgress?.(index + 1, stops.length);
   }
+  const stillMissing = notLoaded.filter((failure) => !reachedSegments.has(failure.segmentId));
+  report.failures.push(...stillMissing);
   return report;
 }
