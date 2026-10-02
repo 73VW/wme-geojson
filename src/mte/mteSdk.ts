@@ -76,7 +76,7 @@ export function createMteSdk(sdk: WmeSDK): MteSdk {
   };
 }
 
-function pickName(names: LocalizedString[]): string {
+export function pickName(names: LocalizedString[]): string {
   if (!Array.isArray(names) || names.length === 0) return "";
   // Préférer FR, puis EN, sinon premier nom dispo.
   const fr = names.find((n) => n?.locale?.startsWith("fr"));

@@ -39,6 +39,13 @@ import {
 import { closuresFromSource, type GlobalClosureGroup } from "../../csv/closuresFromSource";
 import { groupByWindow, roadbookRowIndex } from "../groupByWindow";
 import { waitForMapIdle } from "../../utils/waitForMapIdle";
+import { isMatchingComplete } from "../../domain/isMatchingComplete";
+import { planClosureStops, type ClosureItem } from "../../csv/planClosureStops";
+import {
+  applyClosures,
+  type ApplyReport,
+  type ClosureDriver,
+} from "../../controller/ClosureApplier";
 import { openMtePreparePopup, type MtePreparePopupDeps } from "../MtePreparePopup";
 import { promptMteInfo } from "../promptMteInfo";
 import {
@@ -46,6 +53,7 @@ import {
   fillMteForm,
   manualFormData,
   mteStore,
+  pickName,
   slowupFormData,
   watchMteSaved,
   type MteKey,
@@ -116,6 +124,10 @@ export class MatchingSubTab {
   private guidedMatchingRow: HTMLElement | null = null;
   private downloadRow: HTMLElement | null = null;
   private prepareMteBtn?: HTMLButtonElement;
+  private applyClosuresBtn?: HTMLButtonElement;
+  private downloadClosuresBtn?: HTMLButtonElement;
+  private applyClosuresStatusEl: HTMLElement | null = null;
+  private applyingClosures = false;
   private csvUploadRow: HTMLElement | null = null;
   private csvErrorEl: HTMLElement | null = null;
   private csvLoadingEl: HTMLElement | null = null;
@@ -229,6 +241,7 @@ export class MatchingSubTab {
     // Header / overlay / segment-count updates are driven by the SourceStore.
     this.unsubscribeSourceStore = this.sourceStore.onChange(() => {
       this.renderSourceState();
+      this.updateClosureButtons();
     });
 
     this.renderPhase(this.store.getState().phase);
@@ -251,6 +264,7 @@ export class MatchingSubTab {
     if (this.contentWrapperEl) this.contentWrapperEl.style.display = hasLine ? "" : "none";
     if (this.emptyStateEl) this.emptyStateEl.style.display = hasLine ? "none" : "";
     this.updatePrepareMteBtn(entry);
+    this.updateClosureButtons();
     if (!entry) {
       this.attachedLineId = null;
       return;
@@ -414,6 +428,9 @@ export class MatchingSubTab {
     this.attachedLineId = null;
     this.downloadRow = null;
     this.prepareMteBtn = undefined;
+    this.applyClosuresBtn = undefined;
+    this.downloadClosuresBtn = undefined;
+    this.applyClosuresStatusEl = null;
     this.csvUploadRow = null;
     this.csvErrorEl = null;
     this.csvLoadingEl = null;
@@ -1835,14 +1852,33 @@ export class MatchingSubTab {
     this.prepareMteBtn = prepareMteBtn;
     this.updatePrepareMteBtn(this.registry.getSelected());
 
+    const applyBtn = wzButton({
+      text: i18next.t("panel.applyClosures"),
+      variant: "primary",
+      onClick: () => {
+        void this.onApplyClosuresClick();
+      },
+    }) as HTMLButtonElement;
+    section.appendChild(applyBtn);
+    this.applyClosuresBtn = applyBtn;
+
+    const applyStatus = document.createElement("div");
+    applyStatus.className = "wmegj-guided-status";
+    applyStatus.style.whiteSpace = "pre-line";
+    section.appendChild(applyStatus);
+    this.applyClosuresStatusEl = applyStatus;
+
     const closuresBtn = wzButton({
       text: i18next.t("panel.downloadClosures"),
-      variant: "primary",
+      variant: "secondary",
       onClick: () => {
         this.onDownloadClosuresClick();
       },
-    });
+    }) as HTMLButtonElement;
     section.appendChild(closuresBtn);
+    this.downloadClosuresBtn = closuresBtn;
+
+    this.updateClosureButtons();
 
     return section;
   }
@@ -2162,6 +2198,136 @@ export class MatchingSubTab {
       logger.error("MatchingSubTab: buildClosuresCsv failed", err);
       alert(message);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private — apply closures directly in WME
+  // ---------------------------------------------------------------------------
+
+  private updateClosureButtons(): void {
+    const complete = isMatchingComplete(this.sourceStore.getSource());
+    const disabled = !complete || this.applyingClosures;
+    const title = complete ? "" : i18next.t("panel.applyClosuresDisabled");
+    for (const btn of [this.applyClosuresBtn, this.downloadClosuresBtn]) {
+      if (!btn) continue;
+      this.setButtonDisabled(btn, disabled);
+      btn.title = title;
+    }
+  }
+
+  /** Closure items for the current source, or null if the user cancelled. */
+  private async collectClosureItems(): Promise<ClosureItem[] | null> {
+    const src = this.sourceStore.getSource();
+    if (!src) return null;
+    const closures = closuresFromSource(src);
+
+    if (closures.mode === "per-line-times") {
+      return groupByWindow(closures.bySegment);
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const slowupDate = this.registry.getSelected()?.slowupDetails?.date;
+    const windows = await promptClosureWindow({
+      date: slowupDate ?? today,
+      startTime: "09:00",
+      endTime: "17:30",
+    });
+    if (!windows) return null;
+    return windows.flatMap((window) =>
+      closures.groups.map((group) => ({
+        startISO: window.startISO,
+        endISO: window.endISO,
+        geo: group.geo,
+        segmentIds: group.segmentIds,
+      })),
+    );
+  }
+
+  private async onApplyClosuresClick(): Promise<void> {
+    if (this.applyingClosures) return;
+    if (!this.wmeSDK.Editing.isEditingAllowed()) {
+      alert(i18next.t("panel.applyClosuresNoEditing"));
+      return;
+    }
+    const items = await this.collectClosureItems();
+    if (!items) return;
+    const fields = await promptFinalFields({ mteKey: mteKeyOf(this.registry.getSelected()) });
+    if (!fields) return;
+
+    this.applyingClosures = true;
+    this.updateClosureButtons();
+    try {
+      const stops = planClosureStops(items);
+      const report = await applyClosures(
+        stops,
+        {
+          description: fields.reason,
+          isPermanent: fields.ignoreTraffic,
+          trafficEventId: fields.mteId || null,
+        },
+        this.buildClosureDriver(),
+        (index, count) =>
+          this.setApplyStatus(i18next.t("panel.applyClosuresProgress", { index, count })),
+      );
+      this.setApplyStatus(this.formatApplyReport(report));
+    } catch (err) {
+      logger.error("MatchingSubTab.onApplyClosuresClick failed", err);
+      this.setApplyStatus(err instanceof Error ? err.message : String(err));
+    } finally {
+      this.applyingClosures = false;
+      this.updateClosureButtons();
+    }
+  }
+
+  private buildClosureDriver(): ClosureDriver {
+    const dm = this.wmeSDK.DataModel;
+    return {
+      setMapCenter: (lon, lat, zoom) =>
+        this.wmeSDK.Map.setMapCenter({ lonLat: { lon, lat }, zoomLevel: zoom as ZoomLevel }),
+      // Same settle delay as the matching walk: segments must be in the model.
+      waitIdle: () => waitForMapIdle(this.wmeSDK, { settleDelayMs: 650 }),
+      getSegment: (segmentId) => dm.Segments.getById({ segmentId }),
+      getTrafficEventName: (id) => {
+        const mte = dm.MajorTrafficEvents.getById({ majorTrafficEventId: id });
+        return mte ? pickName(mte.names) : null;
+      },
+      hasClosure: ({ segmentId, isForward, startMs, endMs }) =>
+        dm.RoadClosures.getAll().some(
+          (closure) =>
+            closure.segmentId === segmentId &&
+            closure.isForward === isForward &&
+            closureDateToMs(closure.startDate) === startMs &&
+            closureDateToMs(closure.endDate) === endMs,
+        ),
+      addClosure: (closure) => {
+        dm.RoadClosures.addClosure({
+          segmentId: closure.segmentId,
+          isForward: closure.isForward,
+          startDate: closure.startMs,
+          endDate: closure.endMs,
+          description: closure.description,
+          isPermanent: closure.isPermanent,
+          trafficEventId: closure.trafficEventId,
+          fromNodeClosed: false,
+        });
+      },
+    };
+  }
+
+  private setApplyStatus(text: string): void {
+    if (this.applyClosuresStatusEl) this.applyClosuresStatusEl.textContent = text;
+  }
+
+  private formatApplyReport(report: ApplyReport): string {
+    const lines = [
+      i18next.t("panel.applyClosuresDone", { added: report.added, skipped: report.skipped }),
+    ];
+    if (report.failures.length > 0) {
+      const ids = [...new Set(report.failures.map((failure) => failure.segmentId))].join(", ");
+      lines.push(i18next.t("panel.applyClosuresFailures", { count: report.failures.length, ids }));
+      logger.warn("MatchingSubTab: closure failures", report.failures);
+    }
+    return lines.join("\n");
   }
 
   private triggerDownload(content: string, filename: string, mimeType: string): void {
@@ -2601,6 +2767,17 @@ function slugifyFilename(name: string | undefined | null): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * RoadClosure.startDate/endDate come back as strings in the closure's local
+ * time ("YYYY-MM-DD HH:MM", possibly with seconds) — unlike addClosure, which
+ * takes Unix ms. A purely numeric string is treated as ms. null never matches.
+ */
+function closureDateToMs(value: string | null): number {
+  if (value === null) return NaN;
+  if (/^\d+$/.test(value)) return Number(value);
+  return new Date(value.replace(" ", "T")).getTime();
 }
 
 /** Clé mteStore : refid pour un slowup, id de la ligne pour une autre fermeture. */

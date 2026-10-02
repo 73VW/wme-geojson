@@ -94,7 +94,7 @@
     "startMatching": "Lancer la correspondance",
     "startMatchingBurst": "Lancer en burst",
     "downloadEnriched": "Télécharger le CSV enrichi",
-    "downloadClosures": "Télécharger le CSV de fermetures",
+    "downloadClosures": "Télécharger le CSV de fermetures (secours)",
     "resumeDetected": "Une session précédente a été trouvée. Continuer là où vous en étiez ?",
     "resumeCompleted": "Une session terminée a été trouvée.",
     "resumeCompletedDetails": "{{total}} étape(s) de matching avaient déjà été terminées.",
@@ -265,6 +265,12 @@
       "ok": "Continuer",
       "errorRequired": "Le titre et les dates sont obligatoires.",
       "errorDates": "La fin doit être après le début."
-    }
+    },
+    "applyClosures": "Appliquer les fermetures dans WME",
+    "applyClosuresDisabled": "Terminez d'abord le matching de toutes les sous-lignes",
+    "applyClosuresProgress": "Ajout des fermetures… vue {{index}}/{{count}}",
+    "applyClosuresDone": "{{added}} fermeture(s) ajoutée(s), {{skipped}} déjà présente(s). Cliquez sur Sauvegarder dans WME.",
+    "applyClosuresFailures": "{{count}} fermeture(s) en échec — segments : {{ids}}. Relancez après correction pour ne réessayer que celles-ci.",
+    "applyClosuresNoEditing": "L'édition n'est pas autorisée actuellement (droits ou mode lecture seule)."
   }
 }

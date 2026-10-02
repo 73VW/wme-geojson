@@ -94,7 +94,7 @@
     "startMatching": "Start matching",
     "startMatchingBurst": "Start burst mode",
     "downloadEnriched": "Download enriched input CSV",
-    "downloadClosures": "Download closures CSV",
+    "downloadClosures": "Download closures CSV (fallback)",
     "resumeDetected": "A previous session was found. Continue where you left off?",
     "resumeCompleted": "A completed session was found.",
     "resumeCompletedDetails": "{{total}} matching step(s) were already completed.",
@@ -265,6 +265,12 @@
       "ok": "Continue",
       "errorRequired": "Title and dates are required.",
       "errorDates": "End must be on or after start."
-    }
+    },
+    "applyClosures": "Apply closures in WME",
+    "applyClosuresDisabled": "Finish matching every sub-line first",
+    "applyClosuresProgress": "Adding closures… view {{index}}/{{count}}",
+    "applyClosuresDone": "{{added}} closure(s) added, {{skipped}} already present. Click Save in WME.",
+    "applyClosuresFailures": "{{count}} closure(s) failed — segments: {{ids}}. Run again after fixing to retry only these.",
+    "applyClosuresNoEditing": "Editing is not allowed right now (permissions or read-only mode)."
   }
 }
