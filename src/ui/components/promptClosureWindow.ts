@@ -19,6 +19,22 @@ export interface ClosureWindowDefaults {
   endTime: string;
 }
 
+/**
+ * Prefill from the linked MTE ("YYYY-MM-DD HH:MM" strings): its start date
+ * always, its times only when it fits in one day — a multi-day event's
+ * start/end times say nothing about the daily closure window.
+ */
+export function closureWindowDefaults(
+  mte: { startDate: string | null; endDate: string | null } | null,
+  fallback: ClosureWindowDefaults,
+): ClosureWindowDefaults {
+  if (!mte?.startDate) return fallback;
+  const date = mte.startDate.slice(0, 10);
+  const isOneDay = mte.endDate?.slice(0, 10) === date;
+  if (!isOneDay || !mte.endDate) return { ...fallback, date };
+  return { date, startTime: mte.startDate.slice(11, 16), endTime: mte.endDate.slice(11, 16) };
+}
+
 function el<K extends keyof HTMLElementTagNameMap>(tag: K): HTMLElementTagNameMap[K] {
   return document.createElement(tag);
 }

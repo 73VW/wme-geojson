@@ -24,7 +24,7 @@ import {
   sliceMultiLineByDistance,
 } from "../../matching/trackPortions";
 import { multiLineLengthKm } from "../../matching/trackPortions";
-import { promptClosureWindow } from "../components/promptClosureWindow";
+import { closureWindowDefaults, promptClosureWindow } from "../components/promptClosureWindow";
 import { buildGlobalClosureRows } from "../../csv/syntheticSchedule";
 import type { Source } from "../../domain/types";
 import { SourceStore, attachPersistence } from "../../state/SourceStore";
@@ -2250,14 +2250,18 @@ export class MatchingSubTab {
       return groupByWindow(closures.bySegment);
     }
 
+    const entry = this.registry.getSelected();
     const today = new Date().toISOString().slice(0, 10);
-    const slowupDate = this.registry.getSelected()?.slowupDetails?.date;
+    const mteId = entry ? mteStore.get(mteKeyOf(entry)) : undefined;
+    const mte = mteId
+      ? this.wmeSDK.DataModel.MajorTrafficEvents.getById({ majorTrafficEventId: mteId })
+      : null;
     const windows = await promptClosureWindow(
-      {
-        date: slowupDate ?? today,
+      closureWindowDefaults(mte, {
+        date: entry?.slowupDetails?.date ?? today,
         startTime: "09:00",
         endTime: "17:30",
-      },
+      }),
       "apply",
     );
     if (!windows) return null;
