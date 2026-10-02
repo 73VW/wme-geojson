@@ -7,4 +7,5 @@ else
   path="file:$PWD/.out/main.user.js"
 fi
 
-sed -i "s#^// @require.*#// @require\t\t$path#" header-dev.js
+# header-dev.js is git-ignored: regenerate it from the tracked template.
+sed "s#^// @require.*#// @require\t\t$path#" header-dev.template.js > header-dev.js

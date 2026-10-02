@@ -70,7 +70,7 @@ git init
 
 3. Update the details in:
 
-- `header.js` and `header-dev.js` → update author, script name, etc.
+- `header.js` and `header-dev.template.js` → update author, script name, etc. (`header-dev.js` is generated from the template by `.devcontainer/init.sh`)
 - `main.user.ts` → set your script ID and name
 
 4. Install dependencies:
