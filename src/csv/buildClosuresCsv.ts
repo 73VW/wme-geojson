@@ -31,7 +31,7 @@ const CLOSURES_CSV_HEADER =
 const DIRECTION = "TWO WAY";
 const ROW_KIND = "add";
 const LON_LAT_DECIMAL_PLACES = 5;
-const MAX_SEGMENTS_PER_ROW = 1000;
+export const MAX_SEGMENTS_PER_ROW = 1000;
 
 // ISO datetime strings are stored as "YYYY-MM-DDTHH:MM"; the output format
 // wants "YYYY-MM-DD HH:MM" (space instead of T).

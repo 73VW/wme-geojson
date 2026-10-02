@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildClosuresCsv,
+  MAX_SEGMENTS_PER_ROW,
   type ClosureRowGroup,
   type FinalFields,
   type RowGeo,
@@ -461,8 +462,11 @@ describe("buildClosuresCsv — empty closuresBySegment", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildClosuresCsv — output format details", () => {
-  it("splits more than 10 segment IDs into multiple output rows", () => {
-    const segmentIds = Array.from({ length: 12 }, (_value, index) => index + 1);
+  it("splits more than MAX_SEGMENTS_PER_ROW segment IDs into multiple output rows", () => {
+    const segmentIds = Array.from(
+      { length: MAX_SEGMENTS_PER_ROW + 2 },
+      (_value, index) => index + 1,
+    );
     const rows: CsvRow[] = [makeRow("2026-04-29", "13:00", "13:50", segmentIds)];
     const geos: RowGeo[] = [makeGeo(7.0, 46.0)];
     const closuresBySegment = Object.fromEntries(
@@ -476,8 +480,8 @@ describe("buildClosuresCsv — output format details", () => {
     const lines = parseLines(csv);
 
     expect(lines).toHaveLength(2);
-    expect(lines[0]).toContain(",1;2;3;4;5;6;7;8;9;10,");
-    expect(lines[1]).toContain(",11;12,");
+    expect(lines[0]).toContain(`,${segmentIds.slice(0, MAX_SEGMENTS_PER_ROW).join(";")},`);
+    expect(lines[1]).toContain(`,${MAX_SEGMENTS_PER_ROW + 1};${MAX_SEGMENTS_PER_ROW + 2},`);
     expect(lines[0]).toContain("2026-04-29 13:00");
     expect(lines[1]).toContain("2026-04-29 13:50");
     expect(lines[0]).toContain("lon=7.00000&lat=46.00000");

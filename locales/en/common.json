@@ -33,6 +33,8 @@
         "end": "End",
         "errorRequired": "Both start and end are required.",
         "errorOrder": "End must be after start.",
+        "addLine": "+ Add a time slot",
+        "removeLine": "Remove this time slot",
         "cancel": "Cancel",
         "download": "Download"
       }

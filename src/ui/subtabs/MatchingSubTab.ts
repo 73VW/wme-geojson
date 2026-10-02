@@ -25,6 +25,7 @@ import {
 } from "../../matching/trackPortions";
 import { multiLineLengthKm } from "../../matching/trackPortions";
 import { promptClosureWindow } from "../components/promptClosureWindow";
+import { buildGlobalClosureRows } from "../../csv/syntheticSchedule";
 import type { Source } from "../../domain/types";
 import { SourceStore, attachPersistence } from "../../state/SourceStore";
 import { SourcePersistence } from "../../domain/SourcePersistence";
@@ -50,7 +51,6 @@ import {
 } from "../matchingUiState";
 
 const TARGET_ZOOM = 16;
-const MAX_CLOSURE_SEGMENTS_PER_ROW = 10;
 
 /**
  * Sidebar panel for the lazy sub-line matching pipeline.
@@ -2044,49 +2044,23 @@ export class MatchingSubTab {
     void this.downloadClosuresPerLine(closures.bySegment);
   }
 
-  /** No CSV — collect a single global window then apply to all segments. */
+  /** No CSV — collect one or more global windows, each applied to all segments. */
   private async downloadClosuresGlobalTimes(groupsBySubLine: GlobalClosureGroup[]): Promise<void> {
     const today = new Date().toISOString().slice(0, 10);
     const slowupDate = this.registry.getSelected()?.slowupDetails?.date;
-    const window = await promptClosureWindow({
+    const windows = await promptClosureWindow({
       date: slowupDate ?? today,
       startTime: "09:00",
       endTime: "17:30",
     });
-    if (!window) return;
+    if (!windows) return;
 
     const fields = await promptFinalFields({
       refid: this.registry.getSelected()?.slowupDetails?.refid,
     });
     if (!fields) return;
 
-    const rows: CsvRow[] = [];
-    const groups: ClosureRowGroup[] = [];
-    const closuresBySegment: Record<number, ClosureRange[]> = {};
-
-    for (const group of groupsBySubLine) {
-      for (let start = 0; start < group.segmentIds.length; start += MAX_CLOSURE_SEGMENTS_PER_ROW) {
-        const segmentIds = group.segmentIds.slice(start, start + MAX_CLOSURE_SEGMENTS_PER_ROW);
-        if (segmentIds.length === 0) continue;
-
-        const rowIndex = rows.length;
-        rows.push({
-          distance: 0,
-          date: window.startISO.slice(0, 10),
-          startTime: window.startISO.slice(11, 16),
-          endTime: window.endISO.slice(11, 16),
-          segments: segmentIds,
-        });
-        groups.push({ rowIndex, segmentIds, geo: group.geo });
-
-        for (const id of segmentIds) {
-          const existing = closuresBySegment[id] ?? [];
-          existing.push({ startISO: window.startISO, endISO: window.endISO, rowIndex });
-          closuresBySegment[id] = existing;
-        }
-      }
-    }
-
+    const { rows, groups, closuresBySegment } = buildGlobalClosureRows(windows, groupsBySubLine);
     this.emitClosuresCsv(rows, groups, closuresBySegment, fields);
   }
 
