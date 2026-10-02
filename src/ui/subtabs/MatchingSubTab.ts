@@ -41,6 +41,7 @@ import { groupByWindow, roadbookRowIndex } from "../groupByWindow";
 import { waitForMapIdle } from "../../utils/waitForMapIdle";
 import { isMatchingComplete } from "../../domain/isMatchingComplete";
 import { segmentPermalink } from "../../utils/segmentPermalink";
+import { pollUntil } from "../../utils/pollUntil";
 import { planClosureStops, type ClosureItem } from "../../csv/planClosureStops";
 import {
   applyClosures,
@@ -2284,6 +2285,7 @@ export class MatchingSubTab {
     });
     if (!fields) return;
     this.updateLinkedMte(this.registry.getSelected());
+    if (fields.mteId && !(await this.ensureMteLoaded(fields.mteId))) return;
 
     this.applyingClosures = true;
     this.updateClosureButtons();
@@ -2307,6 +2309,26 @@ export class MatchingSubTab {
     } finally {
       this.applyingClosures = false;
       this.updateClosureButtons();
+    }
+  }
+
+  /**
+   * WME only loads MTEs into the data model once its Events tab has been
+   * opened (SDK bug: https://issuetracker.google.com/issues/533467151);
+   * addClosure then fails for every segment. Check up front (3 tries,
+   * 1 s apart) and let the user open the tab and retry.
+   */
+  private async ensureMteLoaded(mteId: string): Promise<boolean> {
+    const mtes = this.wmeSDK.DataModel.MajorTrafficEvents;
+    const isLoaded = () => mtes.getById({ majorTrafficEventId: mteId }) !== null;
+    for (;;) {
+      if (await pollUntil(isLoaded, MTE_LOAD_ATTEMPTS, MTE_LOAD_DELAY_MS)) return true;
+      const retry = await confirmModal({
+        message: i18next.t("panel.applyClosuresMteNotLoaded", { id: mteId }),
+        confirmLabel: i18next.t("panel.applyClosuresMteRetry"),
+        cancelLabel: i18next.t("panel.finalFields.cancel"),
+      });
+      if (!retry) return false;
     }
   }
 
@@ -2803,6 +2825,9 @@ export class MatchingSubTab {
     container.appendChild(style);
   }
 }
+
+const MTE_LOAD_ATTEMPTS = 3;
+const MTE_LOAD_DELAY_MS = 1000;
 
 /** Slugify a track display name into a filesystem-safe filename stem.
  * Lowercases, strips diacritics, replaces non-alphanum runs with "-",
