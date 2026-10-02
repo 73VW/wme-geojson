@@ -187,6 +187,8 @@
       "noSelection": "Select a line in the Lines tab.",
       "prepareMteBtn": "Prepare MTE",
       "prepareMteDisabled": "No line selected",
+      "mteAlreadyLinked": "An MTE is already linked to this line (ID {{id}}). Create a new one?",
+      "mteCreateAnyway": "Create anyway",
       "reselectMatched": "Reselect matched",
       "rerunCurrentRow": "Rerun row",
       "burstRunning": "Burst mode: matched segments are auto-validated.",

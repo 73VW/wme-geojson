@@ -41,7 +41,16 @@ import { groupByWindow, roadbookRowIndex } from "../groupByWindow";
 import { waitForMapIdle } from "../../utils/waitForMapIdle";
 import { openMtePreparePopup, type MtePreparePopupDeps } from "../MtePreparePopup";
 import { promptMteInfo } from "../promptMteInfo";
-import { createMteSdk, type MteKey } from "../../mte";
+import {
+  createMteSdk,
+  fillMteForm,
+  manualFormData,
+  mteStore,
+  slowupFormData,
+  watchMteSaved,
+  type MteKey,
+} from "../../mte";
+import { fetchSlowupFullDetails } from "../../lines/slowupClient";
 import {
   controlsFor,
   reduceMatchingUi,
@@ -1870,9 +1879,40 @@ export class MatchingSubTab {
     }
 
     const slowupPolygon = inflatedTrackPolygon(entry.track.geometry, 500);
+    const mteKey = mteKeyOf(entry);
+
+    const stored = mteStore.get(mteKey);
+    if (
+      stored &&
+      !(await confirmModal({
+        message: i18next.t("panel.matching.mteAlreadyLinked", { id: stored }),
+        confirmLabel: i18next.t("panel.matching.mteCreateAnyway"),
+        cancelLabel: i18next.t("panel.finalFields.cancel"),
+      }))
+    ) {
+      return;
+    }
+
+    // Remplit le formulaire WME ; l'ID est stocké quand l'utilisateur enregistre.
+    try {
+      const geometry = slowupPolygon?.geometry ?? null;
+      const data =
+        "refid" in source
+          ? slowupFormData(await fetchSlowupFullDetails(source.refid), geometry)
+          : manualFormData(source.manual, geometry);
+      const draftId = await fillMteForm(this.wmeSDK, data);
+      watchMteSaved(this.wmeSDK, draftId, (id) => {
+        logger.info(`MTE enregistré : ${draftId} → ${id}`);
+        mteStore.set(mteKey, id);
+      });
+      return;
+    } catch (err) {
+      // Transition : on garde le popup copier-coller en secours.
+      logger.warn("Remplissage du formulaire MTE impossible, popup de secours", err);
+    }
 
     await openMtePreparePopup({
-      mteKey: mteKeyOf(entry),
+      mteKey,
       source,
       slowupBbox,
       slowupPolygon,

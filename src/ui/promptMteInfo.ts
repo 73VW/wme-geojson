@@ -3,6 +3,7 @@
 
 import i18next from "i18next";
 import { el, labeledInput } from "./promptFinalFields";
+import { MTE_NAME_MAX } from "../mte/mteFormFiller";
 
 export interface ManualMteInfo {
   title: string;
@@ -25,7 +26,9 @@ export function promptMteInfo(defaults: { title: string }): Promise<ManualMteInf
   return new Promise((resolve) => {
     const titleInput = el("input");
     titleInput.type = "text";
-    titleInput.value = defaults.title;
+    // Limite WME du nom d'un MTE ; maxLength ne tronque pas la valeur par défaut.
+    titleInput.maxLength = MTE_NAME_MAX;
+    titleInput.value = defaults.title.slice(0, MTE_NAME_MAX);
 
     const startInput = el("input");
     startInput.type = "datetime-local";
