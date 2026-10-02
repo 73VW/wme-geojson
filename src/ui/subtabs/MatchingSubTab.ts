@@ -626,7 +626,6 @@ export class MatchingSubTab {
       return;
     }
 
-
     this.registry.updateEntry(entry.id, {
       mode: "csv",
       csvRows: rows,
