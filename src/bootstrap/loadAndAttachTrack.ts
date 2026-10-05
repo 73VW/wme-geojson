@@ -91,7 +91,7 @@ export async function loadAndAttachLines(
 
     registry.setEntries(entries);
     logger.info(`loadAndAttachLines: loaded ${entries.length} line(s) from ${url}`);
-    panel.notifyUrlLoaded();
+    panel.notifyUrlLoaded(url);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error("loadAndAttachLines: failed", err);

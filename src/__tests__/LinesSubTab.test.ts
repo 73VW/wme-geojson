@@ -6,8 +6,10 @@ import type { LineEntry, SlowupDetails } from "../lines/types";
 const mocked = vi.hoisted(() => ({
   linesListInstances: [] as Array<{
     root: HTMLElement;
+    props: unknown;
     setEntries: ReturnType<typeof vi.fn>;
     setUrl: ReturnType<typeof vi.fn>;
+    setSource: ReturnType<typeof vi.fn>;
     showError: ReturnType<typeof vi.fn>;
     clearError: ReturnType<typeof vi.fn>;
   }>,
@@ -19,11 +21,13 @@ const mocked = vi.hoisted(() => ({
 }));
 
 vi.mock("../ui/views/LinesListView", () => ({
-  LinesListView: vi.fn().mockImplementation(() => {
+  LinesListView: vi.fn().mockImplementation((props: unknown) => {
     const instance = {
+      props,
       root: {} as HTMLElement,
       setEntries: vi.fn(),
       setUrl: vi.fn(),
+      setSource: vi.fn(),
       showError: vi.fn(),
       clearError: vi.fn(),
     };
@@ -34,6 +38,7 @@ vi.mock("../ui/views/LinesListView", () => ({
 
 vi.mock("../lines/slowupClient", () => ({
   fetchSlowupDetails: mocked.fetchSlowupDetails,
+  SLOWUPS_GEOJSON_URL: "https://schweizmobil.ch/api/4/slowups.geojson",
 }));
 
 vi.mock("../lines/displayName", () => ({
@@ -144,6 +149,7 @@ describe("LinesSubTab", () => {
       onLineSelected: vi.fn(),
       onCenterAll: vi.fn(),
       onCenterLine: vi.fn(),
+      loadProgress: () => ({ kind: "notStarted" }),
     });
     const view = latestView();
 
@@ -209,6 +215,7 @@ describe("LinesSubTab", () => {
       onLineSelected: vi.fn(),
       onCenterAll: vi.fn(),
       onCenterLine: vi.fn(),
+      loadProgress: () => ({ kind: "notStarted" }),
     });
     const view = latestView();
 
@@ -237,6 +244,7 @@ describe("LinesSubTab", () => {
       onLineSelected: vi.fn(),
       onCenterAll: vi.fn(),
       onCenterLine: vi.fn(),
+      loadProgress: () => ({ kind: "notStarted" }),
     });
     const view = latestView();
 
@@ -255,5 +263,58 @@ describe("LinesSubTab", () => {
     ]);
 
     subTab.dispose();
+  });
+  it("names the source after a load and clears the matching kind of source", () => {
+    const registry = new LineRegistry();
+    const loadProgress = vi.fn(() => ({ kind: "inProgress", percent: 40 }) as const);
+    const subTab = new LinesSubTab({
+      registry,
+      loadFn: vi.fn(),
+      loadFileFn: vi.fn(),
+      onLineSelected: vi.fn(),
+      onCenterAll: vi.fn(),
+      onCenterLine: vi.fn(),
+      loadProgress,
+    });
+    const view = latestView();
+
+    subTab.setUrlLoaded("https://schweizmobil.ch/api/4/slowups.geojson");
+    expect(view.setSource).toHaveBeenLastCalledWith({ kind: "slowups" });
+    subTab.setUrlLoaded("https://example.org/a.geojson");
+    expect(view.setSource).toHaveBeenLastCalledWith({
+      kind: "url",
+      url: "https://example.org/a.geojson",
+    });
+    subTab.setLoadedFile("rallye.kmz");
+    expect(view.setSource).toHaveBeenLastCalledWith({ kind: "file", name: "rallye.kmz" });
+
+    registry.setEntries([makeEntry("line-1")]);
+    const progressOf = view.setEntries.mock.calls[view.setEntries.mock.calls.length - 1]?.[1] as (
+      id: string,
+    ) => unknown;
+    expect(progressOf("line-1")).toEqual({ kind: "inProgress", percent: 40 });
+    expect(loadProgress).toHaveBeenCalledWith("line-1");
+
+    (view as unknown as { props: { onClearSource: () => void } }).props.onClearSource();
+    expect(registry.getAll()).toEqual([]);
+    expect(view.setSource).toHaveBeenLastCalledWith(null);
+  });
+
+  it("re-reads progress on refresh", () => {
+    const registry = new LineRegistry();
+    registry.setEntries([makeEntry("line-1")]);
+    const subTab = new LinesSubTab({
+      registry,
+      loadFn: vi.fn(),
+      loadFileFn: vi.fn(),
+      onLineSelected: vi.fn(),
+      onCenterAll: vi.fn(),
+      onCenterLine: vi.fn(),
+      loadProgress: () => ({ kind: "notStarted" }),
+    });
+    const view = latestView();
+    const calls = view.setEntries.mock.calls.length;
+    subTab.refresh();
+    expect(view.setEntries.mock.calls.length).toBe(calls + 1);
   });
 });

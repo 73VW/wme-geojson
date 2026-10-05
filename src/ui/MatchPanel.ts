@@ -14,6 +14,8 @@ import { wzTabs, type WzTabsHandle } from "./components/wz";
 import { LinesSubTab } from "./subtabs/LinesSubTab";
 import { MatchingSubTab } from "./subtabs/MatchingSubTab";
 import { LinesPreviewLayer } from "../layers/LinesPreviewLayer";
+import { lineProgress } from "../domain/lineProgress";
+import { SourcePersistence } from "../domain/SourcePersistence";
 
 export class MatchPanel {
   private tabPane: HTMLElement | null = null;
@@ -49,8 +51,8 @@ export class MatchPanel {
   }
 
   /** Surface a successfully loaded URL (manual or auto from query param). */
-  notifyUrlLoaded(): void {
-    this.linesSubTab?.setUrlLoaded();
+  notifyUrlLoaded(url: string): void {
+    this.linesSubTab?.setUrlLoaded(url);
   }
 
   async mount(): Promise<void> {
@@ -67,6 +69,8 @@ export class MatchPanel {
       return;
     }
 
+    // Read-only: load() only reads localStorage.
+    const progressReader = new SourcePersistence();
     this.linesSubTab = new LinesSubTab({
       registry: this.registry,
       loadFn: this.loadFn,
@@ -78,6 +82,7 @@ export class MatchPanel {
       onLineSelected: () => this.tabs?.setActiveTab(1),
       onCenterAll: () => this.centerOnAllLines(),
       onCenterLine: (id) => this.centerOnLine(id),
+      loadProgress: (id) => lineProgress(progressReader.load(id)),
     });
 
     this.matchingSubTab = new MatchingSubTab(this.wmeSDK, this.store, this.registry);
@@ -108,7 +113,9 @@ export class MatchPanel {
     // visible and removed while the Matching tab is showing.
     if (typeof IntersectionObserver !== "undefined") {
       const observer = new IntersectionObserver((records) => {
+        const becameVisible = !this.linesTabVisible && records.some((r) => r.isIntersecting);
         this.linesTabVisible = records.some((record) => record.isIntersecting);
+        if (becameVisible) this.linesSubTab?.refresh();
         this.refreshPreview();
       });
       observer.observe(this.linesSubTab.root);

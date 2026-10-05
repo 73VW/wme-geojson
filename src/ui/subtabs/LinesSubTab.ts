@@ -8,7 +8,9 @@ import type { LineRegistry } from "../../lines/LineRegistry";
 import type { LineEntry } from "../../lines/types";
 import { fetchSlowupDetails } from "../../lines/slowupClient";
 import { parseSlowupDateUTC } from "../../lines/slowupDate";
-import { LinesListView } from "../views/LinesListView";
+import { LinesListView, type LoadedSource } from "../views/LinesListView";
+import type { LineProgress } from "../../domain/lineProgress";
+import { SLOWUPS_GEOJSON_URL } from "../../lines/slowupClient";
 import { clearUploadedFile } from "../../persistence/uploadedFile";
 import { clearLoadedUrl } from "../../bootstrap/loadAndAttachTrack";
 
@@ -24,6 +26,8 @@ export interface LinesSubTabDeps {
   onCenterAll: () => void;
   /** Zooms the WME map to the bounding box of a single line. */
   onCenterLine: (id: string) => void;
+  /** Matching progress of a line, read from its persisted session. */
+  loadProgress: (id: string) => LineProgress;
 }
 
 function parseSortableSlowupDate(date: string | undefined): number | null {
@@ -68,29 +72,37 @@ export class LinesSubTab {
   private readonly deps: LinesSubTabDeps;
   private readonly unsubscribeLinesChanged: () => void;
   private readonly unsubscribeEntryUpdated: () => void;
+  private source: LoadedSource | null = null;
 
   constructor(deps: LinesSubTabDeps) {
     this.deps = deps;
     this.view = new LinesListView({
       onLoadUrl: (url) => void this.handleLoad(url),
-      onClearUrl: () => this.handleClearUrl(),
       onLoadFile: (file) => void this.deps.loadFileFn(file),
-      onClearFile: () => this.handleClearFile(),
+      onClearSource: () => this.handleClearSource(),
       onSelect: (id) => this.handleSelect(id),
       onCenterAll: deps.onCenterAll,
       onCenterLine: deps.onCenterLine,
     });
     this.root = this.view.root;
 
-    this.view.setEntries(sortSlowupEntries(deps.registry.getAll()));
+    this.renderEntries();
     this.unsubscribeLinesChanged = deps.registry.onLinesChanged(() => {
-      const entries = deps.registry.getAll();
-      this.view.setEntries(sortSlowupEntries(entries));
-      void this.fetchSlowupDetailsForLines(entries);
+      this.renderEntries();
+      void this.fetchSlowupDetailsForLines(deps.registry.getAll());
     });
     this.unsubscribeEntryUpdated = deps.registry.onEntryUpdated(() => {
-      this.view.setEntries(sortSlowupEntries(deps.registry.getAll()));
+      this.renderEntries();
     });
+  }
+
+  private renderEntries(): void {
+    this.view.setEntries(sortSlowupEntries(this.deps.registry.getAll()), this.deps.loadProgress);
+  }
+
+  /** Re-read progress (e.g. when the Lignes tab is shown again). */
+  refresh(): void {
+    this.renderEntries();
   }
 
   setUrl(url: string): void {
@@ -103,27 +115,29 @@ export class LinesSubTab {
 
   /** Called by MatchPanel when a file is successfully loaded or restored. */
   setLoadedFile(name: string): void {
-    this.view.setLoadedFile(name);
-    this.view.setUrlLoaded(false);
+    this.setSource({ kind: "file", name });
   }
 
   /** Called by MatchPanel when a URL is successfully loaded (manual or auto). */
-  setUrlLoaded(): void {
-    this.view.setUrlLoaded(true);
-    this.view.setLoadedFile(null);
+  setUrlLoaded(url: string): void {
+    this.setSource(url === SLOWUPS_GEOJSON_URL ? { kind: "slowups" } : { kind: "url", url });
   }
 
-  private handleClearFile(): void {
-    clearUploadedFile();
-    this.deps.registry.setEntries([]);
-    this.view.setLoadedFile(null);
+  private setSource(source: LoadedSource | null): void {
+    this.source = source;
+    this.view.setSource(source);
   }
 
-  private handleClearUrl(): void {
+  private handleClearSource(): void {
     this.view.clearError();
-    this.view.setUrl("");
-    this.view.setUrlLoaded(false);
-    clearLoadedUrl(this.deps.registry);
+    if (this.source?.kind === "file") {
+      clearUploadedFile();
+      this.deps.registry.setEntries([]);
+    } else {
+      this.view.setUrl("");
+      clearLoadedUrl(this.deps.registry);
+    }
+    this.setSource(null);
   }
 
   private async handleLoad(url: string): Promise<void> {
