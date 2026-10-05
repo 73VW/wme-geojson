@@ -9,10 +9,14 @@ export interface StepNavState {
   canNext: boolean;
 }
 
-function arrow(icon: string): HTMLButtonElement {
+function arrow(icon: string, label?: string): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "wmegj-icon-only";
+  if (label) {
+    button.title = label;
+    button.setAttribute("aria-label", label);
+  }
   const i = document.createElement("i");
   i.className = `w-icon ${icon}`;
   button.appendChild(i);
@@ -26,11 +30,16 @@ export class StepNavView {
   private readonly labelEl: HTMLElement;
   private readonly captionEl: HTMLElement;
 
-  constructor(props: { onPrev: () => void; onNext: () => void }) {
+  constructor(props: {
+    onPrev: () => void;
+    onNext: () => void;
+    prevLabel?: string;
+    nextLabel?: string;
+  }) {
     this.root = document.createElement("div");
     this.root.className = "wmegj-step-nav";
-    this.prev = arrow("w-icon-chevron-left");
-    this.next = arrow("w-icon-chevron-right");
+    this.prev = arrow("w-icon-chevron-left", props.prevLabel);
+    this.next = arrow("w-icon-chevron-right", props.nextLabel);
     this.prev.addEventListener("click", () => props.onPrev());
     this.next.addEventListener("click", () => props.onNext());
 

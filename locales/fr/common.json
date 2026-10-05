@@ -123,10 +123,6 @@
       "close": "Fermer",
       "collapse": "Replier",
       "expand": "Déplier",
-      "tabs": {
-        "match": "Correspondance",
-        "debug": "Debug"
-      },
       "panelStatus": {
         "ready": "Prêt",
         "running": "Matching en cours",
@@ -147,7 +143,7 @@
       "rowHeaderWithSubLine": "Ligne {{index}} / {{total}} — {{km}} km, {{startTime}} → {{endTime}} | sous-ligne {{subIndex}}/{{subTotal}}",
       "rowHeaderNoTime": "Ligne {{index}} / {{total}} — {{km}} km",
       "rowHeaderWithSubLineNoTime": "Ligne {{index}} / {{total}} — {{km}} km | sous-ligne {{subIndex}}/{{subTotal}}",
-      "validateOrCorrect": "Validez ou corrigez et validez",
+      "validateOrCorrect": "Vérifiez la sélection dans WME, corrigez-la si besoin, puis validez.",
       "segmentsMatched": "{{count}} segment(s) trouvé(s)",
       "matchingInProgress": "Recherche des segments…",
       "subLinesTitle": "Sous-lignes courantes",
@@ -217,7 +213,39 @@
         "unknown": "Étape du pipeline"
       },
       "backToLines": "← Lignes",
-      "rematch": "Relancer le matching"
+      "rematch": "Relancer le matching",
+      "nav": {
+        "prev": "Sous-ligne précédente",
+        "next": "Sous-ligne suivante",
+        "label": "Ligne {{line}}/{{lines}} · sous-ligne {{sub}}",
+        "labelOf": "Ligne {{line}}/{{lines}} · sous-ligne {{sub}}/{{subs}}",
+        "segments": "{{count}} segment(s)",
+        "toValidate": "à valider",
+        "summary": "{{count}} sous-ligne(s) validée(s)"
+      },
+      "instructions": {
+        "idle": "Démarrez la correspondance : manuelle pour valider chaque sous-ligne, automatique pour tout enchaîner.",
+        "idleBrowse": "Reprenez la correspondance, ou parcourez les sous-lignes déjà validées avec ‹ ›.",
+        "review": "Sous-ligne validée. Resélectionnez ses segments ou relancez le matching, corrigez la sélection dans WME puis enregistrez.",
+        "reviewDirty": "La sélection a changé. Enregistrez-la pour cette sous-ligne, ou annulez.",
+        "done": "Toutes les sous-lignes sont validées. Appliquez les fermetures depuis la barre latérale, ou parcourez-les avec ‹ ›.",
+        "paused": "En pause. Reprenez, ou parcourez les sous-lignes validées avec ‹ ›.",
+        "error": "Le matching a échoué. Réessayez."
+      },
+      "review": {
+        "selectMatched": "Sélectionner les segments matchés",
+        "save": "Enregistrer",
+        "cancel": "Annuler",
+        "discardTitle": "Abandonner les modifications ?",
+        "discardMessage": "La sélection modifiée de cette sous-ligne n'est pas enregistrée.",
+        "discard": "Abandonner",
+        "stay": "Rester"
+      },
+      "menu": {
+        "more": "Plus d'actions",
+        "debug": "Debug",
+        "backToMatching": "Retour à la correspondance"
+      }
     },
     "mtePopup": {
       "loading": "Chargement…",

@@ -31,4 +31,17 @@ describe("StepNavView", () => {
     view.setState({ ...state, canPrev: false });
     expect(prev.disabled).toBe(true);
   });
+
+  it("names the arrows for screen readers", () => {
+    const view = new StepNavView({
+      onPrev: vi.fn(),
+      onNext: vi.fn(),
+      prevLabel: "Sous-ligne précédente",
+      nextLabel: "Sous-ligne suivante",
+    });
+    const [prev, next] = [...view.root.querySelectorAll<HTMLButtonElement>("button")];
+    expect(prev.getAttribute("aria-label")).toBe("Sous-ligne précédente");
+    expect(prev.title).toBe("Sous-ligne précédente");
+    expect(next.getAttribute("aria-label")).toBe("Sous-ligne suivante");
+  });
 });

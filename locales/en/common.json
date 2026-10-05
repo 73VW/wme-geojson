@@ -123,10 +123,6 @@
       "close": "Close",
       "collapse": "Collapse",
       "expand": "Expand",
-      "tabs": {
-        "match": "Matching",
-        "debug": "Debug"
-      },
       "panelStatus": {
         "ready": "Ready",
         "running": "Matching in progress",
@@ -147,7 +143,7 @@
       "rowHeaderWithSubLine": "Line {{index}} / {{total}} — {{km}} km, {{startTime}} → {{endTime}} | sub-line {{subIndex}}/{{subTotal}}",
       "rowHeaderNoTime": "Line {{index}} / {{total}} — {{km}} km",
       "rowHeaderWithSubLineNoTime": "Line {{index}} / {{total}} — {{km}} km | sub-line {{subIndex}}/{{subTotal}}",
-      "validateOrCorrect": "Validate, or correct then validate",
+      "validateOrCorrect": "Check the selection in WME, correct it if needed, then validate.",
       "segmentsMatched": "{{count}} segment(s) matched",
       "matchingInProgress": "Matching segments…",
       "subLinesTitle": "Current sub-lines",
@@ -217,7 +213,39 @@
         "unknown": "Pipeline step"
       },
       "backToLines": "← Lines",
-      "rematch": "Re-run matching"
+      "rematch": "Re-run matching",
+      "nav": {
+        "prev": "Previous sub-line",
+        "next": "Next sub-line",
+        "label": "Line {{line}}/{{lines}} · sub-line {{sub}}",
+        "labelOf": "Line {{line}}/{{lines}} · sub-line {{sub}}/{{subs}}",
+        "segments": "{{count}} segment(s)",
+        "toValidate": "to validate",
+        "summary": "{{count}} validated sub-line(s)"
+      },
+      "instructions": {
+        "idle": "Start matching: manual to validate each sub-line, automatic to run through all of them.",
+        "idleBrowse": "Resume matching, or browse the validated sub-lines with ‹ ›.",
+        "review": "Validated sub-line. Reselect its segments or re-run the matching, correct the selection in WME, then save.",
+        "reviewDirty": "The selection changed. Save it for this sub-line, or cancel.",
+        "done": "Every sub-line is validated. Apply the closures from the sidebar, or browse them with ‹ ›.",
+        "paused": "Paused. Resume, or browse the validated sub-lines with ‹ ›.",
+        "error": "Matching failed. Try again."
+      },
+      "review": {
+        "selectMatched": "Select matched segments",
+        "save": "Save",
+        "cancel": "Cancel",
+        "discardTitle": "Discard changes?",
+        "discardMessage": "The changed selection of this sub-line is not saved.",
+        "discard": "Discard",
+        "stay": "Stay"
+      },
+      "menu": {
+        "more": "More actions",
+        "debug": "Debug",
+        "backToMatching": "Back to matching"
+      }
     },
     "mtePopup": {
       "loading": "Loading…",

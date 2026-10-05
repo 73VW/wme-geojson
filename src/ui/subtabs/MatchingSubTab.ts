@@ -72,6 +72,18 @@ import {
   type MatchingUiEvent,
   type MatchingUiState,
 } from "../matchingUiState";
+import { StepReview, reviewControlsFor } from "../../controller/StepReview";
+import {
+  frontierStep,
+  navigableSteps,
+  neighbour,
+  sameStep,
+  type StepRef,
+} from "../../domain/steps";
+import { StepNavView } from "../views/StepNavView";
+import { PanelMenuView } from "../views/PanelMenuView";
+import { instructionKey, navEnabled, stepNavState } from "../matchingPanelText";
+import { wzButton } from "../components/wz";
 
 const TARGET_ZOOM = 16;
 
@@ -156,7 +168,15 @@ export class MatchingSubTab {
   private guidedSkipBtn: HTMLElement | null = null;
   private guidedRematchBtn: HTMLElement | null = null;
   private guidedDoneCloseBtn: HTMLElement | null = null;
-  private guidedRestartBtn: HTMLElement | null = null;
+  private rematchRunning = false;
+  private review: StepReview | null = null;
+  private stepNav: StepNavView | null = null;
+  private panelMenu: PanelMenuView | null = null;
+  private guidedSelectMatchedBtn: HTMLElement | null = null;
+  private guidedReviewRematchBtn: HTMLElement | null = null;
+  private guidedSaveBtn: HTMLElement | null = null;
+  private guidedCancelBtn: HTMLElement | null = null;
+  private unsubscribeSelectionChanged: (() => void) | null = null;
   private matchingPanelOpen = false;
   private guidedCollapsed = false;
 
@@ -164,9 +184,7 @@ export class MatchingSubTab {
   private guidedPauseBtn: HTMLElement | null = null;
   private guidedResumeBtn: HTMLElement | null = null;
 
-  // Debug tab elements.
-  private guidedTabMatchEl: HTMLElement | null = null;
-  private guidedTabDebugEl: HTMLElement | null = null;
+  // Debug pane elements.
   private guidedMatchPaneEl: HTMLElement | null = null;
   private guidedDebugPaneEl: HTMLElement | null = null;
   private guidedDebugBodyEl: HTMLElement | null = null;
@@ -195,6 +213,27 @@ export class MatchingSubTab {
     root.classList.add("wmegj-panel-root");
     this.buildDOM(root);
     this.contentWrapperEl = root.lastElementChild as HTMLElement | null;
+
+    this.review = new StepReview({
+      store: this.sourceStore,
+      map: {
+        setMapCenter: (lon, lat, zoom) => this.buildMapDriver().setMapCenter(lon, lat, zoom),
+        waitIdle: () => waitForMapIdle(this.wmeSDK, { settleDelayMs: 650 }),
+        setSelection: (ids) => this.buildMapDriver().setSelection(ids),
+        getSelection: () => this.readSelectionSegmentIds(),
+      },
+      match: { runMatchFor: (step) => this.runMatchFor(step) },
+      // renderSourceState() also refreshes the controls.
+      onChange: () => this.renderSourceState(),
+    });
+    try {
+      this.unsubscribeSelectionChanged = this.wmeSDK.Events.on({
+        eventName: "wme-selection-changed",
+        eventHandler: () => this.review?.selectionChanged(this.readSelectionSegmentIds()),
+      });
+    } catch (err) {
+      logger.warn("MatchingSubTab.buildRoot: failed to subscribe to wme-selection-changed", err);
+    }
 
     this.emptyStateEl = document.createElement("p");
     this.emptyStateEl.className = "wmegj-section";
@@ -269,6 +308,7 @@ export class MatchingSubTab {
     this.persistence.flush();
 
     this.attachedLineId = entry.id;
+    this.review?.close();
     this.headerView?.setTitle(entry.displayName);
     this.matchingPanelOpen = false;
 
@@ -387,6 +427,8 @@ export class MatchingSubTab {
     this.unsubscribeMapDataLoaded?.();
     this.unsubscribeSelection?.();
     this.unsubscribeSourceStore?.();
+    this.unsubscribeSelectionChanged?.();
+    this.unsubscribeSelectionChanged = null;
     this.unsubscribeStore = null;
     this.unsubscribeMapDataLoaded = null;
     this.unsubscribeSelection = null;
@@ -425,13 +467,18 @@ export class MatchingSubTab {
     this.guidedSkipBtn = null;
     this.guidedRematchBtn = null;
     this.guidedDoneCloseBtn = null;
-    this.guidedRestartBtn = null;
+    this.review = null;
+    this.stepNav = null;
+    this.panelMenu?.close();
+    this.panelMenu = null;
+    this.guidedSelectMatchedBtn = null;
+    this.guidedReviewRematchBtn = null;
+    this.guidedSaveBtn = null;
+    this.guidedCancelBtn = null;
     this.guidedStartBurstBtn = null;
     this.guidedPauseBtn = null;
     this.guidedResumeBtn = null;
     this.guidedRetryBtn = null;
-    this.guidedTabMatchEl = null;
-    this.guidedTabDebugEl = null;
     this.guidedMatchPaneEl = null;
     this.guidedDebugPaneEl = null;
     this.guidedDebugBodyEl = null;
@@ -583,6 +630,7 @@ export class MatchingSubTab {
   ): void {
     this.persistence.clear(sourceId);
     this.lazyPipeline = null;
+    this.review?.close();
     const source = buildGeojsonSource({
       sourceId,
       track,
@@ -662,6 +710,9 @@ export class MatchingSubTab {
     const headerActions = document.createElement("div");
     headerActions.className = "wmegj-guided-header-actions";
 
+    this.panelMenu = new PanelMenuView({ label: i18next.t("panel.matching.menu.more") });
+    headerActions.appendChild(this.panelMenu.root);
+
     const toggleBtn = this.createGuidedIconButton({
       iconClass: this.guidedCollapsed ? "w-icon-collapse-up" : "w-icon-collapse",
       label: i18next.t("panel.matching.collapse"),
@@ -675,7 +726,7 @@ export class MatchingSubTab {
     const closeBtn = this.createGuidedIconButton({
       iconClass: "w-icon-x",
       label: i18next.t("panel.matching.close"),
-      onClick: () => this.closeMatchingPanel(),
+      onClick: () => void this.closeMatchingPanel(),
     });
     headerActions.appendChild(closeBtn);
     this.guidedCloseBtn = closeBtn;
@@ -689,18 +740,18 @@ export class MatchingSubTab {
     section.appendChild(bodyEl);
     this.guidedBodyEl = bodyEl;
 
-    const tabRow = document.createElement("div");
-    tabRow.className = "wmegj-guided-tabs";
-    bodyEl.appendChild(tabRow);
-    this.guidedTabMatchEl = this.buildGuidedTab("match", i18next.t("panel.matching.tabs.match"));
-    this.guidedTabDebugEl = this.buildGuidedTab("debug", i18next.t("panel.matching.tabs.debug"));
-    tabRow.appendChild(this.guidedTabMatchEl);
-    tabRow.appendChild(this.guidedTabDebugEl);
-
     const matchPane = document.createElement("div");
     matchPane.className = "wmegj-guided-tabpane";
     bodyEl.appendChild(matchPane);
     this.guidedMatchPaneEl = matchPane;
+
+    this.stepNav = new StepNavView({
+      onPrev: () => void this.navigate(-1),
+      onNext: () => void this.navigate(1),
+      prevLabel: i18next.t("panel.matching.nav.prev"),
+      nextLabel: i18next.t("panel.matching.nav.next"),
+    });
+    matchPane.appendChild(this.stepNav.root);
 
     const headerEl = document.createElement("p");
     headerEl.className = "wmegj-guided-row";
@@ -716,7 +767,6 @@ export class MatchingSubTab {
 
     const instructionEl = document.createElement("p");
     instructionEl.className = "wmegj-guided-instruction";
-    instructionEl.textContent = i18next.t("panel.matching.validateOrCorrect");
     matchPane.appendChild(instructionEl);
     this.guidedInstructionEl = instructionEl;
 
@@ -753,7 +803,7 @@ export class MatchingSubTab {
     this.guidedStartBtn.classList.add("wmegj-guided-button--start");
     this.guidedStartBurstBtn = this.appendGuidedButton(matchActions, {
       text: i18next.t("panel.matching.startAutomatic"),
-      variant: "primary",
+      variant: "secondary",
       onClick: () => {
         void this.onStartBurstClick();
       },
@@ -802,15 +852,10 @@ export class MatchingSubTab {
     this.guidedDoneCloseBtn = this.appendGuidedButton(matchActions, {
       text: i18next.t("panel.matching.closePanel"),
       variant: "primary",
-      onClick: () => this.closeMatchingPanel(),
+      onClick: () => void this.closeMatchingPanel(),
     });
     this.guidedDoneCloseBtn.classList.add("wmegj-guided-button--done-close");
-
-    const manualToolsActions = document.createElement("div");
-    manualToolsActions.className = "wmegj-guided-secondary-actions";
-    matchPane.appendChild(manualToolsActions);
-
-    this.guidedRematchBtn = this.appendGuidedButton(manualToolsActions, {
+    this.guidedRematchBtn = this.appendGuidedButton(matchActions, {
       text: i18next.t("panel.matching.rematch"),
       variant: "secondary",
       onClick: () => {
@@ -819,18 +864,26 @@ export class MatchingSubTab {
     });
     this.guidedRematchBtn.classList.add("wmegj-guided-button--rematch");
 
-    const restartActions = document.createElement("div");
-    restartActions.className = "wmegj-guided-reset-actions";
-    matchPane.appendChild(restartActions);
-
-    this.guidedRestartBtn = this.appendGuidedButton(restartActions, {
-      text: i18next.t("panel.matching.restartFromScratch"),
-      variant: "danger",
-      onClick: () => {
-        this.onRestartFromScratchClick();
-      },
+    this.guidedSelectMatchedBtn = this.appendGuidedButton(matchActions, {
+      text: i18next.t("panel.matching.review.selectMatched"),
+      variant: "primary",
+      onClick: () => this.review?.selectMatched(),
     });
-    this.guidedRestartBtn.classList.add("wmegj-guided-button--restart");
+    this.guidedReviewRematchBtn = this.appendGuidedButton(matchActions, {
+      text: i18next.t("panel.matching.rematch"),
+      variant: "secondary",
+      onClick: () => void this.review?.rematch(),
+    });
+    this.guidedSaveBtn = this.appendGuidedButton(matchActions, {
+      text: i18next.t("panel.matching.review.save"),
+      variant: "primary",
+      onClick: () => this.review?.save(),
+    });
+    this.guidedCancelBtn = this.appendGuidedButton(matchActions, {
+      text: i18next.t("panel.matching.review.cancel"),
+      variant: "secondary",
+      onClick: () => this.review?.cancel(),
+    });
 
     // ── Debug pane ─────────────────────────────────────────────────────────
     const debugPane = document.createElement("div");
@@ -838,6 +891,13 @@ export class MatchingSubTab {
     debugPane.style.display = "none";
     bodyEl.appendChild(debugPane);
     this.guidedDebugPaneEl = debugPane;
+    debugPane.appendChild(
+      wzButton({
+        text: "← " + i18next.t("panel.matching.menu.backToMatching"),
+        variant: "text",
+        onClick: () => this.setGuidedActiveTab("match"),
+      }),
+    );
 
     const debugTitle = document.createElement("p");
     debugTitle.className = "wmegj-guided-debug-title";
@@ -873,21 +933,8 @@ export class MatchingSubTab {
     return section;
   }
 
-  private buildGuidedTab(tab: "match" | "debug", label: string): HTMLElement {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "wmegj-guided-tab";
-    button.textContent = label;
-    button.addEventListener("click", () => {
-      this.setGuidedActiveTab(tab);
-    });
-    return button;
-  }
-
   private setGuidedActiveTab(tab: "match" | "debug"): void {
     this.guidedActiveTab = tab;
-    this.guidedTabMatchEl?.classList.toggle("is-active", tab === "match");
-    this.guidedTabDebugEl?.classList.toggle("is-active", tab === "debug");
     if (this.guidedMatchPaneEl) {
       this.guidedMatchPaneEl.style.display = tab === "match" ? "" : "none";
     }
@@ -1054,7 +1101,9 @@ export class MatchingSubTab {
     this.guidedLoaderEl.style.display = isLoading ? "flex" : "none";
   }
 
-  private closeMatchingPanel(): void {
+  private async closeMatchingPanel(): Promise<void> {
+    if (!(await this.confirmDiscardReview())) return;
+    this.review?.close();
     const wasDone = this.uiState.kind === "done";
     this.dispatch({ type: "CLOSE_DONE" });
     this.matchingPanelOpen = false;
@@ -1080,9 +1129,6 @@ export class MatchingSubTab {
       this.guidedSegmentCountEl.textContent = i18next.t("panel.matching.segmentsMatched", {
         count: 0,
       });
-    }
-    if (this.guidedInstructionEl) {
-      this.guidedInstructionEl.textContent = i18next.t("panel.matching.validateOrCorrect");
     }
     if (this.guidedManualActionsEl) {
       this.guidedManualActionsEl.style.display = "flex";
@@ -1119,29 +1165,37 @@ export class MatchingSubTab {
   private buildMatchDriver(): MatchDriver {
     return {
       runMatch: async () => {
-        const controller = this.controller;
-        const src = this.sourceStore.getSource();
-        if (!controller || !src || !src.cursor) return [];
-        const { lineIndex, subLineIndex } = src.cursor;
-        const line = src.lines[lineIndex];
-        const sub = line?.subLines[subLineIndex];
-        if (!line || !sub) return [];
-
-        // sub.kmA/kmB are relative to THIS line's (merged) geometry, so rescope
-        // the controller to it before matching — otherwise the km-range would
-        // be applied to the whole raw track and slice the wrong portion.
-        controller.setTrack(line.geometry);
-
-        const set = new Set<number>();
-        const unsubscribe = controller.onMatchFound((id) => set.add(id));
-        try {
-          await controller.matchInCurrentViewport(sub.kmA, sub.kmB);
-        } finally {
-          unsubscribe();
-        }
-        return [...set];
+        const cursor = this.sourceStore.getSource()?.cursor;
+        return cursor ? this.runMatchFor(cursor) : [];
       },
     };
+  }
+
+  /**
+   * Match one sub-line in the current viewport. Does not center the map: the
+   * pipeline centers before runMatch, and StepReview.open() before a re-match.
+   */
+  private async runMatchFor(step: StepRef): Promise<number[]> {
+    const controller = this.controller;
+    const src = this.sourceStore.getSource();
+    if (!controller || !src) return [];
+    const line = src.lines[step.lineIndex];
+    const sub = line?.subLines[step.subLineIndex];
+    if (!line || !sub) return [];
+
+    // sub.kmA/kmB are relative to THIS line's (merged) geometry, so rescope
+    // the controller to it before matching — otherwise the km-range would
+    // be applied to the whole raw track and slice the wrong portion.
+    controller.setTrack(line.geometry);
+
+    const set = new Set<number>();
+    const unsubscribe = controller.onMatchFound((id) => set.add(id));
+    try {
+      await controller.matchInCurrentViewport(sub.kmA, sub.kmB);
+    } finally {
+      unsubscribe();
+    }
+    return [...set];
   }
 
   private ensurePipeline(): LazyMatchingPipeline | null {
@@ -1159,11 +1213,9 @@ export class MatchingSubTab {
     if (this.uiState.kind !== "idle") return;
     const pipeline = this.ensurePipeline();
     if (!pipeline) return;
+    this.review?.close();
     this.openMatchingPanel();
     this.store.setPhase("matching");
-    if (this.guidedInstructionEl) {
-      this.guidedInstructionEl.textContent = i18next.t("panel.matching.validateOrCorrect");
-    }
     this.dispatch({ type: "START_INTERACTIVE" });
     await this.runStep(() => pipeline.stepUntilValidation());
   }
@@ -1173,11 +1225,9 @@ export class MatchingSubTab {
     if (this.uiState.kind !== "idle") return;
     const pipeline = this.ensurePipeline();
     if (!pipeline) return;
+    this.review?.close();
     this.openMatchingPanel();
     this.store.setPhase("matching");
-    if (this.guidedInstructionEl) {
-      this.guidedInstructionEl.textContent = i18next.t("panel.matching.burstRunning");
-    }
     this.dispatch({ type: "START_BURST" });
     await this.runBurstLoop(pipeline);
   }
@@ -1187,6 +1237,7 @@ export class MatchingSubTab {
     if (this.uiState.kind !== "paused") return;
     const pipeline = this.lazyPipeline;
     if (!pipeline) return;
+    this.review?.close();
     this.store.setPhase("matching");
     this.dispatch({ type: "RESUME_BURST" });
     await this.runBurstLoop(pipeline);
@@ -1233,6 +1284,7 @@ export class MatchingSubTab {
     if (this.uiState.kind !== "waiting") return;
     const pipeline = this.lazyPipeline;
     if (!pipeline) return;
+    this.review?.close();
     pipeline.validate(resolveValidationIds(this.readSelectionSegmentIds()));
     this.dispatch({ type: "STEP_STARTED" });
     await this.runStep(() => pipeline.stepUntilValidation());
@@ -1242,22 +1294,74 @@ export class MatchingSubTab {
     if (this.uiState.kind !== "waiting") return;
     const pipeline = this.lazyPipeline;
     if (!pipeline) return;
+    this.review?.close();
     pipeline.validate([]);
     this.dispatch({ type: "STEP_STARTED" });
     await this.runStep(() => pipeline.stepUntilValidation());
   }
 
   private async onRematchClick(): Promise<void> {
-    if (this.uiState.kind !== "waiting") return;
+    if (this.uiState.kind !== "waiting" || this.rematchRunning) return;
     const pipeline = this.lazyPipeline;
     if (!pipeline) return;
+    this.review?.close();
+    this.rematchRunning = true;
     this.setGuidedLoading(true, i18next.t("panel.matching.matchingInProgress"));
     try {
       await pipeline.rematchCurrent();
+      this.renderSourceState();
+    } catch (err) {
+      logger.error("MatchingSubTab.onRematchClick: re-match failed", err);
+      this.dispatch({
+        type: "STEP_FAILED",
+        message: err instanceof Error ? err.message : String(err),
+      });
     } finally {
+      this.rematchRunning = false;
       this.setGuidedLoading(false);
     }
-    this.renderSourceState();
+  }
+
+  /** The sub-line shown in the panel: the reviewed one, else the one being validated. */
+  private currentStep(): StepRef | null {
+    const reviewed = this.review?.state?.step;
+    if (reviewed) return reviewed;
+    return this.uiState.kind === "waiting" ? frontierStep(this.sourceStore.getSource()) : null;
+  }
+
+  private navSteps(): StepRef[] {
+    return navigableSteps(this.sourceStore.getSource(), this.uiState.kind === "waiting");
+  }
+
+  private async navigate(direction: -1 | 1): Promise<void> {
+    if (!navEnabled(this.uiState.kind, this.review?.state ?? null)) return;
+    const target = neighbour(this.navSteps(), this.currentStep(), direction);
+    if (!target || !(await this.confirmDiscardReview())) return;
+    const frontier =
+      this.uiState.kind === "waiting" ? frontierStep(this.sourceStore.getSource()) : null;
+    if (sameStep(target, frontier)) {
+      // Back on the sub-line being validated: show its pending match again.
+      this.review?.close();
+      const sub =
+        this.sourceStore.getSource()?.lines[target.lineIndex]?.subLines[target.subLineIndex];
+      if (sub) this.buildMapDriver().setMapCenter(sub.view.lon, sub.view.lat, sub.view.zoom);
+      this.buildMapDriver().setSelection(this.lazyPipeline?.getPendingMatched() ?? []);
+      return;
+    }
+    await this.review?.open(target);
+  }
+
+  /** true when there is nothing unsaved, or the operator chose to discard it. */
+  private async confirmDiscardReview(): Promise<boolean> {
+    if (!this.review?.state?.dirty) return true;
+    const discard = await confirmDialog({
+      title: i18next.t("panel.matching.review.discardTitle"),
+      message: i18next.t("panel.matching.review.discardMessage"),
+      confirmLabel: i18next.t("panel.matching.review.discard"),
+      cancelLabel: i18next.t("panel.matching.review.stay"),
+    });
+    if (discard) this.review.cancel();
+    return discard;
   }
 
   /** Run a pipeline step; outcome transitions (ready/failed/completed) go through dispatch. */
@@ -1359,6 +1463,7 @@ export class MatchingSubTab {
           try {
             this.persistence.clear(entry.id);
             this.lazyPipeline = null;
+            this.review?.close();
             this.dispatch({ type: "RESTART" });
             const fresh = this.buildSourceForEntry(entry);
             this.sourceStore.hydrate(fresh);
@@ -1403,18 +1508,13 @@ export class MatchingSubTab {
         logger.warn("MatchingSubTab: clearing selection on done failed", err);
       }
     }
-    if (next.kind === "error" && this.guidedInstructionEl) {
-      // Review finding #5: surface step failures to the operator.
-      this.guidedInstructionEl.textContent = i18next.t("panel.matching.stepError", {
-        message: next.message,
-      });
-    }
   }
 
   private async onRetryClick(): Promise<void> {
     if (this.uiState.kind !== "error") return;
     const pipeline = this.lazyPipeline;
     if (!pipeline) return;
+    this.review?.close();
     const mode = this.uiState.resumeMode;
     this.dispatch({ type: "RETRY" });
     if (mode === "burst") {
@@ -1425,8 +1525,24 @@ export class MatchingSubTab {
   }
 
   private updateGuidedControls(): void {
-    const hasSource = this.sourceStore.getSource() !== null;
-    const c = controlsFor(this.uiState, hasSource);
+    const src = this.sourceStore.getSource();
+    const reviewState = this.review?.state ?? null;
+    const run = controlsFor(this.uiState, src !== null);
+    const hidden: ButtonView = { visible: false, enabled: false };
+    // While a validated sub-line is reviewed, its own controls replace the run controls.
+    const c = reviewState
+      ? {
+          ...run,
+          start: hidden,
+          startBurst: hidden,
+          validate: hidden,
+          skip: hidden,
+          rematch: hidden,
+          resume: hidden,
+          retry: hidden,
+          doneClose: hidden,
+        }
+      : run;
     this.applyButtonView(this.guidedStartBtn, c.start);
     this.applyButtonView(this.guidedStartBurstBtn, c.startBurst);
     this.applyButtonView(this.guidedValidateBtn, c.validate);
@@ -1436,7 +1552,51 @@ export class MatchingSubTab {
     this.applyButtonView(this.guidedResumeBtn, c.resume);
     this.applyButtonView(this.guidedRetryBtn, c.retry);
     this.applyButtonView(this.guidedDoneCloseBtn, c.doneClose);
-    this.applyButtonView(this.guidedRestartBtn, c.restart);
+
+    const r = reviewControlsFor(reviewState);
+    this.applyButtonView(this.guidedSelectMatchedBtn, r.selectMatched);
+    this.applyButtonView(this.guidedReviewRematchBtn, r.rematch);
+    this.applyButtonView(this.guidedSaveBtn, r.save);
+    this.applyButtonView(this.guidedCancelBtn, r.cancel);
+
+    const steps = this.navSteps();
+    if (this.stepNav && src) {
+      this.stepNav.root.hidden = steps.length === 0;
+      this.stepNav.setState(
+        stepNavState(src, this.currentStep(), steps, navEnabled(this.uiState.kind, reviewState)),
+      );
+    }
+
+    if (this.guidedInstructionEl) {
+      this.guidedInstructionEl.textContent =
+        this.uiState.kind === "error" && !reviewState
+          ? i18next.t("panel.matching.stepError", { message: this.uiState.message })
+          : i18next.t(
+              instructionKey({
+                run: this.uiState.kind,
+                review: reviewState,
+                hasValidated: navigableSteps(src, false).length > 0,
+              }),
+            );
+    }
+
+    this.panelMenu?.setItems([
+      {
+        label: i18next.t("panel.matching.menu.debug"),
+        onSelect: () => this.setGuidedActiveTab("debug"),
+      },
+      {
+        label: i18next.t("panel.matching.copyDebugJson"),
+        onSelect: () => void this.onCopyDebugJsonClick(),
+      },
+      {
+        label: i18next.t("panel.matching.restartFromScratch"),
+        onSelect: () => this.onRestartFromScratchClick(),
+        danger: true,
+        disabled: !(c.restart.visible && c.restart.enabled),
+      },
+    ]);
+
     if (this.guidedStatusEl) {
       this.guidedStatusEl.textContent = i18next.t(
         `panel.matching.panelStatus.${statusKeyFor(this.uiState)}`,
@@ -1561,13 +1721,15 @@ export class MatchingSubTab {
   }
 
   private renderSourceState(): void {
+    // Controls first: the nav bar and instruction follow every source change.
+    this.updateGuidedControls();
     if (this.guidedActiveTab === "debug") this.renderDebugPane();
     const src = this.sourceStore.getSource();
     if (!src) {
       this.trackLayer?.setHighlightedSlice(null);
       return;
     }
-    const cursor = src.cursor;
+    const cursor = this.currentStep() ?? src.cursor;
     if (!cursor) {
       this.trackLayer?.setHighlightedSlice(null);
       if (this.guidedRowHeaderEl) this.guidedRowHeaderEl.textContent = "—";
