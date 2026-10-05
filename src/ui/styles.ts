@@ -36,6 +36,8 @@ export const BASE_CSS = `
     flex-direction: column;
     gap: 12px;
     min-width: 0;
+    /* wz-button's colour layer overflows by 0.33px: room so the dialog doesn't scroll. */
+    padding-bottom: 1px;
   }
   .wmegj-dialog-body > wz-text-input,
   .wmegj-dialog-body > wz-textarea,
