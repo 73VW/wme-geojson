@@ -73,16 +73,10 @@ import {
   type MatchingUiState,
 } from "../matchingUiState";
 import { StepReview, reviewControlsFor } from "../../controller/StepReview";
-import {
-  frontierStep,
-  navigableSteps,
-  neighbour,
-  sameStep,
-  type StepRef,
-} from "../../domain/steps";
+import { frontierStep, navigableSteps, sameStep, type StepRef } from "../../domain/steps";
 import { StepNavView } from "../views/StepNavView";
 import { PanelMenuView } from "../views/PanelMenuView";
-import { instructionKey, navEnabled, stepNavState } from "../matchingPanelText";
+import { instructionKey, navEnabled, navTarget, stepNavState } from "../matchingPanelText";
 import { wzButton } from "../components/wz";
 
 const TARGET_ZOOM = 16;
@@ -169,6 +163,8 @@ export class MatchingSubTab {
   private guidedRematchBtn: HTMLElement | null = null;
   private guidedDoneCloseBtn: HTMLElement | null = null;
   private rematchRunning = false;
+  /** WME selection on the frontier when the operator stepped back into a review. */
+  private frontierSelection: number[] | null = null;
   private review: StepReview | null = null;
   private stepNav: StepNavView | null = null;
   private panelMenu: PanelMenuView | null = null;
@@ -1116,6 +1112,7 @@ export class MatchingSubTab {
   private resetGuidedSessionState(options: { closePanel?: boolean } = {}): void {
     // Direct write (not dispatch) because this resets all derived UI too via the callers.
     this.uiState = { kind: "idle" };
+    this.frontierSelection = null;
     if (options.closePanel) {
       this.matchingPanelOpen = false;
     }
@@ -1305,7 +1302,9 @@ export class MatchingSubTab {
     const pipeline = this.lazyPipeline;
     if (!pipeline) return;
     this.review?.close();
+    this.frontierSelection = null;
     this.rematchRunning = true;
+    this.updateGuidedControls();
     this.setGuidedLoading(true, i18next.t("panel.matching.matchingInProgress"));
     try {
       await pipeline.rematchCurrent();
@@ -1319,6 +1318,7 @@ export class MatchingSubTab {
     } finally {
       this.rematchRunning = false;
       this.setGuidedLoading(false);
+      this.updateGuidedControls();
     }
   }
 
@@ -1334,21 +1334,37 @@ export class MatchingSubTab {
   }
 
   private async navigate(direction: -1 | 1): Promise<void> {
-    if (!navEnabled(this.uiState.kind, this.review?.state ?? null)) return;
-    const target = neighbour(this.navSteps(), this.currentStep(), direction);
+    const reviewState = this.review?.state ?? null;
+    if (!navEnabled(this.uiState.kind, reviewState, this.rematchRunning)) return;
+    const target = navTarget(this.navSteps(), this.currentStep(), direction, this.exitAtEnd());
     if (!target || !(await this.confirmDiscardReview())) return;
+    if (target === "exit") {
+      this.review?.close();
+      return;
+    }
     const frontier =
       this.uiState.kind === "waiting" ? frontierStep(this.sourceStore.getSource()) : null;
     if (sameStep(target, frontier)) {
-      // Back on the sub-line being validated: show its pending match again.
+      // Back on the sub-line being validated: restore the selection it had
+      // when the operator left it (their corrections), else its pending match.
       this.review?.close();
       const sub =
         this.sourceStore.getSource()?.lines[target.lineIndex]?.subLines[target.subLineIndex];
       if (sub) this.buildMapDriver().setMapCenter(sub.view.lon, sub.view.lat, sub.view.zoom);
-      this.buildMapDriver().setSelection(this.lazyPipeline?.getPendingMatched() ?? []);
+      this.buildMapDriver().setSelection(
+        this.frontierSelection ?? this.lazyPipeline?.getPendingMatched() ?? [],
+      );
+      this.frontierSelection = null;
       return;
     }
+    // Leaving the frontier for a review: keep its (possibly corrected) selection.
+    if (frontier && !reviewState) this.frontierSelection = this.readSelectionSegmentIds();
     await this.review?.open(target);
+  }
+
+  /** › past the last step closes a review when no frontier follows it. */
+  private exitAtEnd(): boolean {
+    return this.review?.state != null && this.uiState.kind !== "waiting";
   }
 
   /** true when there is nothing unsaved, or the operator chose to discard it. */
@@ -1366,6 +1382,7 @@ export class MatchingSubTab {
 
   /** Run a pipeline step; outcome transitions (ready/failed/completed) go through dispatch. */
   private async runStep(step: () => Promise<void>): Promise<void> {
+    this.frontierSelection = null;
     this.setGuidedLoading(true, i18next.t("panel.matching.matchingInProgress"));
     try {
       await step();
@@ -1563,7 +1580,13 @@ export class MatchingSubTab {
     if (this.stepNav && src) {
       this.stepNav.root.hidden = steps.length === 0;
       this.stepNav.setState(
-        stepNavState(src, this.currentStep(), steps, navEnabled(this.uiState.kind, reviewState)),
+        stepNavState(
+          src,
+          this.currentStep(),
+          steps,
+          navEnabled(this.uiState.kind, reviewState, this.rematchRunning),
+          this.exitAtEnd(),
+        ),
       );
     }
 

@@ -69,6 +69,11 @@ describe("reduceMatchingUi — error and retry", () => {
       errBurst,
     );
   });
+  it("a failed frontier re-match while waiting lands in error with resumeMode interactive", () => {
+    expect(reduceMatchingUi(waiting, { type: "STEP_FAILED", message: "boom" })).toEqual(
+      errInteractive,
+    );
+  });
   it("retry resumes in the mode that failed", () => {
     expect(reduceMatchingUi(errInteractive, { type: "RETRY" })).toEqual(stepping);
     expect(reduceMatchingUi(errBurst, { type: "RETRY" })).toEqual(bursting);

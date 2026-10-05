@@ -41,9 +41,28 @@ export function instructionKey(input: {
   }
 }
 
-export function navEnabled(run: RunKind, review: ReviewState | null): boolean {
+export function navEnabled(
+  run: RunKind,
+  review: ReviewState | null,
+  rematchRunning: boolean,
+): boolean {
   const running = run === "stepping" || run === "bursting" || run === "pausePending";
-  return !running && !review?.busy;
+  return !running && !review?.busy && !rematchRunning;
+}
+
+/**
+ * Where ‹ / › leads: a neighbour step, "exit" (› past the last step closes the
+ * review when there is no frontier to go back to), or nowhere.
+ */
+export function navTarget(
+  steps: StepRef[],
+  current: StepRef | null,
+  direction: -1 | 1,
+  exitAtEnd: boolean,
+): StepRef | "exit" | null {
+  const target = neighbour(steps, current, direction);
+  if (target) return target;
+  return direction === 1 && exitAtEnd && current !== null ? "exit" : null;
 }
 
 export function stepNavState(
@@ -51,9 +70,10 @@ export function stepNavState(
   current: StepRef | null,
   steps: StepRef[],
   enabled: boolean,
+  exitAtEnd: boolean,
 ): StepNavState {
-  const canPrev = enabled && neighbour(steps, current, -1) !== null;
-  const canNext = enabled && neighbour(steps, current, 1) !== null;
+  const canPrev = enabled && navTarget(steps, current, -1, exitAtEnd) !== null;
+  const canNext = enabled && navTarget(steps, current, 1, exitAtEnd) !== null;
   const line = current ? source.lines[current.lineIndex] : undefined;
   const sub = current ? line?.subLines[current.subLineIndex] : undefined;
   if (!current || !line || !sub) {

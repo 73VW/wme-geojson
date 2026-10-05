@@ -42,7 +42,8 @@ export function reduceMatchingUi(state: MatchingUiState, event: MatchingUiEvent)
     case "STEP_READY":
       return state.kind === "stepping" ? { kind: "waiting" } : state;
     case "STEP_FAILED":
-      if (state.kind === "stepping") {
+      // waiting: the frontier re-match failed; Retry re-runs the same frontier.
+      if (state.kind === "stepping" || state.kind === "waiting") {
         return { kind: "error", message: event.message, resumeMode: "interactive" };
       }
       if (state.kind === "bursting" || state.kind === "pausePending") {

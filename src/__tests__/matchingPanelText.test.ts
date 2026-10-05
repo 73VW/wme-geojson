@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeAll, describe, expect, it } from "vitest";
-import { instructionKey, navEnabled, stepNavState } from "../ui/matchingPanelText";
+import { instructionKey, navEnabled, navTarget, stepNavState } from "../ui/matchingPanelText";
 import type { Source, SubLine } from "../domain/types";
 import { initFrench } from "./helpers/i18nFr";
 
@@ -42,12 +42,16 @@ describe("instructionKey", () => {
 describe("navEnabled", () => {
   it("only while matching is not running", () => {
     for (const run of ["idle", "waiting", "paused", "error", "done"] as const) {
-      expect(navEnabled(run, null)).toBe(true);
+      expect(navEnabled(run, null, false)).toBe(true);
     }
     for (const run of ["stepping", "bursting", "pausePending"] as const) {
-      expect(navEnabled(run, null)).toBe(false);
+      expect(navEnabled(run, null, false)).toBe(false);
     }
-    expect(navEnabled("done", { step, dirty: false, busy: true })).toBe(false);
+    expect(navEnabled("done", { step, dirty: false, busy: true }, false)).toBe(false);
+  });
+
+  it("is locked while the frontier re-match runs", () => {
+    expect(navEnabled("waiting", null, true)).toBe(false);
   });
 });
 
@@ -83,22 +87,46 @@ describe("stepNavState", () => {
   const steps = [0, 1, 2].map((subLineIndex) => ({ lineIndex: 0, subLineIndex }));
 
   it("labels the current step, its window and its segments", () => {
-    const nav = stepNavState(source, step, steps, true);
+    const nav = stepNavState(source, step, steps, true, false);
     expect(nav.label).toBe("Ligne 1/1 · sous-ligne 2/3");
     expect(nav.caption).toBe("2.00 → 4.00 km · 3 segment(s)");
     expect(nav).toMatchObject({ validated: true, canPrev: true, canNext: true });
   });
 
   it("from outside the steps, only goes back to the last one", () => {
-    const nav = stepNavState(source, null, steps, true);
+    const nav = stepNavState(source, null, steps, true, false);
     expect(nav).toMatchObject({ canPrev: true, canNext: false });
     expect(nav.label).toBe("3 sous-ligne(s) validée(s)");
   });
 
   it("is frozen while disabled", () => {
-    expect(stepNavState(source, step, steps, false)).toMatchObject({
+    expect(stepNavState(source, step, steps, false, false)).toMatchObject({
       canPrev: false,
       canNext: false,
     });
+  });
+
+  it("offers › on the last step when it leaves the review", () => {
+    const last = { lineIndex: 0, subLineIndex: 2 };
+    expect(stepNavState(source, last, steps, true, false).canNext).toBe(false);
+    expect(stepNavState(source, last, steps, true, true).canNext).toBe(true);
+    expect(stepNavState(source, last, steps, false, true).canNext).toBe(false);
+  });
+});
+
+describe("navTarget", () => {
+  const steps = [0, 1, 2].map((subLineIndex) => ({ lineIndex: 0, subLineIndex }));
+  const last = { lineIndex: 0, subLineIndex: 2 };
+
+  it("moves to the neighbour step", () => {
+    expect(navTarget(steps, step, 1, true)).toEqual(last);
+    expect(navTarget(steps, step, -1, true)).toEqual({ lineIndex: 0, subLineIndex: 0 });
+  });
+
+  it("exits the review past the last step only when asked", () => {
+    expect(navTarget(steps, last, 1, true)).toBe("exit");
+    expect(navTarget(steps, last, 1, false)).toBeNull();
+    expect(navTarget(steps, null, 1, true)).toBeNull();
+    expect(navTarget(steps, { lineIndex: 0, subLineIndex: 0 }, -1, true)).toBeNull();
   });
 });
