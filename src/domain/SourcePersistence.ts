@@ -17,6 +17,9 @@ export class SourcePersistence {
   }
 
   load(sourceId: string): Source | null {
+    // A save still waiting for the debounce is the latest state.
+    const pending = this.pending.get(sourceId);
+    if (pending) return pending;
     const raw = localStorage.getItem(KEY_PREFIX + sourceId);
     if (raw === null) return null;
     try {

@@ -31,6 +31,14 @@ describe("SourcePersistence", () => {
     expect(loaded?.sourceId).toBe("s1");
   });
 
+  it("reads back a save that is still waiting for the debounce", () => {
+    // The Lignes rows read progress right after the operator leaves the
+    // matching; a 200 ms-old save must not look like the previous state.
+    const p = new SourcePersistence();
+    p.save({ ...makeSource("s1"), cursor: { lineIndex: 0, subLineIndex: 3 } });
+    expect(p.load("s1")?.cursor).toEqual({ lineIndex: 0, subLineIndex: 3 });
+  });
+
   it("returns null when the key does not exist", () => {
     const p = new SourcePersistence();
     expect(p.load("missing")).toBeNull();

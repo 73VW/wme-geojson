@@ -16,7 +16,6 @@ import { MatchingSubTab } from "./subtabs/MatchingSubTab";
 import { LinesPreviewLayer } from "../layers/LinesPreviewLayer";
 import { injectStyles } from "./styles";
 import { lineProgress } from "../domain/lineProgress";
-import { SourcePersistence } from "../domain/SourcePersistence";
 
 export class MatchPanel {
   private tabPane: HTMLElement | null = null;
@@ -70,8 +69,6 @@ export class MatchPanel {
       return;
     }
 
-    // Read-only: load() only reads localStorage.
-    const progressReader = new SourcePersistence();
     this.linesSubTab = new LinesSubTab({
       registry: this.registry,
       loadFn: this.loadFn,
@@ -83,7 +80,8 @@ export class MatchPanel {
       onLineSelected: () => this.tabs?.setActiveTab(1),
       onCenterAll: () => this.centerOnAllLines(),
       onCenterLine: (id) => this.centerOnLine(id),
-      loadProgress: (id) => lineProgress(progressReader.load(id)),
+      // MatchingSubTab's persistence also returns saves not yet flushed.
+      loadProgress: (id) => lineProgress(this.matchingSubTab?.persistence.load(id) ?? null),
     });
 
     this.matchingSubTab = new MatchingSubTab(this.wmeSDK, this.store, this.registry, () =>

@@ -132,7 +132,8 @@ export class MatchingSubTab {
 
   // ── New lazy-matching engine ────────────────────────────────────────────
   private readonly sourceStore = new SourceStore();
-  private readonly persistence = new SourcePersistence();
+  /** Shared with the Lignes rows so their progress sees unflushed saves. */
+  readonly persistence = new SourcePersistence();
   private detachPersistence: (() => void) | null = null;
   private lazyPipeline: LazyMatchingPipeline | null = null;
   private uiState: MatchingUiState = { kind: "idle" };
