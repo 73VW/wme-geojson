@@ -289,6 +289,29 @@ export const BASE_CSS = `
     color: var(--content_default);
     overflow-wrap: anywhere;
   }
+  .wmegj-panel-root [hidden],
+  .wmegj-dialog-body [hidden] {
+    display: none !important;
+  }
+  .wmegj-chip {
+    display: inline-flex;
+    align-self: flex-start;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 4px 4px 12px;
+    border-radius: 100px;
+    background: var(--surface_default);
+    color: var(--content_p1);
+    font-size: 13px;
+  }
+  .wmegj-chip-remove {
+    display: inline-flex;
+    border: none;
+    background: none;
+    color: var(--content_p2);
+    cursor: pointer;
+    padding: 2px;
+  }
 `;
 
 /** Inject BASE_CSS into `doc` once; later calls are no-ops. */

@@ -81,7 +81,9 @@
       "labels": "Preparing labels...",
       "loading": "Loading file...",
       "error": "Unable to read the file.",
-      "remove": "Remove CSV (use a single time window)"
+      "remove": "Remove CSV (use a single time window)",
+      "title": "Schedule (optional)",
+      "loaded": "Schedule loaded"
     },
     "openMatchingPanel": "Open matching panel",
     "startMatching": "Start matching",

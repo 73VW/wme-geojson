@@ -12,11 +12,12 @@ import type { CsvRow } from "../../csv/types";
 import { buildClosuresCsv } from "../../csv/buildClosuresCsv";
 import type { ClosureRowGroup, FinalFields, RowGeo } from "../../csv/buildClosuresCsv";
 import type { ClosureRange } from "../../csv/types";
-import { wzButton, fileInput, type WzButtonProps } from "../components/wz";
+import { wzButton, type WzButtonProps } from "../components/wz";
 import { parseSchedule } from "../../csv/parseSchedule";
 import { promptFinalFields } from "../promptFinalFields";
 import { alertDialog, confirmDialog } from "../components/wzDialog";
 import { MatchingHeaderView } from "../views/MatchingHeaderView";
+import { PlanningCsvView } from "../views/PlanningCsvView";
 import { lineProgress } from "../../domain/lineProgress";
 import {
   bboxOfMultiLineString,
@@ -128,10 +129,8 @@ export class MatchingSubTab {
   private applyClosuresStatusEl: HTMLElement | null = null;
   private linkedMteEl: HTMLElement | null = null;
   private applyingClosures = false;
+  private planningCsv: PlanningCsvView | null = null;
   private csvUploadRow: HTMLElement | null = null;
-  private csvErrorEl: HTMLElement | null = null;
-  private csvLoadingEl: HTMLElement | null = null;
-  private csvRemoveBtn: HTMLElement | null = null;
   private resumeBannerRow: HTMLElement | null = null;
 
   private headerView: MatchingHeaderView | null = null;
@@ -370,7 +369,7 @@ export class MatchingSubTab {
   /** Surface a non-fatal CSV warning (e.g. a skipped degenerate row). */
   private reportCsvWarning(message: string): void {
     logger.warn("MatchingSubTab: CSV warning", message);
-    const existing = this.csvErrorEl?.textContent;
+    const existing = this.planningCsv?.errorText();
     this.showCsvError(existing ? `${existing}\n${message}` : message);
   }
 
@@ -423,9 +422,7 @@ export class MatchingSubTab {
     this.applyClosuresStatusEl = null;
     this.linkedMteEl = null;
     this.csvUploadRow = null;
-    this.csvErrorEl = null;
-    this.csvLoadingEl = null;
-    this.csvRemoveBtn = null;
+    this.planningCsv = null;
     this.resumeBannerRow = null;
     this.headerView = null;
     const guidedMatchingRow = this.guidedMatchingRow;
@@ -502,86 +499,31 @@ export class MatchingSubTab {
   // ---------------------------------------------------------------------------
 
   private buildCsvUploadRow(): HTMLElement {
-    const section = document.createElement("section");
-    section.className = "wmegj-section";
-    section.style.marginTop = "8px";
-
-    const label = document.createElement("p");
-    label.style.margin = "0 0 4px 0";
-    label.style.fontSize = "12px";
-    label.style.fontWeight = "600";
-    label.textContent = i18next.t("panel.csvInput.label");
-    section.appendChild(label);
-
-    const input = fileInput({
-      accept: ".csv",
-      buttonLabel: i18next.t("panel.csvInput.label"),
-      onFile: (file) => {
-        this.onCsvFileSelected(file);
-      },
+    this.planningCsv = new PlanningCsvView({
+      onFile: (file) => this.onCsvFileSelected(file),
+      onRemove: () => this.removeCsv(),
     });
-    section.appendChild(input);
-
-    const errorEl = document.createElement("p");
-    errorEl.className = "wmegj-csv-error";
-    errorEl.style.color = "#c0392b";
-    errorEl.style.fontSize = "11px";
-    errorEl.style.margin = "2px 0 0 0";
-    errorEl.style.display = "none";
-    section.appendChild(errorEl);
-    this.csvErrorEl = errorEl;
-
-    const loadingEl = document.createElement("p");
-    loadingEl.className = "wmegj-csv-loading";
-    loadingEl.style.fontSize = "11px";
-    loadingEl.style.margin = "2px 0 0 0";
-    loadingEl.style.color = "#667085";
-    loadingEl.style.display = "none";
-    loadingEl.textContent = i18next.t("panel.csvInput.loading");
-    section.appendChild(loadingEl);
-    this.csvLoadingEl = loadingEl;
-
-    const removeBtn = wzButton({
-      text: i18next.t("panel.csvInput.remove"),
-      variant: "danger",
-      onClick: () => {
-        this.removeCsv();
-      },
-    });
-    removeBtn.style.display = "none";
-    removeBtn.style.marginTop = "4px";
-    section.appendChild(removeBtn);
-    this.csvRemoveBtn = removeBtn;
-
-    return section;
+    return this.planningCsv.root;
   }
 
   private setRemoveCsvVisible(visible: boolean): void {
-    if (this.csvRemoveBtn) {
-      this.csvRemoveBtn.style.display = visible ? "" : "none";
-    }
+    this.planningCsv?.setLoaded(visible);
   }
 
   private showCsvError(message: string): void {
-    if (!this.csvErrorEl) return;
-    this.csvErrorEl.textContent = message;
-    this.csvErrorEl.style.display = "";
+    this.planningCsv?.showError(message);
   }
 
   private clearCsvError(): void {
-    if (!this.csvErrorEl) return;
-    this.csvErrorEl.textContent = "";
-    this.csvErrorEl.style.display = "none";
+    this.planningCsv?.clearError();
   }
 
   private showCsvLoading(): void {
-    if (!this.csvLoadingEl) return;
-    this.csvLoadingEl.style.display = "";
+    this.planningCsv?.setLoading(true);
   }
 
   private hideCsvLoading(): void {
-    if (!this.csvLoadingEl) return;
-    this.csvLoadingEl.style.display = "none";
+    this.planningCsv?.setLoading(false);
   }
 
   private onCsvFileSelected(file: File): void {

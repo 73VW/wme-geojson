@@ -81,7 +81,9 @@
       "labels": "Préparation des labels...",
       "loading": "Chargement du fichier...",
       "error": "Impossible de lire le fichier.",
-      "remove": "Retirer le CSV (fenêtre temporelle unique)"
+      "remove": "Retirer le CSV (fenêtre temporelle unique)",
+      "title": "Planning (optionnel)",
+      "loaded": "Planning chargé"
     },
     "openMatchingPanel": "Ouvrir le panneau de correspondance",
     "startMatching": "Lancer la correspondance",
