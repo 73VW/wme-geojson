@@ -1,5 +1,8 @@
 import type { SlowupDetails } from "./types";
 
+/** SchweizMobil's list of every slowUp, as a GeoJSON FeatureCollection. */
+export const SLOWUPS_GEOJSON_URL = "https://schweizmobil.ch/api/4/slowups.geojson";
+
 const FETCH_TIMEOUT_MS = 15_000;
 
 export function buildSlowupDetailUrl(refid: number, lang: string): string {

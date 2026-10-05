@@ -217,6 +217,51 @@ export const BASE_CSS = `
       transform: rotate(360deg);
     }
   }
+  .wmegj-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
+  .wmegj-block-button {
+    align-self: stretch;
+  }
+  .wmegj-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+  }
+  .wmegj-caption {
+    margin: 0;
+    font-size: 12px;
+    color: var(--content_p3);
+  }
+  .wmegj-load-error {
+    margin: 0;
+    font-size: 12px;
+    color: var(--alarming_variant);
+  }
+  .wmegj-load-error:empty {
+    display: none;
+  }
+  .wmegj-source-card {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 4px 8px 12px;
+    border-radius: 8px;
+    background: var(--surface_default);
+  }
+  .wmegj-source-card[hidden] {
+    display: none;
+  }
+  .wmegj-source-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--content_default);
+    overflow-wrap: anywhere;
+  }
 `;
 
 /** Inject BASE_CSS into `doc` once; later calls are no-ops. */

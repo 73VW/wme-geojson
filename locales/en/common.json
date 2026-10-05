@@ -107,20 +107,24 @@
       "matching": "Matching"
     },
     "lines": {
-      "urlLabel": "GeoJSON URL",
       "urlLoad": "Load",
-      "urlClear": "Remove the track loaded from URL",
-      "sourceFeature": "Feature (1 line)",
-      "sourceCollection": "FeatureCollection ({{count}} lines)",
       "empty": "No line in this source.",
       "fallbackName": "Track {{km}} km long",
       "detailsLoading": "Loading details…",
       "detailsError": "Details unavailable",
       "select": "Select",
-      "centerAll": "Center on all tracks",
+      "centerAll": "Center on all lines",
       "center": "Center",
       "progressDone": "Done",
-      "progressPercent": "{{percent}}%"
+      "progressPercent": "{{percent}}%",
+      "loadSlowups": "Load the slowUps",
+      "otherSource": "Other source",
+      "chooseFile": "Choose a file",
+      "fileFormats": "GeoJSON, GPX, KML or KMZ",
+      "slowupsSource": "slowUps",
+      "lineCount_one": "{{count}} line",
+      "lineCount_other": "{{count}} lines",
+      "clearSource": "Remove this source"
     },
     "matching": {
       "panelTitle": "Matching",

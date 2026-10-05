@@ -107,20 +107,24 @@
       "matching": "Matching"
     },
     "lines": {
-      "urlLabel": "URL GeoJSON",
       "urlLoad": "Charger",
-      "urlClear": "Retirer le tracé chargé depuis l'URL",
-      "sourceFeature": "Feature (1 ligne)",
-      "sourceCollection": "FeatureCollection ({{count}} lignes)",
       "empty": "Aucune ligne dans cette source.",
       "fallbackName": "Tracé de {{km}} km",
       "detailsLoading": "Chargement des détails…",
       "detailsError": "Détails indisponibles",
       "select": "Sélectionner",
-      "centerAll": "Centrer sur tous les tracés",
+      "centerAll": "Centrer sur toutes les lignes",
       "center": "Centrer",
       "progressDone": "Terminé",
-      "progressPercent": "{{percent}} %"
+      "progressPercent": "{{percent}} %",
+      "loadSlowups": "Charger les slowUps",
+      "otherSource": "Autre source",
+      "chooseFile": "Choisir un fichier",
+      "fileFormats": "GeoJSON, GPX, KML ou KMZ",
+      "slowupsSource": "slowUps",
+      "lineCount_one": "{{count}} ligne",
+      "lineCount_other": "{{count}} lignes",
+      "clearSource": "Retirer cette source"
     },
     "matching": {
       "panelTitle": "Correspondance",
