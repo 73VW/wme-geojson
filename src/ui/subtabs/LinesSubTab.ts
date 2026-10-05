@@ -130,13 +130,11 @@ export class LinesSubTab {
 
   private handleClearSource(): void {
     this.view.clearError();
-    if (this.source?.kind === "file") {
-      clearUploadedFile();
-      this.deps.registry.setEntries([]);
-    } else {
-      this.view.setUrl("");
-      clearLoadedUrl(this.deps.registry);
-    }
+    this.view.setUrl("");
+    // Forget both kinds: whichever is left would come back on reload.
+    clearUploadedFile();
+    clearLoadedUrl(this.deps.registry);
+    this.deps.registry.setEntries([]);
     this.setSource(null);
   }
 

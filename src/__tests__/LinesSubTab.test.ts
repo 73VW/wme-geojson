@@ -14,6 +14,8 @@ const mocked = vi.hoisted(() => ({
     clearError: ReturnType<typeof vi.fn>;
   }>,
   fetchSlowupDetails: vi.fn(),
+  clearUploadedFile: vi.fn(),
+  clearLoadedUrl: vi.fn(),
   computeDisplayName: vi.fn(),
   loggerWarn: vi.fn(),
   loggerError: vi.fn(),
@@ -47,6 +49,14 @@ vi.mock("../lines/displayName", () => ({
 
 vi.mock("../../locales/i18n", () => ({
   i18next: mocked.i18next,
+}));
+
+vi.mock("../persistence/uploadedFile", () => ({
+  clearUploadedFile: mocked.clearUploadedFile,
+}));
+
+vi.mock("../bootstrap/loadAndAttachTrack", () => ({
+  clearLoadedUrl: mocked.clearLoadedUrl,
 }));
 
 vi.mock("../utils/logger", () => ({
@@ -316,5 +326,31 @@ describe("LinesSubTab", () => {
     const calls = view.setEntries.mock.calls.length;
     subTab.refresh();
     expect(view.setEntries.mock.calls.length).toBe(calls + 1);
+  });
+
+  it("forgets both the stored file and the URL when the source is removed", () => {
+    // Otherwise a reload brings back whichever one was not cleared.
+    const registry = new LineRegistry();
+    const subTab = new LinesSubTab({
+      registry,
+      loadFn: vi.fn(),
+      loadFileFn: vi.fn(),
+      onLineSelected: vi.fn(),
+      onCenterAll: vi.fn(),
+      onCenterLine: vi.fn(),
+      loadProgress: () => ({ kind: "notStarted" }),
+    });
+    const view = latestView();
+    for (const load of [
+      () => subTab.setLoadedFile("a.kmz"),
+      () => subTab.setUrlLoaded("https://x/y"),
+    ]) {
+      mocked.clearUploadedFile.mockClear();
+      mocked.clearLoadedUrl.mockClear();
+      load();
+      (view as unknown as { props: { onClearSource: () => void } }).props.onClearSource();
+      expect(mocked.clearUploadedFile).toHaveBeenCalled();
+      expect(mocked.clearLoadedUrl).toHaveBeenCalledWith(registry);
+    }
   });
 });
