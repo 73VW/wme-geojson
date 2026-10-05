@@ -1,4 +1,7 @@
-# WME SDK TypeScript Example
+# WME Event Closures
+
+> Formerly **WME GeoJSON**. Tampermonkey installs the renamed script as a new
+> one: remove "WME GeoJSON" after installing it. Saved sessions are kept.
 
 This project helps you **bootstrap a TypeScript-based WME script** using the WME SDK.
 

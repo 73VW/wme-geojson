@@ -4,7 +4,7 @@
     "invalidGeometry": "Le GeoJSON a un type de géométrie invalide ou non supporté."
   },
   "panel": {
-    "title": "WME GeoJSON",
+    "title": "WME Event Closures",
     "trackInfo": {
       "id": "ID du tracé : {{id}}",
       "length": "Longueur : {{km}} km"

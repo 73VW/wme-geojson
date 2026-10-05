@@ -21,7 +21,7 @@ async function initScript(): Promise<void> {
   }
   const wmeSDK: WmeSDK = unsafeWindow.getWmeSdk({
     scriptId: "wme-geojson",
-    scriptName: "WME GeoJSON",
+    scriptName: "WME Event Closures",
   });
 
   await initI18n(wmeSDK);

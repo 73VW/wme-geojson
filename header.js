@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         WME GeoJSON
+// @name         WME Event Closures
 // @namespace    wme-sdk-scripts
 // @version      0.9.0
-// @description  Load a GeoJSON track from a URL query parameter and identify matching Waze segments.
+// @description  Turn event tracks (slowUps, rallies…) into WME closures: match the segments, prepare the MTE, apply the closures.
 // @author       <user fills in>
 // @match        https://www.waze.com/editor*
 // @match        https://beta.waze.com/editor*

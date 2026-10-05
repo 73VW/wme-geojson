@@ -58,7 +58,7 @@ export class MatchPanel {
 
     const { tabLabel, tabPane } = await this.wmeSDK.Sidebar.registerScriptTab();
     this.tabPane = tabPane;
-    tabLabel.textContent = "GeoJ";
+    tabLabel.textContent = "Event Closures";
     tabPane.classList.add("wmegj-panel-root");
     this.injectShellStyles(tabPane);
 
