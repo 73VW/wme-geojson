@@ -535,7 +535,11 @@ export function wzChipSelect(props: {
     const el = document.createElement(useChips ? "wz-checkable-chip" : "button");
     el.textContent = option.label;
     el.setAttribute("value", option.value);
-    if (useChips) el.setAttribute("size", "md");
+    if (useChips) {
+      el.setAttribute("size", "md");
+      // Otherwise the chip toggles itself after our handler and undoes it.
+      el.setAttribute("controlled", "");
+    }
     if (option.disabled) {
       el.setAttribute("disabled", "");
       (el as unknown as { disabled: boolean }).disabled = true;
