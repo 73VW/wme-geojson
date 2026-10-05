@@ -4,7 +4,7 @@
 // sub-line only. No SDK here: map, selection and matching come in as drivers.
 
 import type { SourceStore } from "../state/SourceStore";
-import { sameIds, type StepRef } from "../domain/steps";
+import { sameIds, sameStep, type StepRef } from "../domain/steps";
 import type { ButtonView } from "../ui/matchingUiState";
 
 export interface ReviewState {
@@ -44,6 +44,8 @@ export class StepReview {
     this.deps.onChange();
     this.deps.map.setMapCenter(sub.view.lon, sub.view.lat, sub.view.zoom);
     await this.deps.map.waitIdle();
+    // Drop whatever WME still has selected (frontier match, previous step).
+    if (this.isOn(step)) this.selectMatched();
   }
 
   close(): void {
@@ -64,11 +66,15 @@ export class StepReview {
     this.deps.onChange();
     try {
       const ids = await this.deps.match.runMatchFor(state.step);
+      // Closed or another step opened meanwhile: the result is not this review's.
+      if (!this.isOn(state.step)) return;
       this.deps.map.setSelection(ids);
       this.selectionChanged(ids);
     } finally {
-      if (this.current) this.current = { ...this.current, busy: false };
-      this.deps.onChange();
+      if (this.current && this.isOn(state.step)) {
+        this.current = { ...this.current, busy: false };
+        this.deps.onChange();
+      }
     }
   }
 
@@ -97,6 +103,10 @@ export class StepReview {
     this.selectMatched();
     this.current = { ...state, dirty: false };
     this.deps.onChange();
+  }
+
+  private isOn(step: StepRef): boolean {
+    return sameStep(this.current?.step ?? null, step);
   }
 
   private subLine(step: StepRef) {

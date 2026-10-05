@@ -121,6 +121,44 @@ describe("StepReview", () => {
     expect(review.state?.dirty).toBe(false);
   });
 
+  it("opens with the reviewed sub-line's stored segments selected, clean", async () => {
+    const { review, map } = setup();
+    await review.open(step1);
+    expect(map.setSelection).toHaveBeenLastCalledWith([3, 4]);
+    expect(review.state?.dirty).toBe(false);
+  });
+
+  it("drops a re-match result that resolves after the review closed", async () => {
+    const { review, map, match } = setup();
+    let resolve!: (ids: number[]) => void;
+    match.runMatchFor.mockImplementationOnce(() => new Promise((r) => (resolve = r)));
+    await review.open(step1);
+    const pending = review.rematch();
+    review.close();
+    resolve([77]);
+    await pending;
+    expect(map.setSelection).not.toHaveBeenCalledWith([77]);
+    expect(review.state).toBeNull();
+  });
+
+  it("a re-match on one step resolving after another step opened leaves that step alone", async () => {
+    const { review, map, match } = setup();
+    const resolvers: ((ids: number[]) => void)[] = [];
+    match.runMatchFor.mockImplementation(() => new Promise((r) => resolvers.push(r)));
+    const step0 = { lineIndex: 0, subLineIndex: 0 };
+    await review.open(step1);
+    const first = review.rematch();
+    await review.open(step0);
+    const second = review.rematch();
+    resolvers[0]([77]);
+    await first;
+    expect(review.state).toEqual({ step: step0, dirty: false, busy: true });
+    expect(map.setSelection).not.toHaveBeenCalledWith([77]);
+    resolvers[1]([1, 2]);
+    await second;
+    expect(review.state?.busy).toBe(false);
+  });
+
   it("closes", async () => {
     const { review } = setup();
     await review.open(step1);

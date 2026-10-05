@@ -1098,8 +1098,9 @@ export class MatchingSubTab {
   }
 
   private async closeMatchingPanel(): Promise<void> {
+    if (this.review?.state?.busy || this.rematchRunning) return;
     if (!(await this.confirmDiscardReview())) return;
-    this.review?.close();
+    this.leaveReview();
     const wasDone = this.uiState.kind === "done";
     this.dispatch({ type: "CLOSE_DONE" });
     this.matchingPanelOpen = false;
@@ -1207,7 +1208,7 @@ export class MatchingSubTab {
   }
 
   private async onStartMatchingClick(): Promise<void> {
-    if (this.uiState.kind !== "idle") return;
+    if (this.uiState.kind !== "idle" || this.rematchRunning) return;
     const pipeline = this.ensurePipeline();
     if (!pipeline) return;
     this.review?.close();
@@ -1219,7 +1220,7 @@ export class MatchingSubTab {
 
   /** Burst: auto-step + auto-validate until complete or paused. */
   private async onStartBurstClick(): Promise<void> {
-    if (this.uiState.kind !== "idle") return;
+    if (this.uiState.kind !== "idle" || this.rematchRunning) return;
     const pipeline = this.ensurePipeline();
     if (!pipeline) return;
     this.review?.close();
@@ -1231,7 +1232,7 @@ export class MatchingSubTab {
 
   /** Resume a paused burst run from the current cursor. */
   private async onResumeBurstClick(): Promise<void> {
-    if (this.uiState.kind !== "paused") return;
+    if (this.uiState.kind !== "paused" || this.rematchRunning) return;
     const pipeline = this.lazyPipeline;
     if (!pipeline) return;
     this.review?.close();
@@ -1278,7 +1279,7 @@ export class MatchingSubTab {
   }
 
   private async onValidateClick(): Promise<void> {
-    if (this.uiState.kind !== "waiting") return;
+    if (this.uiState.kind !== "waiting" || this.rematchRunning) return;
     const pipeline = this.lazyPipeline;
     if (!pipeline) return;
     this.review?.close();
@@ -1288,7 +1289,7 @@ export class MatchingSubTab {
   }
 
   private async onSkipMatchingClick(): Promise<void> {
-    if (this.uiState.kind !== "waiting") return;
+    if (this.uiState.kind !== "waiting" || this.rematchRunning) return;
     const pipeline = this.lazyPipeline;
     if (!pipeline) return;
     this.review?.close();
@@ -1338,28 +1339,34 @@ export class MatchingSubTab {
     if (!navEnabled(this.uiState.kind, reviewState, this.rematchRunning)) return;
     const target = navTarget(this.navSteps(), this.currentStep(), direction, this.exitAtEnd());
     if (!target || !(await this.confirmDiscardReview())) return;
-    if (target === "exit") {
-      this.review?.close();
-      return;
-    }
     const frontier =
       this.uiState.kind === "waiting" ? frontierStep(this.sourceStore.getSource()) : null;
-    if (sameStep(target, frontier)) {
-      // Back on the sub-line being validated: restore the selection it had
-      // when the operator left it (their corrections), else its pending match.
-      this.review?.close();
-      const sub =
-        this.sourceStore.getSource()?.lines[target.lineIndex]?.subLines[target.subLineIndex];
-      if (sub) this.buildMapDriver().setMapCenter(sub.view.lon, sub.view.lat, sub.view.zoom);
-      this.buildMapDriver().setSelection(
-        this.frontierSelection ?? this.lazyPipeline?.getPendingMatched() ?? [],
-      );
-      this.frontierSelection = null;
+    if (target === "exit" || sameStep(target, frontier)) {
+      this.leaveReview();
       return;
     }
     // Leaving the frontier for a review: keep its (possibly corrected) selection.
     if (frontier && !reviewState) this.frontierSelection = this.readSelectionSegmentIds();
     await this.review?.open(target);
+  }
+
+  /**
+   * Close the review. While a sub-line waits for validation, go back to it and
+   * restore the selection it had when the operator left it (their corrections),
+   * else its pending match — never leave the reviewed step's segments selected.
+   */
+  private leaveReview(): void {
+    const reviewing = this.review?.state != null;
+    this.review?.close();
+    const frontier =
+      this.uiState.kind === "waiting" ? frontierStep(this.sourceStore.getSource()) : null;
+    if (!reviewing || !frontier) return;
+    const sub =
+      this.sourceStore.getSource()?.lines[frontier.lineIndex]?.subLines[frontier.subLineIndex];
+    const map = this.buildMapDriver();
+    if (sub) map.setMapCenter(sub.view.lon, sub.view.lat, sub.view.zoom);
+    map.setSelection(this.frontierSelection ?? this.lazyPipeline?.getPendingMatched() ?? []);
+    this.frontierSelection = null;
   }
 
   /** › past the last step closes a review when no frontier follows it. */
@@ -1528,7 +1535,7 @@ export class MatchingSubTab {
   }
 
   private async onRetryClick(): Promise<void> {
-    if (this.uiState.kind !== "error") return;
+    if (this.uiState.kind !== "error" || this.rematchRunning) return;
     const pipeline = this.lazyPipeline;
     if (!pipeline) return;
     this.review?.close();
@@ -1544,7 +1551,11 @@ export class MatchingSubTab {
   private updateGuidedControls(): void {
     const src = this.sourceStore.getSource();
     const reviewState = this.review?.state ?? null;
-    const run = controlsFor(this.uiState, src !== null);
+    // A frontier re-match runs while uiState stays `waiting`: show it as stepping.
+    const run = controlsFor(
+      this.rematchRunning ? { kind: "stepping" } : this.uiState,
+      src !== null,
+    );
     const hidden: ButtonView = { visible: false, enabled: false };
     // While a validated sub-line is reviewed, its own controls replace the run controls.
     const c = reviewState
@@ -1616,7 +1627,7 @@ export class MatchingSubTab {
         label: i18next.t("panel.matching.restartFromScratch"),
         onSelect: () => this.onRestartFromScratchClick(),
         danger: true,
-        disabled: !(c.restart.visible && c.restart.enabled),
+        disabled: !(c.restart.visible && c.restart.enabled) || !!this.review?.state?.busy,
       },
     ]);
 
