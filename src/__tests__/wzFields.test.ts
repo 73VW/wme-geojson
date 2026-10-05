@@ -63,10 +63,20 @@ describe("wz field helpers (fallback DOM)", () => {
     expect(chips.getValue()).toBe("2");
   });
 
-  it("datetime input keeps the datetime-local value format", () => {
-    const { root, input } = dateTimeInput({ label: "Début", value: "2026-10-05T09:00" });
-    expect(input.type).toBe("datetime-local");
-    expect(input.value).toBe("2026-10-05T09:00");
-    expect(root.textContent).toContain("Début");
+  it("splits date (with picker) and time like WME's MTE form", () => {
+    const field = dateTimeInput({ label: "Début", value: "2026-10-05T09:00" });
+    expect(field.date.type).toBe("date");
+    expect(field.date.value).toBe("2026-10-05");
+    expect(field.time.type).toBe("time");
+    expect(field.time.value).toBe("09:00");
+    expect(field.getValue()).toBe("2026-10-05T09:00");
+    expect(field.root.textContent).toContain("Début");
+
+    field.time.value = "";
+    expect(field.getValue()).toBe("");
+
+    field.setValue("2026-10-06T18:30");
+    expect(field.date.value).toBe("2026-10-06");
+    expect(field.time.value).toBe("18:30");
   });
 });

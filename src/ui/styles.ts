@@ -79,8 +79,15 @@ export const BASE_CSS = `
     gap: 8px;
     flex-wrap: wrap;
   }
-  /* Native datetime input dressed as a wz-text-input. */
+  /* Date + time pair, native inputs dressed as wz-text-input (WME's MTE form). */
   .wmegj-datetime {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 80px;
+    gap: 8px;
+    min-width: 0;
+  }
+  .wmegj-date,
+  .wmegj-time {
     box-sizing: border-box;
     width: 100%;
     min-width: 0;
@@ -93,13 +100,19 @@ export const BASE_CSS = `
     font: inherit;
     font-size: 14px;
   }
-  .wmegj-datetime:hover {
+  .wmegj-date:hover,
+  .wmegj-time:hover {
     background: var(--surface_variant);
   }
-  .wmegj-datetime:focus {
+  .wmegj-date:focus,
+  .wmegj-time:focus {
     outline: none;
     border-color: var(--primary);
     background: var(--background_default);
+  }
+  /* WME's time field has no picker. */
+  .wmegj-time::-webkit-calendar-picker-indicator {
+    display: none;
   }
   .wmegj-icon-only {
     flex: 0 0 auto;

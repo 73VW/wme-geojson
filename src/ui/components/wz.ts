@@ -560,24 +560,57 @@ export function wzChipSelect(props: {
   return { root, getValue: () => current };
 }
 
-/**
- * WME's own date/time pickers have no documented API, so dates use a native
- * datetime-local input dressed like a wz-text-input ("YYYY-MM-DDTHH:mm").
- */
-export function dateTimeInput(props: { label?: string; value?: string }): {
+export interface DateTimeField {
   root: HTMLElement;
-  input: HTMLInputElement;
-} {
-  const input = document.createElement("input");
-  input.type = "datetime-local";
-  input.className = "wmegj-datetime";
-  input.value = props.value ?? "";
-  if (!props.label) return { root: input, input };
-  input.setAttribute("aria-label", props.label);
-  const root = document.createElement("div");
-  root.className = "wmegj-field";
-  root.append(wzLabel(props.label), input);
-  return { root, input };
+  /** Date part, with the browser's calendar picker. */
+  date: HTMLInputElement;
+  /** Time part, typed (no picker), like WME's MTE form. */
+  time: HTMLInputElement;
+  /** "YYYY-MM-DDTHH:mm", or "" until both parts are filled. */
+  getValue(): string;
+  setValue(value: string): void;
+}
+
+/**
+ * Date + time pair laid out like WME's MTE form. WME's own pickers have no
+ * documented API, so these are native inputs dressed like wz-text-input.
+ */
+export function dateTimeInput(props: { label?: string; value?: string }): DateTimeField {
+  const date = document.createElement("input");
+  date.type = "date";
+  date.className = "wmegj-date";
+  const time = document.createElement("input");
+  time.type = "time";
+  time.className = "wmegj-time";
+  if (props.label) {
+    date.setAttribute("aria-label", props.label);
+    time.setAttribute("aria-label", props.label);
+  }
+
+  const pair = document.createElement("div");
+  pair.className = "wmegj-datetime";
+  pair.append(date, time);
+
+  let root: HTMLElement = pair;
+  if (props.label) {
+    root = document.createElement("div");
+    root.className = "wmegj-field";
+    root.append(wzLabel(props.label), pair);
+  }
+
+  const field: DateTimeField = {
+    root,
+    date,
+    time,
+    getValue: () => (date.value && time.value ? `${date.value}T${time.value}` : ""),
+    setValue: (value) => {
+      const [datePart = "", timePart = ""] = value.split("T");
+      date.value = datePart;
+      time.value = timePart.slice(0, 5);
+    },
+  };
+  if (props.value) field.setValue(props.value);
+  return field;
 }
 
 /** Value of a wz field or of its plain-HTML fallback. */

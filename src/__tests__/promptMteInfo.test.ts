@@ -57,4 +57,15 @@ describe("promptMteInfo", () => {
     expect(document.querySelectorAll("dialog .wmegj-row .wmegj-datetime")).toHaveLength(0);
     document.body.replaceChildren();
   });
+
+  it("copies the start date to an empty end date", () => {
+    void promptMteInfo({ title: "x", userRank: 0, askDetails: true });
+    const [startDate, endDate] = [
+      ...document.querySelectorAll<HTMLInputElement>("dialog .wmegj-date"),
+    ];
+    startDate.value = "2026-10-31";
+    startDate.dispatchEvent(new Event("change"));
+    expect(endDate.value).toBe("2026-10-31");
+    document.body.replaceChildren();
+  });
 });

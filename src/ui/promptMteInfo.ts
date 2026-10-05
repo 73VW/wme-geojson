@@ -74,9 +74,9 @@ export async function promptMteInfo(defaults: {
   const start = dateTimeInput({ label: i18next.t("panel.mteInfo.startDate") });
   const end = dateTimeInput({ label: i18next.t("panel.mteInfo.endDate") });
   // Une fermeture d'un jour est le cas courant : on recopie le début.
-  start.input.addEventListener("change", () => {
-    if (!end.input.value || end.input.value < start.input.value) {
-      end.input.value = start.input.value;
+  start.date.addEventListener("change", () => {
+    if (!end.date.value || end.date.value < start.date.value) {
+      end.date.value = start.date.value;
     }
   });
   const description = wzTextarea({ label: i18next.t("panel.mteInfo.description") });
@@ -92,7 +92,7 @@ export async function promptMteInfo(defaults: {
     body,
     primaryLabel: i18next.t("panel.mteInfo.ok"),
     cancelLabel: i18next.t("panel.finalFields.cancel"),
-    focus: defaults.askDetails ? start.input : undefined,
+    focus: defaults.askDetails ? start.date : undefined,
     onPrimary: () => {
       const options: MteEventOptions = {
         category: readValue(category) as MajorTrafficEventCategory,
@@ -104,8 +104,8 @@ export async function promptMteInfo(defaults: {
       }
       const manual: ManualMteInfo = {
         title: readValue(title).trim(),
-        startDate: start.input.value,
-        endDate: end.input.value,
+        startDate: start.getValue(),
+        endDate: end.getValue(),
         description: readValue(description).trim(),
         urlLink: readValue(url).trim(),
       };

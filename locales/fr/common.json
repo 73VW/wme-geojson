@@ -263,8 +263,8 @@
     "mteInfo": {
       "title": "Préparer le MTE",
       "titleLabel": "Titre",
-      "startDate": "Début (date et heure)",
-      "endDate": "Fin (date et heure)",
+      "startDate": "Début de l'événement",
+      "endDate": "Fin de l'événement",
       "description": "Description",
       "url": "URL (optionnelle)",
       "ok": "Continuer",

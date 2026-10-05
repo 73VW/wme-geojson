@@ -2,7 +2,7 @@
 // (synthetic) matching.
 
 import i18next from "i18next";
-import { dateTimeInput, wzButton, wzLabel } from "./wz";
+import { dateTimeInput, wzButton, wzLabel, type DateTimeField } from "./wz";
 import { wzDialog } from "./wzDialog";
 
 export interface ClosureWindow {
@@ -40,7 +40,7 @@ export async function promptClosureWindow(
   defaults: ClosureWindowDefaults,
   mode: "download" | "apply" = "download",
 ): Promise<ClosureWindow[] | null> {
-  const lines: { start: HTMLInputElement; end: HTMLInputElement }[] = [];
+  const lines: { start: DateTimeField; end: DateTimeField }[] = [];
   const linesBox = document.createElement("div");
   linesBox.className = "wmegj-dialog-body";
 
@@ -62,14 +62,13 @@ export async function promptClosureWindow(
   }
 
   function addLine(date: string): HTMLInputElement {
-    const start = dateTimeInput({ value: `${date}T${defaults.startTime}` }).input;
-    start.setAttribute("aria-label", i18next.t("panel.modal.closureWindow.start"));
-    const end = dateTimeInput({ value: `${date}T${defaults.endTime}` }).input;
-    end.setAttribute("aria-label", i18next.t("panel.modal.closureWindow.end"));
+    const start = dateTimeInput({ value: `${date}T${defaults.startTime}` });
+    start.date.setAttribute("aria-label", i18next.t("panel.modal.closureWindow.start"));
+    const end = dateTimeInput({ value: `${date}T${defaults.endTime}` });
+    end.date.setAttribute("aria-label", i18next.t("panel.modal.closureWindow.end"));
     // Picking a start date carries it over to the end, keeping the end time.
-    start.addEventListener("change", () => {
-      const startDate = start.value.slice(0, 10);
-      if (startDate) end.value = `${startDate}T${end.value.slice(11, 16) || defaults.endTime}`;
+    start.date.addEventListener("change", () => {
+      if (start.date.value) end.date.value = start.date.value;
     });
     const line = { start, end };
 
@@ -88,18 +87,18 @@ export async function promptClosureWindow(
 
     const row = document.createElement("div");
     row.className = "wmegj-row";
-    row.append(start, end, removeBtn);
+    row.append(start.root, end.root, removeBtn);
     linesBox.appendChild(row);
     lines.push(line);
     refreshRemoveButtons();
-    return start;
+    return start.date;
   }
 
   const addBtn = wzButton({
     text: i18next.t("panel.modal.closureWindow.addLine"),
     variant: "text",
     onClick: () => {
-      const prevDate = lines[lines.length - 1]?.start.value.slice(0, 10) || defaults.date;
+      const prevDate = lines[lines.length - 1]?.start.date.value || defaults.date;
       addLine(prevDate).focus();
     },
   });
@@ -120,8 +119,8 @@ export async function promptClosureWindow(
     onPrimary: () => {
       const collected: ClosureWindow[] = [];
       for (const line of lines) {
-        const start = line.start.value;
-        const end = line.end.value;
+        const start = line.start.getValue();
+        const end = line.end.getValue();
         if (start === "" || end === "") return i18next.t("panel.modal.closureWindow.errorRequired");
         // "YYYY-MM-DDTHH:MM": lexicographic order is chronological order.
         if (!(start < end)) return i18next.t("panel.modal.closureWindow.errorOrder");
