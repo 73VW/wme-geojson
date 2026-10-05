@@ -1,8 +1,9 @@
-// Async modal collecting the closure time window for CSV-less (synthetic)
-// matching. Structure mirrors promptFinalFields.ts: native <dialog>, a
-// settle()/cleanup() pair, all strings via i18next.
+// Native WME dialog collecting the closure time windows for CSV-less
+// (synthetic) matching.
 
 import i18next from "i18next";
+import { dateTimeInput, wzButton, wzLabel } from "./wz";
+import { wzDialog } from "./wzDialog";
 
 export interface ClosureWindow {
   /** "YYYY-MM-DDTHH:MM" — matches the ISO format used across SessionStore. */
@@ -35,213 +36,99 @@ export function closureWindowDefaults(
   return { date, startTime: mte.startDate.slice(11, 16), endTime: mte.endDate.slice(11, 16) };
 }
 
-function el<K extends keyof HTMLElementTagNameMap>(tag: K): HTMLElementTagNameMap[K] {
-  return document.createElement(tag);
-}
-
-/**
- * Show the closure-window modal. Resolves with the chosen windows (one per
- * schedule line, at least one), or null if the user cancels (Cancel button,
- * Escape, or backdrop).
- */
 export async function promptClosureWindow(
   defaults: ClosureWindowDefaults,
   mode: "download" | "apply" = "download",
 ): Promise<ClosureWindow[] | null> {
-  return new Promise<ClosureWindow[] | null>((resolve) => {
-    let settled = false;
-    function settle(result: ClosureWindow[] | null): void {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resolve(result);
-    }
+  const lines: { start: HTMLInputElement; end: HTMLInputElement }[] = [];
+  const linesBox = document.createElement("div");
+  linesBox.className = "wmegj-dialog-body";
 
-    const errorBanner = el("p");
-    errorBanner.style.margin = "0";
-    errorBanner.style.color = "#c00";
-    errorBanner.style.fontSize = "12px";
-    errorBanner.style.display = "none";
-    function showError(msg: string): void {
-      errorBanner.textContent = msg;
-      errorBanner.style.display = "block";
-    }
+  const header = document.createElement("div");
+  header.className = "wmegj-row";
+  const spacer = document.createElement("span");
+  spacer.className = "wmegj-row-fixed";
+  spacer.style.width = "32px";
+  header.append(
+    wzLabel(i18next.t("panel.modal.closureWindow.start")),
+    wzLabel(i18next.t("panel.modal.closureWindow.end")),
+    spacer,
+  );
 
-    const dialog = el("dialog");
-    dialog.style.border = "none";
-    dialog.style.borderRadius = "8px";
-    dialog.style.padding = "28px 32px";
-    dialog.style.maxWidth = "520px";
-    dialog.style.width = "90vw";
-    dialog.style.boxShadow = "0 6px 32px rgba(0,0,0,0.25)";
+  function refreshRemoveButtons(): void {
+    linesBox.querySelectorAll<HTMLButtonElement>(".wmegj-icon-only").forEach((btn) => {
+      btn.disabled = lines.length === 1;
+    });
+  }
 
-    const title = el("h3");
-    title.textContent = i18next.t("panel.modal.closureWindow.title");
-    title.style.margin = "0 0 16px 0";
-    title.style.fontSize = "16px";
-    title.style.fontWeight = "700";
+  function addLine(date: string): HTMLInputElement {
+    const start = dateTimeInput({ value: `${date}T${defaults.startTime}` }).input;
+    start.setAttribute("aria-label", i18next.t("panel.modal.closureWindow.start"));
+    const end = dateTimeInput({ value: `${date}T${defaults.endTime}` }).input;
+    end.setAttribute("aria-label", i18next.t("panel.modal.closureWindow.end"));
+    // Picking a start date carries it over to the end, keeping the end time.
+    start.addEventListener("change", () => {
+      const startDate = start.value.slice(0, 10);
+      if (startDate) end.value = `${startDate}T${end.value.slice(11, 16) || defaults.endTime}`;
+    });
+    const line = { start, end };
 
-    const form = el("form");
-    form.style.display = "flex";
-    form.style.flexDirection = "column";
-    form.style.gap = "12px";
-    form.method = "dialog";
-
-    const lines: { start: HTMLInputElement; end: HTMLInputElement }[] = [];
-    const linesBox = el("div");
-    linesBox.style.display = "flex";
-    linesBox.style.flexDirection = "column";
-    linesBox.style.gap = "8px";
-
-    function styleInput(input: HTMLInputElement, label: string): void {
-      input.type = "datetime-local";
-      input.setAttribute("aria-label", label);
-      input.style.flex = "1";
-      input.style.minWidth = "0";
-      input.style.padding = "6px 8px";
-      input.style.fontSize = "13px";
-      input.style.border = "1px solid #ccc";
-      input.style.borderRadius = "4px";
-    }
-
-    function refreshRemoveButtons(): void {
-      linesBox.querySelectorAll("button").forEach((btn) => {
-        btn.disabled = lines.length === 1;
-      });
-    }
-
-    function addLine(date: string): HTMLInputElement {
-      const start = el("input");
-      styleInput(start, i18next.t("panel.modal.closureWindow.start"));
-      start.value = `${date}T${defaults.startTime}`;
-      const end = el("input");
-      styleInput(end, i18next.t("panel.modal.closureWindow.end"));
-      end.value = `${date}T${defaults.endTime}`;
-      // Picking a start date carries it over to the end, keeping the end time.
-      start.addEventListener("change", () => {
-        const startDate = start.value.slice(0, 10);
-        if (startDate) end.value = `${startDate}T${end.value.slice(11, 16) || defaults.endTime}`;
-      });
-      const line = { start, end };
-
-      const removeBtn = el("button");
-      removeBtn.type = "button";
-      removeBtn.textContent = "✕";
-      removeBtn.title = i18next.t("panel.modal.closureWindow.removeLine");
-      removeBtn.style.cursor = "pointer";
-      removeBtn.addEventListener("click", () => {
-        lines.splice(lines.indexOf(line), 1);
-        row.remove();
-        refreshRemoveButtons();
-      });
-
-      const row = el("div");
-      row.style.display = "flex";
-      row.style.gap = "6px";
-      row.style.alignItems = "center";
-      row.append(start, end, removeBtn);
-      linesBox.appendChild(row);
-      lines.push(line);
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "wmegj-icon-only wmegj-row-fixed";
+    removeBtn.title = i18next.t("panel.modal.closureWindow.removeLine");
+    const icon = document.createElement("i");
+    icon.className = "w-icon w-icon-trash";
+    removeBtn.appendChild(icon);
+    removeBtn.addEventListener("click", () => {
+      lines.splice(lines.indexOf(line), 1);
+      row.remove();
       refreshRemoveButtons();
-      return start;
-    }
-
-    const header = el("div");
-    header.style.display = "flex";
-    header.style.gap = "6px";
-    header.style.fontSize = "13px";
-    header.style.fontWeight = "600";
-    header.style.color = "#333";
-    for (const key of ["start", "end"]) {
-      const span = el("span");
-      span.style.flex = "1";
-      span.textContent = i18next.t(`panel.modal.closureWindow.${key}`);
-      header.appendChild(span);
-    }
-    const spacer = el("span");
-    spacer.style.width = "24px";
-    header.appendChild(spacer);
-
-    const addBtn = el("button");
-    addBtn.type = "button";
-    addBtn.textContent = i18next.t("panel.modal.closureWindow.addLine");
-    addBtn.style.alignSelf = "flex-start";
-    addBtn.style.cursor = "pointer";
-    addBtn.addEventListener("click", () => {
-      const prevDate = lines[lines.length - 1]?.start.value.slice(0, 10) || defaults.date;
-      addLine(prevDate).focus();
     });
 
-    const firstStart = addLine(defaults.date);
-    form.appendChild(header);
-    form.appendChild(linesBox);
-    form.appendChild(addBtn);
-    form.appendChild(errorBanner);
+    const row = document.createElement("div");
+    row.className = "wmegj-row";
+    row.append(start, end, removeBtn);
+    linesBox.appendChild(row);
+    lines.push(line);
+    refreshRemoveButtons();
+    return start;
+  }
 
-    const buttonRow = el("div");
-    buttonRow.style.display = "flex";
-    buttonRow.style.justifyContent = "flex-end";
-    buttonRow.style.gap = "10px";
-    buttonRow.style.marginTop = "8px";
+  const addBtn = wzButton({
+    text: i18next.t("panel.modal.closureWindow.addLine"),
+    variant: "text",
+    onClick: () => {
+      const prevDate = lines[lines.length - 1]?.start.value.slice(0, 10) || defaults.date;
+      addLine(prevDate).focus();
+    },
+  });
+  addBtn.style.alignSelf = "flex-start";
 
-    const cancelBtn = el("button");
-    cancelBtn.type = "button";
-    cancelBtn.textContent = i18next.t("panel.modal.closureWindow.cancel");
-    cancelBtn.style.padding = "7px 16px";
-    cancelBtn.style.cursor = "pointer";
-    cancelBtn.addEventListener("click", () => settle(null));
+  const firstStart = addLine(defaults.date);
 
-    const okBtn = el("button");
-    okBtn.type = "submit";
-    okBtn.textContent = i18next.t(
+  let windows: ClosureWindow[] = [];
+  const confirmed = await wzDialog({
+    title: i18next.t("panel.modal.closureWindow.title"),
+    body: [header, linesBox, addBtn],
+    primaryLabel: i18next.t(
       mode === "apply" ? "panel.modal.closureWindow.apply" : "panel.modal.closureWindow.download",
-    );
-    okBtn.style.padding = "7px 16px";
-    okBtn.style.cursor = "pointer";
-    okBtn.style.fontWeight = "bold";
-
-    buttonRow.appendChild(cancelBtn);
-    buttonRow.appendChild(okBtn);
-
-    form.addEventListener("submit", (e) => {
-      e.preventDefault();
-      const windows: ClosureWindow[] = [];
+    ),
+    cancelLabel: i18next.t("panel.modal.closureWindow.cancel"),
+    focus: firstStart,
+    onPrimary: () => {
+      const collected: ClosureWindow[] = [];
       for (const line of lines) {
         const start = line.start.value;
         const end = line.end.value;
-        if (start === "" || end === "") {
-          showError(i18next.t("panel.modal.closureWindow.errorRequired"));
-          return;
-        }
-        // datetime-local values are "YYYY-MM-DDTHH:MM" — lexicographic order
-        // equals chronological order, so a plain string compare is correct here.
-        if (!(start < end)) {
-          showError(i18next.t("panel.modal.closureWindow.errorOrder"));
-          return;
-        }
-        windows.push({ startISO: start, endISO: end });
+        if (start === "" || end === "") return i18next.t("panel.modal.closureWindow.errorRequired");
+        // "YYYY-MM-DDTHH:MM": lexicographic order is chronological order.
+        if (!(start < end)) return i18next.t("panel.modal.closureWindow.errorOrder");
+        collected.push({ startISO: start, endISO: end });
       }
-      settle(windows);
-    });
-
-    dialog.addEventListener("cancel", (e) => {
-      e.preventDefault();
-      settle(null);
-    });
-
-    dialog.appendChild(title);
-    dialog.appendChild(form);
-    form.appendChild(buttonRow);
-
-    document.body.appendChild(dialog);
-    dialog.showModal();
-    firstStart.focus();
-
-    function cleanup(): void {
-      if (dialog.parentNode) {
-        dialog.close();
-        dialog.parentNode.removeChild(dialog);
-      }
-    }
+      windows = collected;
+      return null;
+    },
   });
+  return confirmed ? windows : null;
 }

@@ -33,7 +33,7 @@
         "end": "Fin",
         "errorRequired": "Le début et la fin sont obligatoires.",
         "errorOrder": "La fin doit être après le début.",
-        "addLine": "+ Ajouter un horaire",
+        "addLine": "Ajouter un horaire",
         "removeLine": "Supprimer cet horaire",
         "cancel": "Annuler",
         "download": "Télécharger",
