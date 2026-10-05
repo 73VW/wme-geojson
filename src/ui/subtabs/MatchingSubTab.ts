@@ -2444,9 +2444,6 @@ export class MatchingSubTab {
         }
       }
 
-      .wmegj-file-input {
-        padding: 6px 8px;
-      }
     `;
     container.appendChild(style);
   }

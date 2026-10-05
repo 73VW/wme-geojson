@@ -282,136 +282,34 @@ export interface FileInputProps {
 }
 
 /**
- * Create a <wz-file-input> when WME exposes it, otherwise fall back to a
- * native <input type="file">. In both cases the selected value is cleared
- * after handling so re-selecting the same file still emits an event.
+ * File picker: a WME button opening the browser's file dialog, filtered by
+ * extension. Not <wz-file-input>: it validates by MIME type, which browsers
+ * leave empty (or set to e.g. application/vnd.ms-excel for a CSV) depending
+ * on the software installed, and so rejects valid .kmz/.gpx/.geojson/.csv.
+ * The value is cleared after each pick so the same file can be picked again.
  */
 export function fileInput(props: FileInputProps): HTMLElement {
-  const tagName = "wz-file-input";
-  const isRegistered =
-    typeof customElements !== "undefined" && customElements.get(tagName) !== undefined;
+  const root = document.createElement("div");
+  root.className = "wmegj-file-picker";
 
-  if (isRegistered) {
-    const el = document.createElement(tagName);
-    el.className = "wmegj-file-input-host";
-    el.setAttribute("accepted-file-types", props.accept);
-    el.setAttribute("max-files-batch-size", "1");
-    el.setAttribute("max-file-size-bytes", String(Number.MAX_VALUE));
-    el.setAttribute("enable-drag-and-drop", "");
-    if (props.buttonLabel) {
-      el.setAttribute("upload-button-label", props.buttonLabel);
-    }
-
-    if (props.onFile) {
-      const handler = props.onFile;
-      const resetNestedInput = () => {
-        const nestedInput = findNestedFileInput(el);
-        if (nestedInput) {
-          nestedInput.value = "";
-        }
-      };
-
-      el.addEventListener(
-        "click",
-        () => {
-          resetNestedInput();
-        },
-        { capture: true },
-      );
-
-      el.addEventListener("filesSelected", (event: Event) => {
-        const file = getFirstSelectedFile((event as CustomEvent<unknown>).detail);
-        if (file) {
-          handler(file);
-        }
-        resetNestedInput();
-      });
-
-      queueMicrotask(() => {
-        resetNestedInput();
-      });
-    }
-
-    return el;
-  }
-
-  warnMissingTag(tagName);
   const input = document.createElement("input");
   input.type = "file";
   input.accept = props.accept;
-  input.className = "wmegj-file-input wmegj-text-input";
-  if (props.onFile) {
-    const handler = props.onFile;
-    input.addEventListener("click", () => {
-      input.value = "";
-    });
-    input.addEventListener("change", () => {
-      const file = input.files?.[0];
-      if (file) {
-        handler(file);
-      }
-      input.value = "";
-    });
-  }
-  return input;
-}
+  input.hidden = true;
+  input.addEventListener("change", () => {
+    const file = input.files?.[0];
+    if (file) props.onFile?.(file);
+    input.value = "";
+  });
 
-function findNestedFileInput(root: ParentNode): HTMLInputElement | null {
-  if ("querySelector" in root) {
-    const directMatch = root.querySelector("input[type='file']");
-    if (directMatch instanceof HTMLInputElement) {
-      return directMatch;
-    }
-  }
+  const button = wzButton({
+    text: props.buttonLabel ?? "",
+    variant: "secondary",
+    onClick: () => input.click(),
+  });
 
-  if (!(root instanceof DocumentFragment) && !(root instanceof Element)) {
-    return null;
-  }
-
-  for (const child of Array.from(root.children)) {
-    if (!(child instanceof HTMLElement)) {
-      continue;
-    }
-
-    const shadowRoot = child.shadowRoot;
-    if (!shadowRoot) {
-      continue;
-    }
-
-    const nestedMatch = findNestedFileInput(shadowRoot);
-    if (nestedMatch) {
-      return nestedMatch;
-    }
-  }
-
-  return null;
-}
-
-function getFirstSelectedFile(detail: unknown): File | null {
-  if (detail instanceof File) {
-    return detail;
-  }
-
-  if (detail instanceof FileList) {
-    return detail[0] ?? null;
-  }
-
-  if (Array.isArray(detail)) {
-    return detail.find((item): item is File => item instanceof File) ?? null;
-  }
-
-  if (typeof detail === "object" && detail !== null) {
-    const detailRecord = detail as Record<string, unknown>;
-    const files = detailRecord["files"];
-    if (files instanceof FileList) {
-      return files[0] ?? null;
-    }
-    if (Array.isArray(files)) {
-      return files.find((item): item is File => item instanceof File) ?? null;
-    }
-  }
-
-  return null;
+  root.append(input, button);
+  return root;
 }
 
 // ---------------------------------------------------------------------------
