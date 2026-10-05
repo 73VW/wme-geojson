@@ -94,9 +94,7 @@ export interface MatchingControlsView {
   startBurst: ButtonView;
   validate: ButtonView;
   skip: ButtonView;
-  back: ButtonView;
-  reselect: ButtonView;
-  rerun: ButtonView;
+  rematch: ButtonView;
   pause: ButtonView;
   resume: ButtonView;
   retry: ButtonView;
@@ -113,9 +111,7 @@ const ALL_HIDDEN: MatchingControlsView = {
   startBurst: HIDDEN,
   validate: HIDDEN,
   skip: HIDDEN,
-  back: HIDDEN,
-  reselect: HIDDEN,
-  rerun: HIDDEN,
+  rematch: HIDDEN,
   pause: HIDDEN,
   resume: HIDDEN,
   retry: HIDDEN,
@@ -136,9 +132,7 @@ export function controlsFor(state: MatchingUiState, hasSource: boolean): Matchin
         ...ALL_HIDDEN,
         validate: SHOWN_DISABLED,
         skip: SHOWN_DISABLED,
-        back: SHOWN_DISABLED,
-        reselect: SHOWN_DISABLED,
-        rerun: SHOWN_DISABLED,
+        rematch: SHOWN_DISABLED,
         restart: SHOWN_DISABLED,
       };
     case "waiting":
@@ -146,9 +140,7 @@ export function controlsFor(state: MatchingUiState, hasSource: boolean): Matchin
         ...ALL_HIDDEN,
         validate: SHOWN,
         skip: SHOWN,
-        back: SHOWN,
-        reselect: SHOWN,
-        rerun: SHOWN,
+        rematch: SHOWN,
         restart: SHOWN,
       };
     case "bursting":

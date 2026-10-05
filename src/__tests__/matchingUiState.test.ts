@@ -121,7 +121,7 @@ describe("controlsFor", () => {
   });
   it("waiting enables the per-sub-line controls", () => {
     const c = controlsFor({ kind: "waiting" }, true);
-    for (const key of ["validate", "skip", "back", "reselect", "rerun"] as const) {
+    for (const key of ["validate", "skip", "rematch"] as const) {
       expect(c[key]).toEqual({ visible: true, enabled: true });
     }
     expect(c.start.visible).toBe(false);
@@ -129,9 +129,16 @@ describe("controlsFor", () => {
   });
   it("stepping shows the per-sub-line controls disabled", () => {
     const c = controlsFor({ kind: "stepping" }, true);
-    for (const key of ["validate", "skip", "back", "reselect", "rerun"] as const) {
+    for (const key of ["validate", "skip", "rematch"] as const) {
       expect(c[key]).toEqual({ visible: true, enabled: false });
     }
+  });
+  it("has no destructive back / reselect / rerun controls any more", () => {
+    const keys = Object.keys(controlsFor({ kind: "waiting" }, true));
+    expect(keys).not.toContain("back");
+    expect(keys).not.toContain("reselect");
+    expect(keys).not.toContain("rerun");
+    expect(keys).toContain("rematch");
   });
   it("bursting shows an enabled Pause; pausePending shows it DISABLED (feedback gap fix)", () => {
     expect(controlsFor({ kind: "bursting" }, true).pause).toEqual({

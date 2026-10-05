@@ -186,8 +186,6 @@
       "prepareMteDisabled": "No line selected",
       "mteAlreadyLinked": "An MTE is already linked to this line (ID {{id}}). Create a new one?",
       "mteCreateAnyway": "Create anyway",
-      "reselectMatched": "Reselect matched",
-      "rerunCurrentRow": "Rerun row",
       "burstRunning": "Burst mode: matched segments are auto-validated.",
       "pause": "Pause",
       "resume": "Resume",
@@ -218,7 +216,8 @@
         "pauseFinalizingStep": "Finalizing the current step before pausing…",
         "unknown": "Pipeline step"
       },
-      "backToLines": "← Lines"
+      "backToLines": "← Lines",
+      "rematch": "Re-run matching"
     },
     "mtePopup": {
       "loading": "Loading…",

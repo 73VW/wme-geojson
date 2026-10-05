@@ -153,9 +153,7 @@ export class MatchingSubTab {
   private guidedStartBtn: HTMLElement | null = null;
   private guidedValidateBtn: HTMLElement | null = null;
   private guidedSkipBtn: HTMLElement | null = null;
-  private guidedBackBtn: HTMLElement | null = null;
-  private guidedReselectBtn: HTMLElement | null = null;
-  private guidedRerunBtn: HTMLElement | null = null;
+  private guidedRematchBtn: HTMLElement | null = null;
   private guidedDoneCloseBtn: HTMLElement | null = null;
   private guidedRestartBtn: HTMLElement | null = null;
   private matchingPanelOpen = false;
@@ -425,9 +423,7 @@ export class MatchingSubTab {
     this.guidedStartBtn = null;
     this.guidedValidateBtn = null;
     this.guidedSkipBtn = null;
-    this.guidedBackBtn = null;
-    this.guidedReselectBtn = null;
-    this.guidedRerunBtn = null;
+    this.guidedRematchBtn = null;
     this.guidedDoneCloseBtn = null;
     this.guidedRestartBtn = null;
     this.guidedStartBurstBtn = null;
@@ -779,14 +775,6 @@ export class MatchingSubTab {
       },
     });
     this.guidedSkipBtn.classList.add("wmegj-guided-button--skip");
-    this.guidedBackBtn = this.appendGuidedButton(matchActions, {
-      text: i18next.t("panel.matching.back"),
-      variant: "secondary",
-      onClick: () => {
-        void this.onBackMatchingClick();
-      },
-    });
-    this.guidedBackBtn.classList.add("wmegj-guided-button--back");
     this.guidedPauseBtn = this.appendGuidedButton(matchActions, {
       text: i18next.t("panel.matching.pause"),
       variant: "secondary",
@@ -822,23 +810,14 @@ export class MatchingSubTab {
     manualToolsActions.className = "wmegj-guided-secondary-actions";
     matchPane.appendChild(manualToolsActions);
 
-    this.guidedReselectBtn = this.appendGuidedButton(manualToolsActions, {
-      text: i18next.t("panel.matching.reselectMatched"),
+    this.guidedRematchBtn = this.appendGuidedButton(manualToolsActions, {
+      text: i18next.t("panel.matching.rematch"),
       variant: "secondary",
       onClick: () => {
-        this.onReselectMatchedClick();
+        void this.onRematchClick();
       },
     });
-    this.guidedReselectBtn.classList.add("wmegj-guided-button--reselect");
-
-    this.guidedRerunBtn = this.appendGuidedButton(manualToolsActions, {
-      text: i18next.t("panel.matching.rerunCurrentRow"),
-      variant: "secondary",
-      onClick: () => {
-        void this.onRerunCurrentRowClick();
-      },
-    });
-    this.guidedRerunBtn.classList.add("wmegj-guided-button--rerun");
+    this.guidedRematchBtn.classList.add("wmegj-guided-button--rematch");
 
     const restartActions = document.createElement("div");
     restartActions.className = "wmegj-guided-reset-actions";
@@ -1251,22 +1230,17 @@ export class MatchingSubTab {
     await this.runStep(() => pipeline.stepUntilValidation());
   }
 
-  private async onBackMatchingClick(): Promise<void> {
+  private async onRematchClick(): Promise<void> {
     if (this.uiState.kind !== "waiting") return;
     const pipeline = this.lazyPipeline;
     if (!pipeline) return;
-    pipeline.back();
-    this.dispatch({ type: "STEP_STARTED" });
-    await this.runStep(() => pipeline.stepUntilValidation());
-  }
-
-  private async onRerunCurrentRowClick(): Promise<void> {
-    if (this.uiState.kind !== "waiting") return;
-    const pipeline = this.lazyPipeline;
-    if (!pipeline) return;
-    pipeline.rerunCurrent();
-    this.dispatch({ type: "STEP_STARTED" });
-    await this.runStep(() => pipeline.stepUntilValidation());
+    this.setGuidedLoading(true, i18next.t("panel.matching.matchingInProgress"));
+    try {
+      await pipeline.rematchCurrent();
+    } finally {
+      this.setGuidedLoading(false);
+    }
+    this.renderSourceState();
   }
 
   /** Run a pipeline step; outcome transitions (ready/failed/completed) go through dispatch. */
@@ -1340,30 +1314,6 @@ export class MatchingSubTab {
       }
     }
     return ids.size;
-  }
-
-  private onReselectMatchedClick(): void {
-    const src = this.sourceStore.getSource();
-    const cursor = src?.cursor;
-    if (!src || !cursor) return;
-    const sub = src.lines[cursor.lineIndex]?.subLines[cursor.subLineIndex];
-    if (!sub) return;
-
-    const loadedSegmentIds = new Set(
-      this.wmeSDK.DataModel.Segments.getAll().map((segment) => segment.id),
-    );
-    const selectableIds = sub.segmentIds.filter((id) => loadedSegmentIds.has(id));
-    if (selectableIds.length === 0) {
-      logger.warn("MatchingSubTab.onReselectMatchedClick: no matched ids currently loaded");
-      return;
-    }
-    try {
-      this.wmeSDK.Editing.setSelection({
-        selection: { ids: selectableIds, objectType: "segment" },
-      });
-    } catch (err) {
-      logger.warn("MatchingSubTab.onReselectMatchedClick: setSelection failed", err);
-    }
   }
 
   private onRestartFromScratchClick(): void {
@@ -1464,9 +1414,7 @@ export class MatchingSubTab {
     this.applyButtonView(this.guidedStartBurstBtn, c.startBurst);
     this.applyButtonView(this.guidedValidateBtn, c.validate);
     this.applyButtonView(this.guidedSkipBtn, c.skip);
-    this.applyButtonView(this.guidedBackBtn, c.back);
-    this.applyButtonView(this.guidedReselectBtn, c.reselect);
-    this.applyButtonView(this.guidedRerunBtn, c.rerun);
+    this.applyButtonView(this.guidedRematchBtn, c.rematch);
     this.applyButtonView(this.guidedPauseBtn, c.pause);
     this.applyButtonView(this.guidedResumeBtn, c.resume);
     this.applyButtonView(this.guidedRetryBtn, c.retry);
@@ -2329,7 +2277,7 @@ export class MatchingSubTab {
       }
 
       .wmegj-guided-button--reselect,
-      .wmegj-guided-button--rerun {
+      .wmegj-guided-button--rematch {
         background: #ffffff;
         border-color: #c7d0d9;
         color: #344054;

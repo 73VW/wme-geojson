@@ -69,29 +69,21 @@ export class LazyMatchingPipeline {
     this.pendingMatched = null;
   }
 
-  back(): void {
+  /**
+   * Re-run the matching of the cursor's sub-line on the same window. The
+   * result goes to the selection and the pending match; nothing is stored,
+   * so the operator still validates (or corrects) it.
+   */
+  async rematchCurrent(): Promise<void> {
     const src = this.opts.store.getSource();
-    if (!src || !src.cursor) return;
-    const { lineIndex, subLineIndex } = src.cursor;
-    if (subLineIndex > 0) {
-      // Previous sub-line is in the same line — remove and un-validate it.
-      this.opts.store.rerunSubLine(lineIndex, subLineIndex - 1);
-      return;
-    }
-    if (lineIndex > 0) {
-      const prevLine = src.lines[lineIndex - 1];
-      const lastIdx = prevLine.subLines.length - 1;
-      if (lastIdx >= 0) {
-        // Previous sub-line is the last one of the preceding line — remove and un-validate it.
-        this.opts.store.rerunSubLine(lineIndex - 1, lastIdx);
-      }
-    }
-  }
-
-  rerunCurrent(): void {
-    const src = this.opts.store.getSource();
-    if (!src || !src.cursor) return;
-    this.opts.store.rerunSubLine(src.cursor.lineIndex, src.cursor.subLineIndex);
+    const cursor = src?.cursor;
+    const sub = cursor ? src?.lines[cursor.lineIndex]?.subLines[cursor.subLineIndex] : undefined;
+    if (!sub) return;
+    this.opts.map.setMapCenter(sub.view.lon, sub.view.lat, sub.view.zoom);
+    await this.opts.map.waitIdle();
+    const matched = await this.opts.match.runMatch();
+    this.opts.map.setSelection(matched);
+    this.pendingMatched = matched;
   }
 
   private findOrCreateNextSubLineCursor(): { lineIndex: number; subLineIndex: number } | null {

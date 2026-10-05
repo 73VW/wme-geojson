@@ -82,18 +82,6 @@ describe("SourceStore", () => {
     expect(store.getSource()!.lines[0].subLines).toHaveLength(2);
   });
 
-  it("rerunSubLine drops the current sub-line and merges its range back onto pendingTail head", () => {
-    const store = new SourceStore();
-    store.hydrate(srcWithOneLine());
-    store.addSubLine(0, makeSub(0, 0, 1), { kmA: 1, kmB: 2 });
-    store.validateSubLine(0, 0, [42]);
-    store.addSubLine(0, makeSub(1, 1, 1.5), { kmA: 1.5, kmB: 2 });
-    store.rerunSubLine(0, 1);
-    const line = store.getSource()!.lines[0];
-    expect(line.subLines).toHaveLength(1);
-    expect(line.pendingTail).toEqual([{ kmA: 1, kmB: 2 }]);
-  });
-
   it("emits onChange after each mutation", () => {
     const store = new SourceStore();
     const seen: number[] = [];

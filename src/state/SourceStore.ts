@@ -52,35 +52,6 @@ export class SourceStore {
     });
   }
 
-  /** Drop the sub-line at (lineIndex, subLineIndex) and any later ones in that line; merge its range back into pendingTail head. */
-  rerunSubLine(lineIndex: number, subLineIndex: number): void {
-    this.mutate((src) => {
-      const line = src.lines[lineIndex];
-      const dropped = line.subLines.slice(subLineIndex);
-      line.subLines = line.subLines.slice(0, subLineIndex);
-      if (dropped.length > 0) {
-        const merged = {
-          kmA: dropped[0].kmA,
-          kmB: dropped[dropped.length - 1].kmB,
-        };
-        if (line.pendingTail.length > 0 && Math.abs(line.pendingTail[0].kmA - merged.kmB) < 1e-9) {
-          line.pendingTail[0] = { kmA: merged.kmA, kmB: line.pendingTail[0].kmB };
-        } else {
-          line.pendingTail.unshift(merged);
-        }
-      }
-      src.cursor =
-        subLineIndex > 0
-          ? { lineIndex, subLineIndex: subLineIndex - 1 }
-          : lineIndex > 0
-            ? {
-                lineIndex: lineIndex - 1,
-                subLineIndex: src.lines[lineIndex - 1].subLines.length - 1,
-              }
-            : null;
-    });
-  }
-
   onChange(cb: Listener): () => void {
     this.listeners.add(cb);
     return () => this.listeners.delete(cb);
