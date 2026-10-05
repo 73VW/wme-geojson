@@ -451,6 +451,7 @@ export class MatchingSubTab {
   private buildDOM(container: HTMLElement): void {
     const wrapper = document.createElement("div");
     const body = document.createElement("div");
+    body.className = "wmegj-matching-body";
     wrapper.appendChild(body);
     container.appendChild(wrapper);
 

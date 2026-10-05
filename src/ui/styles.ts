@@ -281,7 +281,6 @@ export const BASE_CSS = `
     flex-direction: column;
     align-items: flex-start;
     gap: 2px;
-    margin-bottom: 12px;
   }
   .wmegj-back {
     display: inline-flex;
@@ -385,6 +384,12 @@ export const BASE_CSS = `
     flex-direction: column;
     gap: 8px;
   }
+  .wmegj-matching-body {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+  }
   .wmegj-step {
     display: flex;
     flex-direction: column;
@@ -392,11 +397,11 @@ export const BASE_CSS = `
     gap: 6px;
     padding: 12px;
     border-radius: 8px;
-    background: var(--background_variant);
+    background: var(--background_default);
+    box-shadow: inset 0 0 0 1px var(--separator_default);
   }
   .wmegj-step.is-next {
-    background: var(--background_default);
-    box-shadow: inset 0 0 0 1px var(--hairline);
+    box-shadow: inset 0 0 0 1px var(--hairline_strong);
   }
   .wmegj-step-header {
     display: flex;

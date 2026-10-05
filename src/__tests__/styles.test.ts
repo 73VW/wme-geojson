@@ -27,4 +27,14 @@ describe("injectStyles", () => {
       /\.wmegj-panel-root \{[^}]*min-width: 0;[^}]*overflow-wrap: anywhere;/,
     );
   });
+
+  it("keeps secondary wz-buttons visible on step cards", () => {
+    // A secondary wz-button is filled with --surface_default: a card of the
+    // same colour made it look like plain text.
+    expect(BASE_CSS).toMatch(/\.wmegj-step \{[^}]*background: var\(--background_default\);/);
+  });
+
+  it("spaces the sections of the Matching sidebar", () => {
+    expect(BASE_CSS).toMatch(/\.wmegj-matching-body \{[^}]*gap: 16px;/);
+  });
 });
