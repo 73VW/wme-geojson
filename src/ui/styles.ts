@@ -147,6 +147,76 @@ export const BASE_CSS = `
     gap: 8px;
     margin-top: 20px;
   }
+  .wmegj-line-list {
+    display: flex;
+    flex-direction: column;
+  }
+  .wmegj-line-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 48px;
+    padding: 4px 4px 4px 8px;
+    border-bottom: 1px solid var(--separator_default);
+    cursor: pointer;
+  }
+  .wmegj-line-row:hover {
+    background: var(--background_variant);
+  }
+  .wmegj-line-row--loading {
+    opacity: 0.6;
+    cursor: default;
+  }
+  .wmegj-line-row--loading:hover {
+    background: transparent;
+  }
+  .wmegj-line-pill {
+    flex: 0 0 auto;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+  .wmegj-line-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .wmegj-line-name {
+    font-size: 14px;
+    color: var(--content_default);
+    overflow-wrap: anywhere;
+  }
+  .wmegj-line-caption {
+    font-size: 12px;
+    color: var(--content_p3);
+  }
+  .wmegj-line-progress {
+    flex: 0 0 auto;
+    font-size: 12px;
+    color: var(--content_p2);
+  }
+  .wmegj-line-progress.is-done {
+    color: var(--safe_variant);
+  }
+  .wmegj-line-warning {
+    flex: 0 0 auto;
+    color: var(--cautious_variant);
+  }
+  .wmegj-spinner {
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--hairline);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: wmegj-spin 0.7s linear infinite;
+  }
+  @keyframes wmegj-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
 `;
 
 /** Inject BASE_CSS into `doc` once; later calls are no-ops. */

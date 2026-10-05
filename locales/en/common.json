@@ -118,7 +118,9 @@
       "detailsError": "Details unavailable",
       "select": "Select",
       "centerAll": "Center on all tracks",
-      "center": "Center"
+      "center": "Center",
+      "progressDone": "Done",
+      "progressPercent": "{{percent}}%"
     },
     "matching": {
       "panelTitle": "Matching",

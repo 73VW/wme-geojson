@@ -12,7 +12,7 @@ export interface DisplayNameInput {
   slowupDetails?: SlowupDetails;
 }
 
-function formatSlowupDate(date: unknown): string | null {
+export function formatSlowupDate(date: unknown): string | null {
   if (typeof date !== "string") {
     return null;
   }

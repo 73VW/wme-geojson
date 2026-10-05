@@ -118,7 +118,9 @@
       "detailsError": "Détails indisponibles",
       "select": "Sélectionner",
       "centerAll": "Centrer sur tous les tracés",
-      "center": "Centrer"
+      "center": "Centrer",
+      "progressDone": "Terminé",
+      "progressPercent": "{{percent}} %"
     },
     "matching": {
       "panelTitle": "Correspondance",
