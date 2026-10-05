@@ -31,6 +31,20 @@ export const TOKEN_FALLBACKS_CSS = `
 `;
 
 export const BASE_CSS = `
+  .wmegj-panel-root {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 14px;
+    color: var(--content_p1);
+  }
+  .wmegj-panel-root *,
+  .wmegj-panel-root *::before,
+  .wmegj-panel-root *::after {
+    box-sizing: border-box;
+  }
+  .wmegj-panel-root wz-button {
+    max-width: 100%;
+  }
   .wmegj-dialog-body {
     display: flex;
     flex-direction: column;
@@ -426,6 +440,53 @@ export const BASE_CSS = `
   }
   .wmegj-apply-status:empty {
     display: none;
+  }
+  .wmegj-subtab-toggle {
+    display: flex;
+    margin: 10px 0 12px;
+    border-bottom: 1px solid var(--separator_default);
+  }
+  .wmegj-subtab-toggle button {
+    flex: 1;
+    padding: 8px 6px;
+    border: none;
+    background: none;
+    color: var(--content_p2);
+    cursor: pointer;
+  }
+  .wmegj-subtab-toggle button.wmegj-subtab-active {
+    color: var(--primary);
+    box-shadow: inset 0 -2px 0 var(--primary);
+  }
+  .wmegj-button {
+    min-height: 32px;
+    padding: 0 16px;
+    border: none;
+    border-radius: 100px;
+    font: inherit;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .wmegj-button--primary {
+    background: var(--primary);
+    color: var(--always_white);
+  }
+  .wmegj-button--secondary,
+  .wmegj-button--danger {
+    background: var(--surface_default);
+    color: var(--primary);
+  }
+  .wmegj-button--danger {
+    color: var(--alarming_variant);
+  }
+  .wmegj-button--text {
+    padding: 0;
+    background: none;
+    color: var(--primary);
+  }
+  .wmegj-button:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 `;
 

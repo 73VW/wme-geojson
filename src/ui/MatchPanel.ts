@@ -14,6 +14,7 @@ import { wzTabs, type WzTabsHandle } from "./components/wz";
 import { LinesSubTab } from "./subtabs/LinesSubTab";
 import { MatchingSubTab } from "./subtabs/MatchingSubTab";
 import { LinesPreviewLayer } from "../layers/LinesPreviewLayer";
+import { injectStyles } from "./styles";
 import { lineProgress } from "../domain/lineProgress";
 import { SourcePersistence } from "../domain/SourcePersistence";
 
@@ -62,7 +63,7 @@ export class MatchPanel {
     this.tabPane = tabPane;
     tabLabel.textContent = "Event Closures";
     tabPane.classList.add("wmegj-panel-root");
-    this.injectShellStyles(tabPane);
+    injectStyles(document);
 
     if (!this.loadFn) {
       logger.error("MatchPanel.mount: loadFn not set before mount");
@@ -170,86 +171,5 @@ export class MatchPanel {
     if (!bbox) return;
 
     this.wmeSDK.Map.zoomToExtent({ bbox });
-  }
-
-  private injectShellStyles(container: HTMLElement): void {
-    const style = document.createElement("style");
-    style.textContent = `
-      .wmegj-subtab-toggle {
-        display: flex;
-        margin: 10px 0 12px;
-        border: 1px solid #d3d8de;
-        border-radius: 6px;
-        overflow: hidden;
-      }
-      .wmegj-subtab-toggle button {
-        flex: 1;
-        padding: 8px 6px;
-        cursor: pointer;
-        border: none;
-        background: #f2f4f7;
-        border-right: 1px solid #d3d8de;
-      }
-      .wmegj-subtab-toggle button.wmegj-subtab-active {
-        background: #fff;
-        font-weight: 700;
-      }
-      .wmegj-line-row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 8px 10px;
-        border: 1px solid #e5e8eb;
-        border-radius: 8px;
-        background: #fff;
-        cursor: pointer;
-        transition: background 0.12s ease, border-color 0.12s ease;
-      }
-      .wmegj-line-row:hover {
-        background: #f2f4f7;
-        border-color: #d3d8de;
-      }
-      .wmegj-line-pill {
-        width: 12px;
-        height: 12px;
-        border-radius: 50%;
-        flex: 0 0 auto;
-      }
-      .wmegj-line-name { flex: 1 1 auto; font-size: 13px; }
-      .wmegj-icon-btn {
-        flex: 0 0 auto;
-        width: 32px;
-        height: 32px;
-        padding: 0;
-        border-radius: 50%;
-        border: 1px solid #d3d8de;
-        background: #fff;
-        color: #2c6fbb;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-      .wmegj-icon-btn:hover { background: #e9edf2; color: #1d5a9e; }
-      .wmegj-line-arrow { flex: 0 0 auto; color: #9aa6b1; }
-      .wmegj-line-row--loading { opacity: 0.6; cursor: default; }
-      .wmegj-line-row--loading:hover { background: transparent; }
-      .wmegj-line-warning { flex: 0 0 auto; color: #e0a800; }
-      .wmegj-spinner {
-        flex: 0 0 auto;
-        width: 14px;
-        height: 14px;
-        border: 2px solid #c7ced6;
-        border-top-color: #2c6fbb;
-        border-radius: 50%;
-        animation: wmegj-spin 0.7s linear infinite;
-      }
-      @keyframes wmegj-spin { to { transform: rotate(360deg); } }
-      .wmegj-source-line { font-weight: 600; font-size: 13px; margin: 4px 0 8px; }
-      .wmegj-url-error { color: #c0392b; font-size: 12px; margin-top: 6px; }
-      .wmegj-load-btn { display: block; margin-top: 8px; }
-      .wmegj-lines-empty { font-size: 13px; color: #5b6770; }
-    `;
-    container.appendChild(style);
   }
 }

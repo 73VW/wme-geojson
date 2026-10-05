@@ -21,4 +21,10 @@ describe("injectStyles", () => {
     // child it made wz-dialog-content (overflow: auto) show a scrollbar.
     expect(BASE_CSS).toMatch(/\.wmegj-dialog-body \{[^}]*padding-bottom: 1px;/);
   });
+
+  it("styles the sidebar panel root without horizontal overflow", () => {
+    expect(BASE_CSS).toMatch(
+      /\.wmegj-panel-root \{[^}]*min-width: 0;[^}]*overflow-wrap: anywhere;/,
+    );
+  });
 });
