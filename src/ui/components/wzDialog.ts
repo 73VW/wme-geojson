@@ -84,7 +84,7 @@ export function wzDialog(opts: WzDialogOptions): Promise<boolean> {
     function settle(result: boolean): void {
       if (settled) return;
       settled = true;
-      document.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keydown", onKeyDown, true);
       openDialogs.splice(openDialogs.indexOf(host), 1);
       host.hideDialog?.();
       host.remove();
@@ -135,7 +135,9 @@ export function wzDialog(opts: WzDialogOptions): Promise<boolean> {
       event.preventDefault();
       settle(false);
     });
-    document.addEventListener("keydown", onKeyDown, true);
+    // window, not document: wz-dialog stops Escape propagation on window
+    // (capture), which would hide it from a document listener.
+    window.addEventListener("keydown", onKeyDown, true);
 
     const container = document.getElementById("wz-dialog-container") ?? document.body;
     container.appendChild(host);

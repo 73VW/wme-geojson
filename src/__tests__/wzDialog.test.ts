@@ -76,4 +76,16 @@ describe("wzDialog", () => {
     void wzDialog({ title: "T", primaryLabel: "OK" });
     expect(document.querySelectorAll("dialog button")).toHaveLength(1);
   });
+
+  it("closes on Escape even when wz-dialog stops propagation at window level", async () => {
+    // WME's wz-dialog listens on window (capture) and stops Escape propagation.
+    const stopEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") event.stopPropagation();
+    };
+    window.addEventListener("keydown", stopEscape, true);
+    const result = wzDialog({ title: "T", primaryLabel: "OK", cancelLabel: "Annuler" });
+    key(document.body, "Escape");
+    window.removeEventListener("keydown", stopEscape, true);
+    await expect(result).resolves.toBe(false);
+  });
 });
