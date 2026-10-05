@@ -85,11 +85,9 @@
       "title": "Schedule (optional)",
       "loaded": "Schedule loaded"
     },
-    "openMatchingPanel": "Open matching panel",
     "startMatching": "Start matching",
     "startMatchingBurst": "Start burst mode",
     "downloadEnriched": "Download enriched input CSV",
-    "downloadClosures": "Download closures CSV (fallback)",
     "resumeDetected": "A previous session was found. Continue where you left off?",
     "resumeCompleted": "A completed session was found.",
     "resumeCompletedDetails": "{{total}} matching step(s) were already completed.",
@@ -153,7 +151,6 @@
       "segmentsMatched": "{{count}} segment(s) matched",
       "matchingInProgress": "Matching segments…",
       "subLinesTitle": "Current sub-lines",
-      "resumeBanner": "Session resumed at line {{line}} / sub-line {{subLine}}",
       "debugTitle": "Debug — Current source",
       "debugCursor": "Cursor: line {{line}} / sub-line {{subLine}}",
       "debugCursorNone": "Cursor: none",
@@ -186,7 +183,6 @@
       "back": "Lines",
       "syntheticBanner": "No CSV — the whole line will be closed over a single time window (entered at download).",
       "noSelection": "Select a line in the Lines tab.",
-      "prepareMteBtn": "Prepare MTE",
       "prepareMteDisabled": "No line selected",
       "mteAlreadyLinked": "An MTE is already linked to this line (ID {{id}}). Create a new one?",
       "mteCreateAnyway": "Create anyway",
@@ -222,8 +218,7 @@
         "pauseFinalizingStep": "Finalizing the current step before pausing…",
         "unknown": "Pipeline step"
       },
-      "backToLines": "← Lines",
-      "linkedMte": "Linked MTE: {{name}}"
+      "backToLines": "← Lines"
     },
     "mtePopup": {
       "loading": "Loading…",
@@ -305,6 +300,18 @@
       "notStarted": "Not started",
       "inProgress": "{{percent}}% validated",
       "done": "Matching done"
+    },
+    "steps": {
+      "matching": "Matching",
+      "mte": "MTE",
+      "closures": "Closures",
+      "open": "Open matching",
+      "resume": "Resume (line {{line}} / sub-line {{subLine}})",
+      "review": "Review matching",
+      "prepareMte": "Prepare the MTE",
+      "mteLinked": "Linked: {{name}}",
+      "mteLinkedUnloaded": "MTE linked (open the Events tab to see its name)",
+      "csvFallback": "Fallback CSV"
     }
   }
 }

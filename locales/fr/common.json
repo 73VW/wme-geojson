@@ -85,11 +85,9 @@
       "title": "Planning (optionnel)",
       "loaded": "Planning chargé"
     },
-    "openMatchingPanel": "Ouvrir le panneau de correspondance",
     "startMatching": "Lancer la correspondance",
     "startMatchingBurst": "Lancer en burst",
     "downloadEnriched": "Télécharger le CSV enrichi",
-    "downloadClosures": "Télécharger le CSV de fermetures (secours)",
     "resumeDetected": "Une session précédente a été trouvée. Continuer là où vous en étiez ?",
     "resumeCompleted": "Une session terminée a été trouvée.",
     "resumeCompletedDetails": "{{total}} étape(s) de matching avaient déjà été terminées.",
@@ -153,7 +151,6 @@
       "segmentsMatched": "{{count}} segment(s) trouvé(s)",
       "matchingInProgress": "Recherche des segments…",
       "subLinesTitle": "Sous-lignes courantes",
-      "resumeBanner": "Session reprise à la ligne {{line}} / sous-ligne {{subLine}}",
       "debugTitle": "Debug — Source courante",
       "debugCursor": "Curseur : ligne {{line}} / sous-ligne {{subLine}}",
       "debugCursorNone": "Curseur : aucun",
@@ -186,7 +183,6 @@
       "back": "Lignes",
       "syntheticBanner": "Pas de CSV — la ligne entière sera fermée sur une seule fenêtre temporelle (saisie au téléchargement).",
       "noSelection": "Sélectionne une ligne dans l'onglet Lignes.",
-      "prepareMteBtn": "Préparer MTE",
       "prepareMteDisabled": "Aucune ligne sélectionnée",
       "mteAlreadyLinked": "Un MTE est déjà associé à cette ligne (ID {{id}}). En créer un nouveau ?",
       "mteCreateAnyway": "Créer quand même",
@@ -222,8 +218,7 @@
         "pauseFinalizingStep": "Finalisation de l'étape avant mise en pause…",
         "unknown": "Étape du pipeline"
       },
-      "backToLines": "← Lignes",
-      "linkedMte": "MTE lié : {{name}}"
+      "backToLines": "← Lignes"
     },
     "mtePopup": {
       "loading": "Chargement…",
@@ -305,6 +300,18 @@
       "notStarted": "Pas commencé",
       "inProgress": "{{percent}} % validé",
       "done": "Correspondance terminée"
+    },
+    "steps": {
+      "matching": "Correspondance",
+      "mte": "MTE",
+      "closures": "Fermetures",
+      "open": "Ouvrir la correspondance",
+      "resume": "Reprendre (ligne {{line}} / sous-ligne {{subLine}})",
+      "review": "Revoir la correspondance",
+      "prepareMte": "Préparer le MTE",
+      "mteLinked": "Associé : {{name}}",
+      "mteLinkedUnloaded": "MTE associé (ouvrez l'onglet Événements pour voir son nom)",
+      "csvFallback": "CSV de secours"
     }
   }
 }

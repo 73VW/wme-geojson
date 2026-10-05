@@ -12,13 +12,14 @@ import type { CsvRow } from "../../csv/types";
 import { buildClosuresCsv } from "../../csv/buildClosuresCsv";
 import type { ClosureRowGroup, FinalFields, RowGeo } from "../../csv/buildClosuresCsv";
 import type { ClosureRange } from "../../csv/types";
-import { wzButton, type WzButtonProps } from "../components/wz";
+import type { WzButtonProps } from "../components/wz";
 import { parseSchedule } from "../../csv/parseSchedule";
 import { promptFinalFields } from "../promptFinalFields";
 import { alertDialog, confirmDialog } from "../components/wzDialog";
 import { MatchingHeaderView } from "../views/MatchingHeaderView";
 import { PlanningCsvView } from "../views/PlanningCsvView";
 import { createRangeSlider } from "../views/RangeSliderView";
+import { MatchingStepsView, type LinkedMte } from "../views/MatchingStepsView";
 import { lineProgress } from "../../domain/lineProgress";
 import {
   bboxOfMultiLineString,
@@ -41,7 +42,6 @@ import {
 import { closuresFromSource, type GlobalClosureGroup } from "../../csv/closuresFromSource";
 import { groupByWindow, roadbookRowIndex } from "../groupByWindow";
 import { waitForMapIdle } from "../../utils/waitForMapIdle";
-import { isMatchingComplete } from "../../domain/isMatchingComplete";
 import { segmentPermalink } from "../../utils/segmentPermalink";
 import { pollUntil } from "../../utils/pollUntil";
 import { closureDateToMs, planClosureStops, type ClosureItem } from "../../csv/planClosureStops";
@@ -121,18 +121,12 @@ export class MatchingSubTab {
 
   // ── Row container elements (toggled by renderPhase) ─────────────────────
   private rangeSliderRow: HTMLElement | null = null;
-  private startMatchingRow: HTMLElement | null = null;
   private guidedMatchingRow: HTMLElement | null = null;
-  private downloadRow: HTMLElement | null = null;
-  private prepareMteBtn?: HTMLButtonElement;
-  private applyClosuresBtn?: HTMLButtonElement;
-  private downloadClosuresBtn?: HTMLButtonElement;
   private applyClosuresStatusEl: HTMLElement | null = null;
-  private linkedMteEl: HTMLElement | null = null;
   private applyingClosures = false;
   private planningCsv: PlanningCsvView | null = null;
+  private stepsView: MatchingStepsView | null = null;
   private csvUploadRow: HTMLElement | null = null;
-  private resumeBannerRow: HTMLElement | null = null;
 
   private headerView: MatchingHeaderView | null = null;
 
@@ -261,7 +255,7 @@ export class MatchingSubTab {
     const hasLine = entry !== null;
     if (this.contentWrapperEl) this.contentWrapperEl.style.display = hasLine ? "" : "none";
     if (this.emptyStateEl) this.emptyStateEl.style.display = hasLine ? "none" : "";
-    this.updatePrepareMteBtn(entry);
+    this.renderSteps();
     this.updateClosureButtons();
     if (!entry) {
       this.attachedLineId = null;
@@ -343,13 +337,6 @@ export class MatchingSubTab {
     this.setRemoveCsvVisible(isGeojson && (entry.csvRows?.length ?? 0) > 0);
     this.clearCsvError();
 
-    // Resume banner only when a persisted Source with progress was loaded.
-    if (existing && existing.cursor !== null) {
-      this.renderResumeBanner(existing);
-    } else {
-      this.hideResumeBanner();
-    }
-
     this.resetGuidedSessionState({ closePanel: true });
     this.renderSourceState();
   }
@@ -414,17 +401,11 @@ export class MatchingSubTab {
     }
 
     this.rangeSliderRow = null;
-    this.startMatchingRow = null;
     this.attachedLineId = null;
-    this.downloadRow = null;
-    this.prepareMteBtn = undefined;
-    this.applyClosuresBtn = undefined;
-    this.downloadClosuresBtn = undefined;
     this.applyClosuresStatusEl = null;
-    this.linkedMteEl = null;
     this.csvUploadRow = null;
     this.planningCsv = null;
-    this.resumeBannerRow = null;
+    this.stepsView = null;
     this.headerView = null;
     const guidedMatchingRow = this.guidedMatchingRow;
     if (guidedMatchingRow?.parentElement) {
@@ -479,20 +460,20 @@ export class MatchingSubTab {
     this.csvUploadRow = this.buildCsvUploadRow();
     body.appendChild(this.csvUploadRow);
 
-    this.resumeBannerRow = this.buildResumeBannerRow();
-    body.appendChild(this.resumeBannerRow);
-
     this.rangeSliderRow = document.createElement("section");
     this.rangeSliderRow.appendChild(this.buildRangeSlider());
     body.appendChild(this.rangeSliderRow);
 
-    this.startMatchingRow = this.buildStartMatchingRow();
-    body.appendChild(this.startMatchingRow);
-
     this.guidedMatchingRow = this.buildGuidedMatchingRow();
 
-    this.downloadRow = this.buildDownloadRow();
-    body.appendChild(this.downloadRow);
+    this.stepsView = new MatchingStepsView({
+      onOpenMatching: () => this.openMatchingPanel(),
+      onPrepareMte: () => void this.openMtePopup(),
+      onApply: () => void this.onApplyClosuresClick(),
+      onDownloadCsv: () => this.onDownloadClosuresClick(),
+    });
+    this.applyClosuresStatusEl = this.stepsView.applyStatusEl;
+    body.appendChild(this.stepsView.root);
   }
 
   // ---------------------------------------------------------------------------
@@ -645,7 +626,6 @@ export class MatchingSubTab {
 
     this.dispatch({ type: "SOURCE_CHANGED" });
     this.store.setPhase("csv-loaded");
-    this.hideResumeBanner();
     this.resetGuidedSessionState({ closePanel: true });
     this.renderSourceState();
   }
@@ -653,65 +633,6 @@ export class MatchingSubTab {
   // ---------------------------------------------------------------------------
   // Private — resume banner
   // ---------------------------------------------------------------------------
-
-  private buildResumeBannerRow(): HTMLElement {
-    const section = document.createElement("section");
-    section.className = "wmegj-section wmegj-resume-panel";
-    section.style.marginTop = "8px";
-    section.style.display = "none";
-    section.style.padding = "8px";
-    section.style.border = "1px solid #f0c040";
-    section.style.background = "#fff8e1";
-    section.style.borderRadius = "4px";
-    return section;
-  }
-
-  /** Show the resume banner for a loaded Source whose cursor is non-null. */
-  private renderResumeBanner(source: Source): void {
-    const banner = this.resumeBannerRow;
-    if (!banner || !source.cursor) return;
-    while (banner.firstChild) banner.removeChild(banner.firstChild);
-
-    const p = document.createElement("p");
-    p.style.margin = "0";
-    p.style.fontWeight = "600";
-    p.textContent = i18next.t("panel.matching.resumeBanner", {
-      line: source.cursor.lineIndex + 1,
-      subLine: source.cursor.subLineIndex + 1,
-    });
-    banner.appendChild(p);
-    banner.style.display = "block";
-  }
-
-  private hideResumeBanner(): void {
-    if (!this.resumeBannerRow) return;
-    this.resumeBannerRow.style.display = "none";
-    while (this.resumeBannerRow.firstChild) {
-      this.resumeBannerRow.removeChild(this.resumeBannerRow.firstChild);
-    }
-  }
-
-  private buildStartMatchingRow(): HTMLElement {
-    const section = document.createElement("section");
-    section.className = "wmegj-section";
-    section.style.marginTop = "8px";
-
-    const btnRow = document.createElement("div");
-    btnRow.className = "wmegj-button-stack";
-
-    const btn = wzButton({
-      text: i18next.t("panel.openMatchingPanel"),
-      variant: "primary",
-      onClick: () => {
-        this.openMatchingPanel();
-      },
-    });
-    btnRow.appendChild(btn);
-
-    section.appendChild(btnRow);
-
-    return section;
-  }
 
   /**
    * Guided matching sub-panel — a floating overlay appended to document.body.
@@ -1755,87 +1676,6 @@ export class MatchingSubTab {
       : i18next.t("panel.matching.rowHeaderWithSubLineNoTime", withSub);
   }
 
-  private buildDownloadRow(): HTMLElement {
-    const section = document.createElement("section");
-    section.className = "wmegj-section";
-    section.style.marginTop = "8px";
-    section.style.display = "flex";
-    section.style.flexDirection = "column";
-    section.style.gap = "4px";
-
-    const prepareMteBtn = wzButton({
-      text: i18next.t("panel.matching.prepareMteBtn"),
-      variant: "secondary",
-    }) as HTMLButtonElement;
-    prepareMteBtn.addEventListener("click", () => void this.openMtePopup());
-    section.appendChild(prepareMteBtn);
-    this.prepareMteBtn = prepareMteBtn;
-
-    const linkedMte = document.createElement("div");
-    linkedMte.className = "wmegj-guided-status";
-    section.appendChild(linkedMte);
-    this.linkedMteEl = linkedMte;
-    this.updatePrepareMteBtn(this.registry.getSelected());
-
-    const applyBtn = wzButton({
-      text: i18next.t("panel.applyClosures"),
-      variant: "primary",
-      onClick: () => {
-        void this.onApplyClosuresClick();
-      },
-    }) as HTMLButtonElement;
-    section.appendChild(applyBtn);
-    this.applyClosuresBtn = applyBtn;
-
-    const applyStatus = document.createElement("div");
-    applyStatus.className = "wmegj-guided-status";
-    applyStatus.style.whiteSpace = "pre-line";
-    section.appendChild(applyStatus);
-    this.applyClosuresStatusEl = applyStatus;
-
-    const closuresBtn = wzButton({
-      text: i18next.t("panel.downloadClosures"),
-      variant: "secondary",
-      onClick: () => {
-        this.onDownloadClosuresClick();
-      },
-    }) as HTMLButtonElement;
-    section.appendChild(closuresBtn);
-    this.downloadClosuresBtn = closuresBtn;
-
-    this.updateClosureButtons();
-
-    return section;
-  }
-
-  /** Shows which MTE the closures will be linked to — name if loaded, else its ID. */
-  private updateLinkedMte(entry: LineEntry | null): void {
-    const el = this.linkedMteEl;
-    if (!el) return;
-    const mteId = entry ? mteStore.get(mteKeyOf(entry)) : undefined;
-    el.style.display = mteId ? "" : "none";
-    if (!mteId) return;
-    const mte = this.wmeSDK.DataModel.MajorTrafficEvents.getById({ majorTrafficEventId: mteId });
-    const name = mte ? pickName(mte.names) : "";
-    el.textContent = i18next.t("panel.matching.linkedMte", { name: name || mteId });
-    el.title = mteId;
-  }
-
-  private updatePrepareMteBtn(entry: LineEntry | null): void {
-    this.updateLinkedMte(entry);
-    const btn = this.prepareMteBtn;
-    if (!btn) return;
-
-    btn.disabled = !entry;
-    if (entry) {
-      btn.title = "";
-      btn.removeAttribute("disabled");
-    } else {
-      btn.title = i18next.t("panel.matching.prepareMteDisabled");
-      btn.setAttribute("disabled", "");
-    }
-  }
-
   private async openMtePopup(): Promise<void> {
     const entry = this.registry.getSelected();
     if (!entry) return;
@@ -1883,7 +1723,7 @@ export class MatchingSubTab {
       watchMteSaved(this.wmeSDK, draftId, (id) => {
         logger.info(`MTE enregistré : ${draftId} → ${id}`);
         mteStore.set(mteKey, id);
-        this.updateLinkedMte(this.registry.getSelected());
+        this.renderSteps();
       });
       return;
     } catch (err) {
@@ -1898,7 +1738,7 @@ export class MatchingSubTab {
       slowupPolygon,
       mteSdk: createMteSdk(this.wmeSDK),
     });
-    this.updateLinkedMte(this.registry.getSelected());
+    this.renderSteps();
   }
 
   private computeSlowupBbox(track: NormalizedTrack): [number, number, number, number] | null {
@@ -1963,9 +1803,8 @@ export class MatchingSubTab {
 
     this.setRowVisible(this.csvUploadRow, atLeastTrackLoaded && isGeojson);
     this.setRowVisible(this.rangeSliderRow, atLeastTrackLoaded);
-    this.setRowVisible(this.startMatchingRow, atLeastCsvLoaded);
+    this.setRowVisible(this.stepsView?.root ?? null, atLeastCsvLoaded);
     this.setRowVisible(this.guidedMatchingRow, this.matchingPanelOpen && atLeastCsvLoaded);
-    this.setRowVisible(this.downloadRow, atLeastCsvLoaded);
     this.updateGuidedControls();
   }
 
@@ -2092,15 +1931,35 @@ export class MatchingSubTab {
   // Private — apply closures directly in WME
   // ---------------------------------------------------------------------------
 
+  /** Linked MTE for the steps view: name when WME has it loaded, never the raw id. */
+  private linkedMteOf(entry: LineEntry | null): LinkedMte {
+    const mteId = entry ? mteStore.get(mteKeyOf(entry)) : undefined;
+    if (!mteId) return null;
+    const mte = this.wmeSDK.DataModel.MajorTrafficEvents.getById({ majorTrafficEventId: mteId });
+    const name = mte ? pickName(mte.names) : "";
+    return { name: name || null };
+  }
+
+  private renderSteps(): void {
+    const entry = this.registry.getSelected();
+    const source = this.sourceStore.getSource();
+    const matching = lineProgress(source);
+    const cursor = source?.cursor ?? null;
+    const resumeAt =
+      matching.kind === "inProgress" && cursor !== null
+        ? { line: cursor.lineIndex + 1, subLine: cursor.subLineIndex + 1 }
+        : null;
+    this.stepsView?.setState({
+      matching,
+      resumeAt,
+      linkedMte: this.linkedMteOf(entry),
+      canPrepareMte: entry !== null,
+      applying: this.applyingClosures,
+    });
+  }
+
   private updateClosureButtons(): void {
-    const complete = isMatchingComplete(this.sourceStore.getSource());
-    const disabled = !complete || this.applyingClosures;
-    const title = complete ? "" : i18next.t("panel.applyClosuresDisabled");
-    for (const btn of [this.applyClosuresBtn, this.downloadClosuresBtn]) {
-      if (!btn) continue;
-      this.setButtonDisabled(btn, disabled);
-      btn.title = title;
-    }
+    this.renderSteps();
   }
 
   /** Closure items for the current source, or null if the user cancelled. */
@@ -2151,7 +2010,7 @@ export class MatchingSubTab {
       mode: "apply",
     });
     if (!fields) return;
-    this.updateLinkedMte(this.registry.getSelected());
+    this.renderSteps();
     if (fields.mteId && !(await this.ensureMteLoaded(fields.mteId))) return;
 
     this.applyingClosures = true;

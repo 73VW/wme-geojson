@@ -366,6 +366,67 @@ export const BASE_CSS = `
     background: var(--primary);
     cursor: pointer;
   }
+  .wmegj-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .wmegj-step {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    padding: 12px;
+    border-radius: 8px;
+    background: var(--background_variant);
+  }
+  .wmegj-step.is-next {
+    background: var(--background_default);
+    box-shadow: inset 0 0 0 1px var(--hairline);
+  }
+  .wmegj-step-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .wmegj-step-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--surface_variant);
+    color: var(--content_p1);
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .wmegj-step.is-next .wmegj-step-badge {
+    background: var(--primary);
+    color: var(--always_white);
+  }
+  .wmegj-step.is-done .wmegj-step-badge {
+    background: var(--safe);
+    color: var(--always_white);
+  }
+  .wmegj-step-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--content_default);
+  }
+  .wmegj-step .wmegj-caption:empty {
+    display: none;
+  }
+  .wmegj-steps wz-button,
+  .wmegj-steps .wmegj-button {
+    max-width: 100%;
+  }
+  .wmegj-apply-status {
+    white-space: pre-line;
+  }
+  .wmegj-apply-status:empty {
+    display: none;
+  }
 `;
 
 /** Inject BASE_CSS into `doc` once; later calls are no-ops. */
