@@ -312,6 +312,60 @@ export const BASE_CSS = `
     cursor: pointer;
     padding: 2px;
   }
+  .wmegj-range {
+    position: relative;
+    height: 24px;
+  }
+  .wmegj-range-track,
+  .wmegj-range-fill {
+    position: absolute;
+    top: 50%;
+    height: 4px;
+    margin-top: -2px;
+    border-radius: 2px;
+  }
+  .wmegj-range-track {
+    left: 0;
+    right: 0;
+    background: var(--hairline);
+  }
+  .wmegj-range-fill {
+    background: var(--primary);
+  }
+  .wmegj-range input[type="range"] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 24px;
+    margin: 0;
+    background: none;
+    pointer-events: none;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  .wmegj-range input[type="range"]::-webkit-slider-runnable-track {
+    background: none;
+  }
+  .wmegj-range input[type="range"]::-webkit-slider-thumb {
+    pointer-events: auto;
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--background_default);
+    border-radius: 50%;
+    background: var(--primary);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    cursor: pointer;
+  }
+  .wmegj-range input[type="range"]::-moz-range-thumb {
+    pointer-events: auto;
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--background_default);
+    border-radius: 50%;
+    background: var(--primary);
+    cursor: pointer;
+  }
 `;
 
 /** Inject BASE_CSS into `doc` once; later calls are no-ops. */

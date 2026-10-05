@@ -18,6 +18,7 @@ import { promptFinalFields } from "../promptFinalFields";
 import { alertDialog, confirmDialog } from "../components/wzDialog";
 import { MatchingHeaderView } from "../views/MatchingHeaderView";
 import { PlanningCsvView } from "../views/PlanningCsvView";
+import { createRangeSlider } from "../views/RangeSliderView";
 import { lineProgress } from "../../domain/lineProgress";
 import {
   bboxOfMultiLineString,
@@ -1914,7 +1915,6 @@ export class MatchingSubTab {
   private buildRangeSlider(): HTMLElement {
     const section = document.createElement("section");
     section.className = "wmegj-section";
-    section.style.marginTop = "8px";
 
     if (!this.trackLayer) {
       return section;
@@ -1930,79 +1930,24 @@ export class MatchingSubTab {
     // the km labels on the map.
     const originKm = this.registry.getSelected()?.csvRows?.[0]?.distance ?? 0;
 
-    const heading = document.createElement("p");
-    heading.style.margin = "0 0 4px 0";
-    heading.style.fontSize = "12px";
-    heading.style.fontWeight = "600";
-    heading.textContent = i18next.t("panel.range.title");
-    section.appendChild(heading);
-
-    const valueLabel = document.createElement("p");
-    valueLabel.style.margin = "0 0 6px 0";
-    valueLabel.style.fontSize = "12px";
-    valueLabel.textContent = i18next.t("panel.range.window", {
-      min: originKm.toFixed(2),
-      max: (originKm + totalKm).toFixed(2),
-    });
-    section.appendChild(valueLabel);
-
-    const step = "0.01";
-
-    const minInput = document.createElement("input");
-    minInput.type = "range";
-    minInput.min = "0";
-    minInput.max = String(totalKm);
-    minInput.step = step;
-    minInput.value = "0";
-    minInput.style.width = "100%";
-
-    const maxInput = document.createElement("input");
-    maxInput.type = "range";
-    maxInput.min = "0";
-    maxInput.max = String(totalKm);
-    maxInput.step = step;
-    maxInput.value = String(totalKm);
-    maxInput.style.width = "100%";
-
     let pendingFrame = 0;
     let pendingLo = 0;
     let pendingHi = totalKm;
-
     const layer = this.trackLayer;
-
-    const apply = () => {
-      let lo = Number(minInput.value);
-      let hi = Number(maxInput.value);
-      if (lo > hi) {
-        if (document.activeElement === minInput) {
-          hi = lo;
-          maxInput.value = String(hi);
-        } else {
-          lo = hi;
-          minInput.value = String(lo);
-        }
-      }
-      pendingLo = lo;
-      pendingHi = hi;
-      valueLabel.textContent = i18next.t("panel.range.window", {
-        min: (lo + originKm).toFixed(2),
-        max: (hi + originKm).toFixed(2),
-      });
-      if (pendingFrame === 0) {
+    return createRangeSlider({
+      totalKm,
+      originKm,
+      onChange: (lo, hi) => {
+        pendingLo = lo;
+        pendingHi = hi;
+        // Redraw at most once per frame while dragging.
+        if (pendingFrame !== 0) return;
         pendingFrame = requestAnimationFrame(() => {
           pendingFrame = 0;
           layer.setVisibleRange(pendingLo, pendingHi);
         });
-      }
-    };
-
-    minInput.addEventListener("input", apply);
-    maxInput.addEventListener("input", apply);
-
-    section.appendChild(minInput);
-    section.appendChild(maxInput);
-
-    return section;
+      },
+    });
   }
 
   // ---------------------------------------------------------------------------
