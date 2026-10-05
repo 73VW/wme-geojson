@@ -88,4 +88,22 @@ describe("wzDialog", () => {
     window.removeEventListener("keydown", stopEscape, true);
     await expect(result).resolves.toBe(false);
   });
+
+  it("Enter on a button outside the dialog submits the dialog, not that button", async () => {
+    // e.g. focus left on the sidebar button that opened the dialog
+    const opener = document.createElement("button");
+    const reopen = vi.fn();
+    opener.addEventListener("click", reopen);
+    document.body.appendChild(opener);
+    opener.focus();
+    const result = wzDialog({ title: "T", primaryLabel: "OK", cancelLabel: "Annuler" });
+    key(opener, "Enter");
+    await expect(result).resolves.toBe(true);
+    expect(reopen).not.toHaveBeenCalled();
+  });
+
+  it("focuses the primary button when no field asks for focus", () => {
+    void wzDialog({ title: "T", primaryLabel: "OK", cancelLabel: "Annuler" });
+    expect(document.activeElement).toBe(primary());
+  });
 });

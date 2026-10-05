@@ -123,7 +123,10 @@ export function wzDialog(opts: WzDialogOptions): Promise<boolean> {
       const onButton = path.some(
         (node) => node instanceof HTMLElement && /^(BUTTON|WZ-BUTTON)$/.test(node.tagName),
       );
-      if (inTextarea || onButton) return;
+      // Only buttons inside this dialog: focus may still sit on the sidebar
+      // button that opened it, and Enter must not trigger that one again.
+      const inDialog = path.includes(host);
+      if (inDialog && (inTextarea || onButton)) return;
 
       event.preventDefault();
       event.stopPropagation();
@@ -148,13 +151,13 @@ export function wzDialog(opts: WzDialogOptions): Promise<boolean> {
     if (useNative) {
       void (host.componentOnReady?.() ?? Promise.resolve()).then(() => {
         host.showDialog?.();
-        opts.focus?.focus();
+        (opts.focus ?? primaryBtn).focus();
       });
     } else {
       const fallback = host as unknown as HTMLDialogElement;
       if (typeof fallback.showModal === "function") fallback.showModal();
       else fallback.setAttribute("open", "");
-      opts.focus?.focus();
+      (opts.focus ?? primaryBtn).focus();
     }
   });
 }
