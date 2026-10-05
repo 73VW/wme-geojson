@@ -42,6 +42,9 @@ export const BASE_CSS = `
   .wmegj-panel-root *::after {
     box-sizing: border-box;
   }
+  .wmegj-panel-root wz-card {
+    --wz-card-margin: 0;
+  }
   .wmegj-panel-root wz-button {
     max-width: 100%;
   }

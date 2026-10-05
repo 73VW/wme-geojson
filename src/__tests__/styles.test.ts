@@ -38,4 +38,8 @@ describe("injectStyles", () => {
     );
     expect(BASE_CSS).toMatch(/\.wmegj-guided-overlay \{[^}]*box-shadow:/);
   });
+
+  it("removes the internal margin of WME cards", () => {
+    expect(BASE_CSS).toMatch(/\.wmegj-panel-root wz-card \{[^}]*--wz-card-margin: 0;/);
+  });
 });
