@@ -50,20 +50,26 @@ interface StepParts {
 }
 
 function buildStep(number: number, title: string, ...content: HTMLElement[]): StepParts {
-  const root = document.createElement("div");
+  const root = document.createElement("wz-card");
   root.className = "wmegj-step";
+  root.setAttribute("size", "sm");
+  root.setAttribute("variant", "elevated");
+  root.setAttribute("elevation", "0");
   const header = document.createElement("div");
-  header.className = "wmegj-step-header";
+  header.className = "wmegj-card-header";
   const badge = document.createElement("span");
   badge.className = "wmegj-step-badge";
   badge.textContent = String(number);
-  const titleEl = document.createElement("span");
+  const titleEl = document.createElement("wz-subhead5");
   titleEl.className = "wmegj-step-title";
   titleEl.textContent = title;
   header.append(badge, titleEl);
   const note = document.createElement("p");
   note.className = "wmegj-caption";
-  root.append(header, note, ...content);
+  const body = document.createElement("div");
+  body.className = "wmegj-step-body";
+  body.append(header, note, ...content);
+  root.append(body);
   return { root, badge, note };
 }
 
@@ -125,6 +131,7 @@ export class MatchingStepsView {
     const done = [matchingDone, state.linkedMte !== null, false];
     this.steps.forEach((step, index) => {
       step.root.classList.toggle("is-next", index + 1 === next);
+      step.root.setAttribute("elevation", index + 1 === next ? "1" : "0");
       step.root.classList.toggle("is-done", done[index]);
       step.badge.textContent = done[index] ? "✓" : String(index + 1);
     });

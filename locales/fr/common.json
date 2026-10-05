@@ -247,7 +247,8 @@
         "more": "Plus d'actions",
         "debug": "Debug",
         "backToMatching": "Retour à la correspondance"
-      }
+      },
+      "kicker": "Ligne"
     },
     "mtePopup": {
       "loading": "Chargement…",

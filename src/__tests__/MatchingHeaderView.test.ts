@@ -29,4 +29,11 @@ describe("MatchingHeaderView", () => {
     header.setSummary(null, { kind: "done" });
     expect(summary()).toBe("Correspondance terminée");
   });
+
+  it("looks like a WME panel header: back icon, kicker, title", () => {
+    const header = new MatchingHeaderView({ onBack: vi.fn() });
+    header.setTitle("SS7+11 Les Cols");
+    expect(header.root.querySelector(".wmegj-back i.w-icon-arrow-left")).not.toBeNull();
+    expect(header.root.querySelector(".wmegj-header-kicker")?.textContent).toBe("Ligne");
+  });
 });

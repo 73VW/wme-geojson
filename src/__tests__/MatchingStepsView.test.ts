@@ -38,6 +38,13 @@ describe("nextStep", () => {
 });
 
 describe("MatchingStepsView", () => {
+  it("renders the steps as WME cards, the next one raised", () => {
+    const { steps } = setup({});
+    expect(steps.every((step) => step.tagName === "WZ-CARD")).toBe(true);
+    expect(steps[0].getAttribute("elevation")).toBe("1");
+    expect(steps[1].getAttribute("elevation")).toBe("0");
+  });
+
   it("has exactly one primary action: the next step's", () => {
     const { steps, primary } = setup({});
     expect(steps).toHaveLength(3);

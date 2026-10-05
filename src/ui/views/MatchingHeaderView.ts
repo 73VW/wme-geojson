@@ -4,6 +4,7 @@
 
 import { i18next } from "../../../locales/i18n";
 import type { LineProgress } from "../../domain/lineProgress";
+import { wzIconButton } from "../components/wz";
 
 export class MatchingHeaderView {
   readonly root: HTMLElement;
@@ -14,13 +15,12 @@ export class MatchingHeaderView {
     this.root = document.createElement("div");
     this.root.className = "wmegj-header";
 
-    const back = document.createElement("button");
-    back.type = "button";
-    back.className = "wmegj-back";
-    const arrow = document.createElement("i");
-    arrow.className = "w-icon w-icon-arrow-left";
-    back.append(arrow, i18next.t("panel.matching.back"));
-    back.addEventListener("click", () => props.onBack());
+    const back = wzIconButton("w-icon-arrow-left", i18next.t("panel.matching.back"), props.onBack);
+    back.classList.add("wmegj-back");
+
+    const kicker = document.createElement("p");
+    kicker.className = "wmegj-header-kicker";
+    kicker.textContent = i18next.t("panel.matching.kicker");
 
     this.titleEl = document.createElement("h3");
     this.titleEl.className = "wmegj-header-title";
@@ -28,7 +28,9 @@ export class MatchingHeaderView {
     this.summaryEl = document.createElement("p");
     this.summaryEl.className = "wmegj-caption wmegj-header-summary";
 
-    this.root.append(back, this.titleEl, this.summaryEl);
+    const column = document.createElement("div");
+    column.append(kicker, this.titleEl, this.summaryEl);
+    this.root.append(back, column);
   }
 
   setTitle(name: string): void {

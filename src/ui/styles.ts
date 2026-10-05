@@ -253,23 +253,18 @@ export const BASE_CSS = `
     align-self: flex-start;
   }
   .wmegj-header {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 4px 8px;
+    align-items: start;
   }
-  .wmegj-back {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 0;
-    border: none;
-    background: none;
-    color: var(--primary);
-    font: inherit;
-    font-size: 13px;
+  .wmegj-header-kicker {
+    margin: 0;
+    font-size: 12px;
     font-weight: 500;
-    cursor: pointer;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--content_p2);
   }
   .wmegj-header-title {
     margin: 0;
@@ -367,22 +362,13 @@ export const BASE_CSS = `
     min-width: 0;
   }
   .wmegj-step {
+    display: block;
+  }
+  .wmegj-step-body {
     display: flex;
     flex-direction: column;
     align-items: stretch;
     gap: 6px;
-    padding: 12px;
-    border-radius: 8px;
-    background: var(--background_default);
-    box-shadow: inset 0 0 0 1px var(--separator_default);
-  }
-  .wmegj-step.is-next {
-    box-shadow: inset 0 0 0 1px var(--hairline_strong);
-  }
-  .wmegj-step-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
   }
   .wmegj-step-badge {
     display: inline-flex;
