@@ -37,4 +37,11 @@ describe("injectStyles", () => {
   it("spaces the sections of the Matching sidebar", () => {
     expect(BASE_CSS).toMatch(/\.wmegj-matching-body \{[^}]*gap: 16px;/);
   });
+
+  it("styles the matching panel as a WME card", () => {
+    expect(BASE_CSS).toMatch(
+      /\.wmegj-guided-overlay \{[^}]*background: var\(--background_default\);/,
+    );
+    expect(BASE_CSS).toMatch(/\.wmegj-guided-overlay \{[^}]*box-shadow:/);
+  });
 });

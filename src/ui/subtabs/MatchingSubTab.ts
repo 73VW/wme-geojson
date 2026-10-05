@@ -26,6 +26,7 @@ import {
   inflatedTrackPolygon,
   sliceMultiLineByDistance,
 } from "../../matching/trackPortions";
+import { initialPanelPosition } from "../panelPosition";
 import { multiLineLengthKm } from "../../matching/trackPortions";
 import { closureWindowDefaults, promptClosureWindow } from "../components/promptClosureWindow";
 import { buildGlobalClosureRows } from "../../csv/syntheticSchedule";
@@ -192,7 +193,6 @@ export class MatchingSubTab {
     const root = document.createElement("div");
     this.tabPane = root;
     root.classList.add("wmegj-panel-root");
-    this.injectStyles(root);
     this.buildDOM(root);
     this.contentWrapperEl = root.lastElementChild as HTMLElement | null;
 
@@ -638,7 +638,7 @@ export class MatchingSubTab {
   private buildGuidedMatchingRow(): HTMLElement {
     const section = document.createElement("section");
     section.className = "wmegj-section wmegj-guided-panel wmegj-guided-overlay";
-    this.restoreGuidedPanelLayout(section);
+    this.restoreGuidedPanelLayout();
 
     const chromeHeader = document.createElement("div");
     chromeHeader.className = "wmegj-guided-header";
@@ -940,7 +940,33 @@ export class MatchingSubTab {
     this.matchingPanelOpen = true;
     this.setGuidedCollapsed(false);
     this.setGuidedActiveTab("match");
+    this.positionGuidedPanel();
     this.renderPhase(this.store.getState().phase);
+  }
+
+  private positionGuidedPanel(): void {
+    const panel = this.guidedMatchingRow;
+    if (!panel) return;
+    let stored: { left: number; top: number } | null = null;
+    try {
+      const raw = localStorage.getItem(MatchingSubTab.PANEL_POSITION_KEY);
+      const parsed = raw ? (JSON.parse(raw) as { left?: unknown; top?: unknown }) : null;
+      if (parsed && typeof parsed.left === "number" && typeof parsed.top === "number") {
+        stored = { left: parsed.left, top: parsed.top };
+      }
+    } catch {
+      // Ignore malformed or unavailable persisted layout.
+    }
+    const position = initialPanelPosition({
+      stored,
+      sidebarRight: this.tabPane?.getBoundingClientRect().right ?? 0,
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      panel: { width: panel.offsetWidth || 360, height: panel.offsetHeight || 400 },
+    });
+    panel.style.left = `${position.left}px`;
+    panel.style.top = `${position.top}px`;
+    panel.style.right = "auto";
+    panel.style.bottom = "auto";
   }
 
   private setGuidedCollapsed(collapsed: boolean): void {
@@ -965,18 +991,9 @@ export class MatchingSubTab {
     }
   }
 
-  private restoreGuidedPanelLayout(panel: HTMLElement): void {
+  private restoreGuidedPanelLayout(): void {
     try {
       this.guidedCollapsed = localStorage.getItem(MatchingSubTab.PANEL_COLLAPSED_KEY) === "1";
-      const raw = localStorage.getItem(MatchingSubTab.PANEL_POSITION_KEY);
-      if (!raw) return;
-      const position = JSON.parse(raw) as { left?: number; top?: number };
-      if (typeof position.left !== "number" || typeof position.top !== "number") return;
-
-      panel.style.left = `${Math.max(8, position.left)}px`;
-      panel.style.top = `${Math.max(8, position.top)}px`;
-      panel.style.right = "auto";
-      panel.style.bottom = "auto";
     } catch {
       // Ignore malformed or unavailable persisted layout.
     }
@@ -1142,7 +1159,7 @@ export class MatchingSubTab {
     if (this.uiState.kind !== "idle") return;
     const pipeline = this.ensurePipeline();
     if (!pipeline) return;
-    this.matchingPanelOpen = true;
+    this.openMatchingPanel();
     this.store.setPhase("matching");
     if (this.guidedInstructionEl) {
       this.guidedInstructionEl.textContent = i18next.t("panel.matching.validateOrCorrect");
@@ -1156,7 +1173,7 @@ export class MatchingSubTab {
     if (this.uiState.kind !== "idle") return;
     const pipeline = this.ensurePipeline();
     if (!pipeline) return;
-    this.matchingPanelOpen = true;
+    this.openMatchingPanel();
     this.store.setPhase("matching");
     if (this.guidedInstructionEl) {
       this.guidedInstructionEl.textContent = i18next.t("panel.matching.burstRunning");
@@ -2100,300 +2117,6 @@ export class MatchingSubTab {
       this.store.getState().trackLengthKm,
       lineProgress(this.sourceStore.getSource()),
     );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Private — CSS injection
-  // ---------------------------------------------------------------------------
-
-  private injectStyles(container: HTMLElement): void {
-    const style = document.createElement("style");
-    style.textContent = `
-      .wmegj-guided-panel {
-        background: #ffffff;
-      }
-
-      .wmegj-guided-overlay {
-        position: fixed;
-        right: 16px;
-        bottom: 16px;
-        display: flex;
-        flex-direction: column;
-        width: min(390px, calc(100vw - 24px));
-        max-height: calc(100vh - 24px);
-        margin: 0;
-        padding: 0;
-        border: 1px solid #d6dbe3;
-        border-radius: 8px;
-        z-index: 2200;
-        overflow: hidden;
-        box-shadow: 0 12px 28px rgba(16, 24, 40, 0.18);
-      }
-
-      .wmegj-guided-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-        padding: 10px 12px;
-        border-bottom: 1px solid #e4e8ee;
-        cursor: move;
-        user-select: none;
-      }
-
-      .wmegj-guided-title {
-        font-size: 13px;
-        font-weight: 800;
-        color: #1f2937;
-        text-transform: uppercase;
-      }
-
-      .wmegj-guided-status {
-        margin-top: 2px;
-        font-size: 11px;
-        color: #667085;
-      }
-
-      .wmegj-guided-header-actions {
-        display: flex;
-        gap: 6px;
-        flex: 0 0 auto;
-      }
-
-      .wmegj-guided-icon-button {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 34px;
-        height: 34px;
-        padding: 0;
-        border: 1px solid #d0d7e2;
-        border-radius: 999px;
-        background: #ffffff;
-        color: #4b5565;
-        cursor: pointer;
-        transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
-      }
-
-      .wmegj-guided-icon-button:hover {
-        background: #f5f8fc;
-        border-color: #b9c4d2;
-        color: #1f2937;
-      }
-
-      .wmegj-guided-icon-button i {
-        font-size: 16px;
-        line-height: 1;
-      }
-
-      .wmegj-guided-body {
-        flex: 1 1 auto;
-        min-height: 0;
-        padding: 12px;
-        overflow-y: auto;
-      }
-
-      .wmegj-guided-meta,
-      .wmegj-guided-row,
-      .wmegj-guided-count,
-      .wmegj-guided-instruction {
-        margin: 0 0 8px 0;
-        font-size: 12px;
-      }
-
-      .wmegj-guided-row {
-        color: #1f2937;
-        font-weight: 700;
-      }
-
-      .wmegj-guided-count {
-        color: #344054;
-      }
-
-      .wmegj-guided-instruction {
-        color: #667085;
-      }
-
-      .wmegj-guided-actions {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 6px;
-        align-items: stretch;
-      }
-
-      .wmegj-guided-secondary-actions {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 6px;
-        margin-top: 8px;
-      }
-
-      .wmegj-guided-reset-actions {
-        display: flex;
-        justify-content: flex-end;
-        margin-top: 8px;
-        padding-top: 8px;
-        border-top: 1px solid #edf0f4;
-      }
-
-      .wmegj-guided-button {
-        min-width: 0;
-        min-height: 36px;
-        padding: 7px 14px;
-      }
-
-      .wmegj-guided-button--validate,
-      .wmegj-guided-button--start {
-        background: #3478f6;
-        border-color: #3478f6;
-        color: #ffffff;
-      }
-
-      .wmegj-guided-button--validate:hover,
-      .wmegj-guided-button--start:hover {
-        background: #2563eb;
-        border-color: #2563eb;
-      }
-
-      .wmegj-guided-button--skip {
-        background: #edf2fb;
-        border-color: transparent;
-        color: #3478f6;
-      }
-
-      .wmegj-guided-button--skip:hover {
-        background: #e2ebfb;
-        color: #2563eb;
-      }
-
-      .wmegj-guided-button--back {
-        grid-column: 1 / -1;
-        justify-self: start;
-        width: auto;
-        min-width: 120px;
-        background: #ffffff;
-        border-color: #c7d0d9;
-        color: #344054;
-      }
-
-      .wmegj-guided-button--reselect,
-      .wmegj-guided-button--rematch {
-        background: #ffffff;
-        border-color: #c7d0d9;
-        color: #344054;
-      }
-
-      .wmegj-guided-button--pause,
-      .wmegj-guided-button--resume {
-        background: #edf2fb;
-        border-color: transparent;
-        color: #3478f6;
-      }
-
-      .wmegj-guided-tabs {
-        display: flex;
-        gap: 4px;
-        margin-bottom: 10px;
-        border-bottom: 1px solid #e4e8ee;
-      }
-
-      .wmegj-guided-tab {
-        appearance: none;
-        border: 0;
-        background: transparent;
-        padding: 6px 10px;
-        font-size: 12px;
-        font-weight: 600;
-        color: #667085;
-        cursor: pointer;
-        border-bottom: 2px solid transparent;
-      }
-
-      .wmegj-guided-tab.is-active {
-        color: #1f2937;
-        border-bottom-color: #3478f6;
-      }
-
-      .wmegj-guided-debug-title {
-        margin: 0 0 6px 0;
-        font-size: 12px;
-        font-weight: 700;
-        color: #1f2937;
-      }
-
-      .wmegj-guided-debug-body {
-        margin-bottom: 8px;
-      }
-
-      .wmegj-guided-steps {
-        margin: 0 0 8px 0;
-        padding-left: 18px;
-        font-size: 11px;
-        color: #475467;
-      }
-
-      .wmegj-guided-feedback {
-        margin: 6px 0 0 0;
-        font-size: 11px;
-        color: #475467;
-      }
-
-      .wmegj-guided-button--restart {
-        width: auto;
-        min-width: 0;
-        min-height: 34px;
-        padding: 7px 12px;
-      }
-
-      .wmegj-guided-button:hover:not(:disabled) {
-        filter: brightness(0.98);
-      }
-
-      .wmegj-guided-loader {
-        align-items: center;
-        gap: 8px;
-        margin: 4px 0 8px 0;
-        padding: 6px 8px;
-        border: 1px solid #d6dbe3;
-        border-radius: 4px;
-        background: #f6f8fb;
-        color: #344054;
-        font-size: 11px;
-        line-height: 1.3;
-      }
-
-      .wmegj-guided-spinner {
-        width: 14px;
-        height: 14px;
-        flex: 0 0 14px;
-        border: 2px solid #c8d2df;
-        border-top-color: #3478f6;
-        border-radius: 999px;
-        animation: wmegj-spin 0.8s linear infinite;
-      }
-
-      @keyframes wmegj-spin {
-        to {
-          transform: rotate(360deg);
-        }
-      }
-
-      @media (max-width: 640px) {
-        .wmegj-guided-overlay {
-          right: 12px;
-          left: 12px;
-          bottom: 12px;
-          width: auto;
-        }
-
-        .wmegj-guided-button--back {
-          width: 100%;
-          justify-self: stretch;
-        }
-      }
-
-    `;
-    container.appendChild(style);
   }
 }
 

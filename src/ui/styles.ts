@@ -561,6 +561,124 @@ export const BASE_CSS = `
     color: var(--hairline_strong);
     cursor: default;
   }
+  .wmegj-guided-overlay {
+    position: fixed;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    width: min(360px, calc(100vw - 24px));
+    max-height: calc(100vh - 88px);
+    border-radius: 8px;
+    background: var(--background_default);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2), 0 0 1px rgba(0, 0, 0, 0.2);
+    color: var(--content_p1);
+    font-size: 14px;
+    overflow: hidden;
+  }
+  .wmegj-guided-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 8px 8px 16px;
+    cursor: move;
+    user-select: none;
+  }
+  .wmegj-guided-title-wrap {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .wmegj-guided-title {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--content_default);
+  }
+  .wmegj-guided-status {
+    font-size: 12px;
+    color: var(--content_p3);
+  }
+  .wmegj-guided-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .wmegj-guided-icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--content_p2);
+    cursor: pointer;
+  }
+  .wmegj-guided-icon-button:hover {
+    background: var(--surface_default);
+  }
+  .wmegj-guided-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 0 16px 16px;
+    overflow-y: auto;
+  }
+  .wmegj-guided-tabpane {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .wmegj-guided-row {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--content_default);
+  }
+  .wmegj-guided-count,
+  .wmegj-guided-instruction,
+  .wmegj-guided-meta,
+  .wmegj-guided-feedback {
+    margin: 0;
+    font-size: 13px;
+    color: var(--content_p2);
+  }
+  .wmegj-guided-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .wmegj-guided-actions > * {
+    flex: 1 1 auto;
+  }
+  .wmegj-guided-loader {
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--content_p2);
+  }
+  .wmegj-guided-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--hairline);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: wmegj-spin 0.7s linear infinite;
+  }
+  .wmegj-guided-debug-title {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .wmegj-guided-debug-body {
+    font-size: 12px;
+    color: var(--content_p2);
+    overflow-wrap: anywhere;
+  }
+  .wmegj-guided-steps {
+    margin: 4px 0 0;
+    padding-left: 16px;
+  }
 `;
 
 /** Inject BASE_CSS into `doc` once; later calls are no-ops. */
