@@ -278,6 +278,13 @@
     "applyClosuresFailures": "{{count}} segment(s) failed (links open in a new tab). Run again after fixing to retry only these.",
     "applyClosuresNoEditing": "Editing is not allowed right now (permissions or read-only mode).",
     "applyClosuresMteNotLoaded": "MTE {{id}} is not loaded in WME. Open the \"Events\" tab in the left panel, then retry.",
-    "applyClosuresMteRetry": "Retry"
+    "applyClosuresMteRetry": "Retry",
+    "dialogs": {
+      "errorTitle": "Action not possible",
+      "mteLinkedTitle": "MTE already linked",
+      "mteNotLoadedTitle": "MTE not loaded",
+      "ok": "OK",
+      "restartTitle": "Restart from scratch?"
+    }
   }
 }

@@ -278,6 +278,13 @@
     "applyClosuresFailures": "{{count}} segment(s) en échec (les liens s'ouvrent dans un nouvel onglet). Relancez après correction pour ne réessayer que ceux-ci.",
     "applyClosuresNoEditing": "L'édition n'est pas autorisée actuellement (droits ou mode lecture seule).",
     "applyClosuresMteNotLoaded": "Le MTE {{id}} n'est pas chargé dans WME. Ouvrez l'onglet « Événements » dans le panneau de gauche, puis réessayez.",
-    "applyClosuresMteRetry": "Réessayer"
+    "applyClosuresMteRetry": "Réessayer",
+    "dialogs": {
+      "errorTitle": "Action impossible",
+      "mteLinkedTitle": "MTE déjà associé",
+      "mteNotLoadedTitle": "MTE non chargé",
+      "ok": "OK",
+      "restartTitle": "Recommencer à zéro ?"
+    }
   }
 }
