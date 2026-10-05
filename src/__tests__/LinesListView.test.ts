@@ -106,7 +106,7 @@ describe("LinesListView", () => {
       id === "a" ? { kind: "done" } : { kind: "notStarted" },
     );
     expect(view.root.querySelectorAll(".wmegj-line-row")).toHaveLength(2);
-    expect(view.root.querySelectorAll(".wmegj-line-progress")).toHaveLength(1);
+    expect(view.root.querySelectorAll(".wmegj-line-row[subtitle]")).toHaveLength(1);
   });
 
   it("shows load errors and clears them", () => {

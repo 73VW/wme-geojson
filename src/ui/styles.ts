@@ -165,24 +165,14 @@ export const BASE_CSS = `
     display: flex;
     flex-direction: column;
   }
-  .wmegj-line-row {
+  .wmegj-line-row--loading {
+    opacity: 0.6;
+  }
+  .wmegj-line-key {
     display: flex;
     align-items: center;
     gap: 8px;
-    min-height: 48px;
-    padding: 4px 4px 4px 8px;
-    border-bottom: 1px solid var(--separator_default);
-    cursor: pointer;
-  }
-  .wmegj-line-row:hover {
-    background: var(--background_variant);
-  }
-  .wmegj-line-row--loading {
-    opacity: 0.6;
-    cursor: default;
-  }
-  .wmegj-line-row--loading:hover {
-    background: transparent;
+    min-width: 0;
   }
   .wmegj-line-pill {
     flex: 0 0 auto;
@@ -190,28 +180,12 @@ export const BASE_CSS = `
     height: 10px;
     border-radius: 50%;
   }
-  .wmegj-line-text {
-    flex: 1 1 auto;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-  }
   .wmegj-line-name {
-    font-size: 14px;
-    color: var(--content_default);
     overflow-wrap: anywhere;
   }
   .wmegj-line-caption {
     font-size: 12px;
     color: var(--content_p3);
-  }
-  .wmegj-line-progress {
-    flex: 0 0 auto;
-    font-size: 12px;
-    color: var(--content_p2);
-  }
-  .wmegj-line-progress.is-done {
-    color: var(--safe_variant);
   }
   .wmegj-line-warning {
     flex: 0 0 auto;

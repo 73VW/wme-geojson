@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { LineRowView } from "../ui/views/LineRowView";
+import { LineRowView, lineSubtitle } from "../ui/views/LineRowView";
 import type { LineEntry } from "../lines/types";
 import { initFrench } from "./helpers/i18nFr";
 
+vi.spyOn(console, "warn").mockImplementation(() => {});
 beforeAll(initFrench);
 
 function entry(overrides: Partial<LineEntry> = {}): LineEntry {
@@ -23,74 +24,56 @@ function entry(overrides: Partial<LineEntry> = {}): LineEntry {
     ...overrides,
   };
 }
-
+const slowup = entry({
+  displayName: "slowUp Valais — 25.10.2026",
+  slowupDetails: { refid: 1, title: "slowUp Valais", date: "2026-10-25" },
+  slowupFetchStatus: "ok",
+});
 const notStarted = { kind: "notStarted" } as const;
+const props = (e: LineEntry, progress: Parameters<typeof lineSubtitle>[1] = notStarted) => ({
+  entry: e,
+  progress,
+  onSelect: vi.fn(),
+  onCenter: vi.fn(),
+});
+
+describe("lineSubtitle", () => {
+  it("joins the slowUp date and the progress", () => {
+    expect(lineSubtitle(slowup, { kind: "done" })).toBe("25.10.2026 · ✓ Terminé");
+    expect(lineSubtitle(entry(), { kind: "inProgress", percent: 40 })).toBe("40 % validé");
+    expect(lineSubtitle(slowup, notStarted)).toBe("25.10.2026");
+    expect(lineSubtitle(entry(), notStarted)).toBe("");
+  });
+});
 
 describe("LineRowView", () => {
-  it("shows the slowUp title with its date on a second line", () => {
-    const row = new LineRowView({
-      entry: entry({
-        displayName: "slowUp Valais — 25.10.2026",
-        slowupDetails: { refid: 1, title: "slowUp Valais", date: "2026-10-25" },
-        slowupFetchStatus: "ok",
-      }),
-      progress: notStarted,
-      onSelect: vi.fn(),
-      onCenter: vi.fn(),
-    });
-    expect(row.root.querySelector(".wmegj-line-name")?.textContent).toBe("slowUp Valais");
-    expect(row.root.querySelector(".wmegj-line-caption")?.textContent).toBe("25.10.2026");
+  it("is a clickable WME list item with the title in item-key and the subtitle", () => {
+    const row = new LineRowView(props(slowup, { kind: "done" }));
+    expect(row.root.tagName).toBe("WZ-LIST-ITEM");
+    expect(row.root.hasAttribute("clickable")).toBe(true);
+    expect(row.root.getAttribute("subtitle")).toBe("25.10.2026 · ✓ Terminé");
+    expect(row.root.querySelector('[slot="item-key"]')?.textContent).toContain("slowUp Valais");
+    expect(row.root.querySelector<HTMLElement>(".wmegj-line-pill")?.style.backgroundColor).not.toBe(
+      "",
+    );
   });
 
-  it("shows progress only once the line has been started", () => {
-    const none = new LineRowView({
-      entry: entry(),
-      progress: notStarted,
-      onSelect: vi.fn(),
-      onCenter: vi.fn(),
-    });
-    expect(none.root.querySelector(".wmegj-line-progress")).toBeNull();
-
-    const half = new LineRowView({
-      entry: entry(),
-      progress: { kind: "inProgress", percent: 45 },
-      onSelect: vi.fn(),
-      onCenter: vi.fn(),
-    });
-    expect(half.root.querySelector(".wmegj-line-progress")?.textContent).toBe("45 %");
-
-    const done = new LineRowView({
-      entry: entry(),
-      progress: { kind: "done" },
-      onSelect: vi.fn(),
-      onCenter: vi.fn(),
-    });
-    const doneEl = done.root.querySelector(".wmegj-line-progress");
-    expect(doneEl?.textContent).toContain("Terminé");
-    expect(doneEl?.classList.contains("is-done")).toBe(true);
-  });
-
-  it("selects on click, but recentering does not select", () => {
-    const onSelect = vi.fn();
-    const onCenter = vi.fn();
-    const row = new LineRowView({ entry: entry(), progress: notStarted, onSelect, onCenter });
-    row.root.querySelector<HTMLButtonElement>(".wmegj-icon-only")!.click();
-    expect(onCenter).toHaveBeenCalledWith("l1");
-    expect(onSelect).not.toHaveBeenCalled();
+  it("selects on click, but the recenter action does not select", () => {
+    const p = props(entry());
+    const row = new LineRowView(p);
+    row.root.querySelector<HTMLElement>('[slot="actions"] .wmegj-icon-only')!.click();
+    expect(p.onCenter).toHaveBeenCalledWith("l1");
+    expect(p.onSelect).not.toHaveBeenCalled();
     row.root.click();
-    expect(onSelect).toHaveBeenCalledWith("l1");
+    expect(p.onSelect).toHaveBeenCalledWith("l1");
   });
 
-  it("cannot be selected while its slowUp details are loading", () => {
-    const onSelect = vi.fn();
-    const row = new LineRowView({
-      entry: entry({ slowupFetchStatus: "loading" }),
-      progress: notStarted,
-      onSelect,
-      onCenter: vi.fn(),
-    });
+  it("is not clickable while its slowUp details are loading", () => {
+    const p = props(entry({ slowupFetchStatus: "loading" }));
+    const row = new LineRowView(p);
+    expect(row.root.hasAttribute("clickable")).toBe(false);
     row.root.click();
-    expect(onSelect).not.toHaveBeenCalled();
+    expect(p.onSelect).not.toHaveBeenCalled();
     expect(row.root.querySelector(".wmegj-spinner")).not.toBeNull();
   });
 });

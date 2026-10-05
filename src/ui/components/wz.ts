@@ -526,3 +526,28 @@ export function isChecked(el: HTMLElement): boolean {
   if (typeof own === "boolean") return own;
   return el.querySelector<HTMLInputElement>("input[type=checkbox]")?.checked ?? false;
 }
+
+/** Small round icon action, like WME's list-row and card actions. */
+export function wzIconButton(icon: string, title: string, onClick: () => void): HTMLElement {
+  const registered =
+    typeof customElements !== "undefined" && customElements.get("wz-button") !== undefined;
+  const button = document.createElement(registered ? "wz-button" : "button");
+  if (registered) {
+    button.setAttribute("color", "shadowed");
+    button.setAttribute("size", "sm");
+  } else {
+    (button as HTMLButtonElement).type = "button";
+  }
+  button.classList.add("wmegj-icon-only");
+  button.title = title;
+  button.setAttribute("aria-label", title);
+  const i = document.createElement("i");
+  i.className = `w-icon ${icon}`;
+  button.appendChild(i);
+  button.addEventListener("click", (event) => {
+    // Actions sit inside clickable rows/cards: don't trigger them too.
+    event.stopPropagation();
+    onClick();
+  });
+  return button;
+}

@@ -8,6 +8,7 @@ import {
   wzChipSelect,
   wzSelect,
   wzTextInput,
+  wzIconButton,
   wzTextarea,
 } from "../ui/components/wz";
 
@@ -78,5 +79,19 @@ describe("wz field helpers (fallback DOM)", () => {
     field.setValue("2026-10-06T18:30");
     expect(field.date.value).toBe("2026-10-06");
     expect(field.time.value).toBe("18:30");
+  });
+
+  it("icon buttons carry a title and don't let the click bubble", () => {
+    const onClick = vi.fn();
+    const parent = vi.fn();
+    const button = wzIconButton("w-icon-recenter", "Centrer", onClick);
+    const row = document.createElement("div");
+    row.addEventListener("click", parent);
+    row.appendChild(button);
+    button.click();
+    expect(onClick).toHaveBeenCalled();
+    expect(parent).not.toHaveBeenCalled();
+    expect(button.title).toBe("Centrer");
+    expect(button.querySelector("i.w-icon-recenter")).not.toBeNull();
   });
 });
