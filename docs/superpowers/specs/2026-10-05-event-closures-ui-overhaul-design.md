@@ -68,11 +68,13 @@ add non-destructive step navigation to the matching panel.
   `confirmModal`, `promptFinalFields`, `promptMteInfo`, `promptClosureWindow`
   are rebuilt on it; `modal.ts` is deleted.
 - **Form fields** use `wz-text-input`, `wz-textarea`, `wz-select`,
-  `wz-date-input` (time: `wz-text-input type=time` if no native picker).
+  `wz-checkbox`, `wz-checkable-chip`. Dates use a native `datetime-local`
+  input dressed like a `wz-text-input` (WME's date/time pickers have no
+  documented API).
   Helpers added to `wz.ts` next to the existing ones.
 - **Text** uses `wz-label` (section titles), `wz-body2`, `wz-caption`.
-- **`alert()` removed**: blocking errors become an inline `wz-alert` in the
-  relevant section; transient feedback uses `wz-snackbar` when available.
+- **`alert()` removed**: replaced by a single-button native dialog
+  (`alertDialog`), same look as every other dialog.
 - **No horizontal scroll**: root `min-width: 0; overflow-wrap: anywhere`,
   buttons `max-width: 100%` with short labels, overlay no longer in the
   sidebar flow.
@@ -194,9 +196,10 @@ informations de l'événement".
 - **Niveau de verrouillage**: 1–4 segmented selector like the native form;
   default 1.
 - Both are passed to `fillMteForm` (`category` already supported; lock level
-  added by clicking the matching native button) and shown in the popup window.
-  For slowUps (no info dialog today) the same two fields appear in the popup
-  window before "Remplir le formulaire".
+  added by clicking `wz-checkable-chip#lockRank-<level-1>`). For slowUps the
+  same dialog opens with only these two fields (title, dates and texts come
+  from the slowUp API). The "MTE already linked" confirmation now comes before
+  this dialog.
 
 ### 6. "Préparer MTE" window
 
