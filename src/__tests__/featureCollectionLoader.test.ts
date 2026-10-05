@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import i18next from "i18next";
-import { buildEntryFromTrack } from "../lines/featureCollectionLoader";
+import { buildEntriesFromData, buildEntryFromTrack } from "../lines/featureCollectionLoader";
 import type { NormalizedTrack } from "../geojson/types";
 
 beforeAll(async () => {
@@ -60,5 +60,34 @@ describe("buildEntryFromTrack", () => {
     const nameless: NormalizedTrack = { ...track, rawProperties: {} };
     const entry = buildEntryFromTrack(nameless, "https://example.com/x.json#0");
     expect(entry.displayName).toMatch(/^Tracé de /);
+  });
+});
+
+describe("line colours", () => {
+  it("gives the tracks of one file clearly different colours", () => {
+    // Ids of one file differ only by their last character ("…kmz#0", "#1"…):
+    // a hash of the id gave four almost identical greens.
+    const line = (x: number) => ({
+      type: "Feature",
+      properties: { name: `Stage ${x}` },
+      geometry: {
+        type: "LineString",
+        coordinates: [
+          [x, 46],
+          [x + 0.01, 46],
+        ],
+      },
+    });
+    const entries = buildEntriesFromData(
+      { type: "FeatureCollection", features: [line(6), line(7), line(8), line(9)] },
+      "MyMaps-Rallye.kmz",
+    );
+    const hues = entries.map((entry) => Number(/hsl\((\d+(?:\.\d+)?)/.exec(entry.color)?.[1]));
+    for (let i = 0; i < hues.length; i++) {
+      for (let j = i + 1; j < hues.length; j++) {
+        const gap = Math.abs(hues[i] - hues[j]) % 360;
+        expect(Math.min(gap, 360 - gap)).toBeGreaterThanOrEqual(30);
+      }
+    }
   });
 });

@@ -10,14 +10,15 @@ import { kmlToGeoJson } from "../geojson/kmlToGeoJson";
 import { validateFeature, validateFeatureCollection } from "../geojson/validate";
 import { normalizeTrack } from "../geojson/normalize";
 import { computeDisplayName } from "./displayName";
-import { colorForLineId } from "./color";
+import { colorForLineIndex } from "./color";
 import type { LineEntry } from "./types";
 
 /**
  * Build a LineEntry from a normalised track and a precomputed stable id.
  * Pure — no fetch, no SDK.
  */
-export function buildEntryFromTrack(track: NormalizedTrack, id: string): LineEntry {
+/** `index`: position of the line in its source, which picks its colour. */
+export function buildEntryFromTrack(track: NormalizedTrack, id: string, index = 0): LineEntry {
   const lengthKm = turfLength(
     { type: "Feature", geometry: track.geometry, properties: null },
     { units: "kilometers" },
@@ -29,7 +30,7 @@ export function buildEntryFromTrack(track: NormalizedTrack, id: string): LineEnt
     track,
     lengthKm,
     displayName: computeDisplayName({ lengthKm, properties: track.rawProperties }),
-    color: colorForLineId(id),
+    color: colorForLineIndex(index),
     slowupFetchStatus: "idle",
     mode: "synthetic",
     matchPhase: "idle",
@@ -122,8 +123,8 @@ export function buildEntriesFromData(raw: unknown, sourceUrl: string): LineEntry
 
   if (isFeatureCollection) {
     const features = validateFeatureCollection(raw);
-    return groupFeaturesIntoTracks(features, sourceUrl).map(({ id, track }) =>
-      buildEntryFromTrack(track, id),
+    return groupFeaturesIntoTracks(features, sourceUrl).map(({ id, track }, index) =>
+      buildEntryFromTrack(track, id, index),
     );
   }
 
