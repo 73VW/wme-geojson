@@ -1,39 +1,49 @@
-// Pure DOM view for the matching panel header: the panel title and the
-// walk-state badge. No SDK, no store access — the controller drives it
-// via setBadge(). Created as part of the view/logic separation refactor.
+// Header of the Matching sub-tab: back to the Lignes list, the line name,
+// and "length · progress". The progress comes from the same persisted Source
+// as the Lignes rows, so both always agree.
 
 import { i18next } from "../../../locales/i18n";
-import type { WalkState } from "../../controller/walkStates";
+import type { LineProgress } from "../../domain/lineProgress";
 
 export class MatchingHeaderView {
-  /** Root element — append this where the title + badge used to be built. */
   readonly root: HTMLElement;
   private readonly titleEl: HTMLElement;
-  private readonly badgeEl: HTMLElement;
+  private readonly summaryEl: HTMLElement;
 
-  constructor() {
+  constructor(props: { onBack: () => void }) {
     this.root = document.createElement("div");
+    this.root.className = "wmegj-header";
 
-    const title = document.createElement("h3");
-    title.className = "wmegj-panel-title";
-    title.textContent = i18next.t("panel.title");
-    this.root.appendChild(title);
-    this.titleEl = title;
+    const back = document.createElement("button");
+    back.type = "button";
+    back.className = "wmegj-back";
+    const arrow = document.createElement("i");
+    arrow.className = "w-icon w-icon-arrow-left";
+    back.append(arrow, i18next.t("panel.matching.back"));
+    back.addEventListener("click", () => props.onBack());
 
-    const badgeWrapper = document.createElement("p");
-    this.badgeEl = document.createElement("strong");
-    this.badgeEl.textContent = "—";
-    badgeWrapper.appendChild(this.badgeEl);
-    this.root.appendChild(badgeWrapper);
+    this.titleEl = document.createElement("h3");
+    this.titleEl.className = "wmegj-header-title";
+
+    this.summaryEl = document.createElement("p");
+    this.summaryEl.className = "wmegj-caption wmegj-header-summary";
+
+    this.root.append(back, this.titleEl, this.summaryEl);
   }
 
-  /** Replace the panel title with the selected line's display name. */
   setTitle(name: string): void {
     this.titleEl.textContent = name;
   }
 
-  /** Update the walk-state badge text. */
-  setBadge(state: WalkState): void {
-    this.badgeEl.textContent = i18next.t(`panel.status.${state}`);
+  setSummary(km: number | null, progress: LineProgress): void {
+    const status =
+      progress.kind === "done"
+        ? i18next.t("panel.summary.done")
+        : progress.kind === "inProgress"
+          ? i18next.t("panel.summary.inProgress", { percent: progress.percent })
+          : i18next.t("panel.summary.notStarted");
+    // Once matching is done, the length is noise.
+    const showLength = km !== null && progress.kind !== "done";
+    this.summaryEl.textContent = showLength ? `${km.toFixed(2)} km · ${status}` : status;
   }
 }

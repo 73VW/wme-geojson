@@ -9,13 +9,6 @@
       "id": "ID du tracé : {{id}}",
       "length": "Longueur : {{km}} km"
     },
-    "status": {
-      "idle": "En attente",
-      "walking": "Parcours en cours…",
-      "done": "Terminé",
-      "cancelled": "Annulé",
-      "error": "Erreur"
-    },
     "buttons": {
       "centerOnTrack": "Centrer sur le tracé",
       "start": "Lancer la correspondance",
@@ -81,7 +74,6 @@
       "load": "Charger",
       "center": "Centrer"
     },
-    "trackLength": "Longueur du tracé : {{km}} km",
     "csvInput": {
       "label": "Importer le CSV de planning",
       "reading": "Lecture du fichier...",
@@ -189,7 +181,7 @@
       "startAutomatic": "Démarrer (automatique)",
       "validate": "Valider",
       "skip": "Passer la ligne",
-      "back": "Retour",
+      "back": "Lignes",
       "syntheticBanner": "Pas de CSV — la ligne entière sera fermée sur une seule fenêtre temporelle (saisie au téléchargement).",
       "noSelection": "Sélectionne une ligne dans l'onglet Lignes.",
       "prepareMteBtn": "Préparer MTE",
@@ -306,6 +298,11 @@
       "mteNotLoadedTitle": "MTE non chargé",
       "ok": "OK",
       "restartTitle": "Recommencer à zéro ?"
+    },
+    "summary": {
+      "notStarted": "Pas commencé",
+      "inProgress": "{{percent}} % validé",
+      "done": "Correspondance terminée"
     }
   }
 }

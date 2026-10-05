@@ -85,7 +85,9 @@ export class MatchPanel {
       loadProgress: (id) => lineProgress(progressReader.load(id)),
     });
 
-    this.matchingSubTab = new MatchingSubTab(this.wmeSDK, this.store, this.registry);
+    this.matchingSubTab = new MatchingSubTab(this.wmeSDK, this.store, this.registry, () =>
+      this.tabs?.setActiveTab(0),
+    );
     const matchingRoot = this.matchingSubTab.buildRoot();
 
     this.tabs = wzTabs([

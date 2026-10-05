@@ -7,7 +7,6 @@ import { TrackLayer } from "../../layers/TrackLayer";
 import { WalkController } from "../../controller/WalkController";
 import type { LineRegistry } from "../../lines/LineRegistry";
 import type { LineEntry } from "../../lines/types";
-import type { WalkState } from "../../controller/walkStates";
 import type { SessionStore, SessionPhase } from "../../state/SessionStore";
 import type { CsvRow } from "../../csv/types";
 import { buildClosuresCsv } from "../../csv/buildClosuresCsv";
@@ -18,6 +17,7 @@ import { parseSchedule } from "../../csv/parseSchedule";
 import { promptFinalFields } from "../promptFinalFields";
 import { alertDialog, confirmDialog } from "../components/wzDialog";
 import { MatchingHeaderView } from "../views/MatchingHeaderView";
+import { lineProgress } from "../../domain/lineProgress";
 import {
   bboxOfMultiLineString,
   inflatedTrackPolygon,
@@ -104,7 +104,6 @@ export class MatchingSubTab {
 
   // Unsubscribe handles — cleaned up in unmount()
   private unsubscribeStore: (() => void) | null = null;
-  private unsubscribeState: (() => void) | null = null;
   private unsubscribeMapDataLoaded: (() => void) | null = null;
   private unsubscribeSelection: (() => void) | null = null;
   private unsubscribeSourceStore: (() => void) | null = null;
@@ -119,8 +118,6 @@ export class MatchingSubTab {
   private attachedLineId: string | null = null;
 
   // ── Row container elements (toggled by renderPhase) ─────────────────────
-  private trackLengthRow: HTMLElement | null = null;
-  private trackLengthValueEl: HTMLElement | null = null;
   private rangeSliderRow: HTMLElement | null = null;
   private startMatchingRow: HTMLElement | null = null;
   private guidedMatchingRow: HTMLElement | null = null;
@@ -186,6 +183,7 @@ export class MatchingSubTab {
     private readonly wmeSDK: WmeSDK,
     private readonly store: SessionStore,
     private readonly registry: LineRegistry,
+    private readonly onBackToLines: () => void = () => {},
   ) {
     this.controller = null;
     this.trackLayer = null;
@@ -234,15 +232,12 @@ export class MatchingSubTab {
     // Re-render visibility whenever store phase changes
     this.unsubscribeStore = this.store.subscribe((state) => {
       this.renderPhase(state.phase);
-      if (state.trackLengthKm !== null && this.trackLengthValueEl) {
-        this.trackLengthValueEl.textContent = i18next.t("panel.trackLength", {
-          km: state.trackLengthKm.toFixed(2),
-        });
-      }
+      this.renderHeaderSummary();
     });
 
     // Header / overlay / segment-count updates are driven by the SourceStore.
     this.unsubscribeSourceStore = this.sourceStore.onChange(() => {
+      this.renderHeaderSummary();
       this.renderSourceState();
       this.updateClosureButtons();
     });
@@ -382,11 +377,6 @@ export class MatchingSubTab {
   setController(c: WalkController): void {
     this.controller?.dispose();
     this.controller = c;
-    this.unsubscribeState?.();
-    this.unsubscribeState = c.onStateChange((s) => {
-      this.updateBadge(s);
-    });
-    this.updateBadge(c.state);
   }
 
   setTrackLayer(layer: TrackLayer): void {
@@ -408,12 +398,10 @@ export class MatchingSubTab {
     this.detachPersistence?.();
     this.detachPersistence = null;
     this.unsubscribeStore?.();
-    this.unsubscribeState?.();
     this.unsubscribeMapDataLoaded?.();
     this.unsubscribeSelection?.();
     this.unsubscribeSourceStore?.();
     this.unsubscribeStore = null;
-    this.unsubscribeState = null;
     this.unsubscribeMapDataLoaded = null;
     this.unsubscribeSelection = null;
     this.unsubscribeSourceStore = null;
@@ -425,7 +413,6 @@ export class MatchingSubTab {
       this.tabPane = null;
     }
 
-    this.trackLengthRow = null;
     this.rangeSliderRow = null;
     this.startMatchingRow = null;
     this.attachedLineId = null;
@@ -488,11 +475,8 @@ export class MatchingSubTab {
     wrapper.appendChild(body);
     container.appendChild(wrapper);
 
-    this.headerView = new MatchingHeaderView();
+    this.headerView = new MatchingHeaderView({ onBack: () => this.onBackToLines() });
     body.appendChild(this.headerView.root);
-
-    this.trackLengthRow = this.buildTrackLengthRow();
-    body.appendChild(this.trackLengthRow);
 
     this.csvUploadRow = this.buildCsvUploadRow();
     body.appendChild(this.csvUploadRow);
@@ -511,18 +495,6 @@ export class MatchingSubTab {
 
     this.downloadRow = this.buildDownloadRow();
     body.appendChild(this.downloadRow);
-  }
-
-  private buildTrackLengthRow(): HTMLElement {
-    const section = document.createElement("section");
-    section.className = "wmegj-section";
-    section.style.marginBottom = "4px";
-    const p = document.createElement("p");
-    p.style.margin = "0";
-    p.textContent = i18next.t("panel.trackLength", { km: "—" });
-    section.appendChild(p);
-    this.trackLengthValueEl = p;
-    return section;
   }
 
   // ---------------------------------------------------------------------------
@@ -2102,7 +2074,6 @@ export class MatchingSubTab {
     const entry = this.registry.getSelected();
     const isGeojson = entry !== null && entry.slowupNumber === undefined;
 
-    this.setRowVisible(this.trackLengthRow, atLeastTrackLoaded);
     this.setRowVisible(this.csvUploadRow, atLeastTrackLoaded && isGeojson);
     this.setRowVisible(this.rangeSliderRow, atLeastTrackLoaded);
     this.setRowVisible(this.startMatchingRow, atLeastCsvLoaded);
@@ -2427,8 +2398,12 @@ export class MatchingSubTab {
   // Private — WalkController badge
   // ---------------------------------------------------------------------------
 
-  private updateBadge(state: WalkState): void {
-    this.headerView?.setBadge(state);
+  /** Header line "30.85 km · 40 % validé", from the same Source as the Lignes rows. */
+  private renderHeaderSummary(): void {
+    this.headerView?.setSummary(
+      this.store.getState().trackLengthKm,
+      lineProgress(this.sourceStore.getSource()),
+    );
   }
 
   // ---------------------------------------------------------------------------

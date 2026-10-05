@@ -9,13 +9,6 @@
       "id": "Track ID: {{id}}",
       "length": "Length: {{km}} km"
     },
-    "status": {
-      "idle": "Idle",
-      "walking": "Walking…",
-      "done": "Done",
-      "cancelled": "Cancelled",
-      "error": "Error"
-    },
     "buttons": {
       "centerOnTrack": "Center on track",
       "start": "Start matching",
@@ -81,7 +74,6 @@
       "load": "Load",
       "center": "Center"
     },
-    "trackLength": "Track length: {{km}} km",
     "csvInput": {
       "label": "Upload schedule CSV",
       "reading": "Reading file...",
@@ -189,7 +181,7 @@
       "startAutomatic": "Start automatic",
       "validate": "Validate",
       "skip": "Skip row",
-      "back": "Back",
+      "back": "Lines",
       "syntheticBanner": "No CSV — the whole line will be closed over a single time window (entered at download).",
       "noSelection": "Select a line in the Lines tab.",
       "prepareMteBtn": "Prepare MTE",
@@ -306,6 +298,11 @@
       "mteNotLoadedTitle": "MTE not loaded",
       "ok": "OK",
       "restartTitle": "Restart from scratch?"
+    },
+    "summary": {
+      "notStarted": "Not started",
+      "inProgress": "{{percent}}% validated",
+      "done": "Matching done"
     }
   }
 }

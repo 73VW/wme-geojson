@@ -262,6 +262,33 @@ export const BASE_CSS = `
     color: var(--content_default);
     overflow-wrap: anywhere;
   }
+  .wmegj-header {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    margin-bottom: 12px;
+  }
+  .wmegj-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 0;
+    border: none;
+    background: none;
+    color: var(--primary);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .wmegj-header-title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--content_default);
+    overflow-wrap: anywhere;
+  }
 `;
 
 /** Inject BASE_CSS into `doc` once; later calls are no-ops. */
