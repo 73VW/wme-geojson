@@ -24,6 +24,7 @@ function warnMissingTag(tagName: string): void {
 export interface WzButtonProps {
   text: string;
   variant?: "primary" | "secondary" | "danger" | "text";
+  size?: "sm" | "md";
   disabled?: boolean;
   onClick?: () => void;
 }
@@ -56,12 +57,13 @@ export function wzButton(props: WzButtonProps): HTMLElement {
   const el = document.createElement(tagName);
   el.className = `wmegj-button-host wmegj-button-host--${variant}`;
   el.setAttribute("color", color);
-  el.setAttribute("size", "md");
+  const size = props.size ?? "md";
+  el.setAttribute("size", size);
   el.setAttribute("type", "button");
   el.textContent = props.text;
   (el as unknown as { text?: string }).text = props.text;
   (el as unknown as { color?: string }).color = color;
-  (el as unknown as { size?: string }).size = "md";
+  (el as unknown as { size?: string }).size = size;
   if (props.disabled) {
     el.setAttribute("disabled", "");
     (el as unknown as { disabled?: boolean }).disabled = true;
@@ -278,6 +280,8 @@ export function wzTabs(tabs: WzTabSpec[]): WzTabsHandle {
 export interface FileInputProps {
   accept: string;
   buttonLabel?: string;
+  variant?: WzButtonProps["variant"];
+  size?: WzButtonProps["size"];
   onFile?: (file: File) => void;
 }
 
@@ -304,7 +308,8 @@ export function fileInput(props: FileInputProps): HTMLElement {
 
   const button = wzButton({
     text: props.buttonLabel ?? "",
-    variant: "secondary",
+    variant: props.variant ?? "secondary",
+    size: props.size,
     onClick: () => input.click(),
   });
 

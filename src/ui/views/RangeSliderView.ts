@@ -3,6 +3,7 @@
 
 import { i18next } from "../../../locales/i18n";
 import { wzLabel } from "../components/wz";
+import { formatKm } from "../matchingPanelText";
 
 export function createRangeSlider(props: {
   totalKm: number;
@@ -39,8 +40,8 @@ export function createRangeSlider(props: {
 
   const render = (lo: number, hi: number): void => {
     valueLabel.textContent = i18next.t("panel.range.window", {
-      min: (lo + originKm).toFixed(2),
-      max: (hi + originKm).toFixed(2),
+      min: formatKm(lo + originKm),
+      max: formatKm(hi + originKm),
     });
     fill.style.left = `${(lo / totalKm) * 100}%`;
     fill.style.width = `${((hi - lo) / totalKm) * 100}%`;

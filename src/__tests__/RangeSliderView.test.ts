@@ -27,7 +27,7 @@ describe("createRangeSlider", () => {
     const { root, min, move, onChange } = setup(12);
     move(min, 5);
     expect(onChange).toHaveBeenLastCalledWith(5, 30);
-    expect(root.textContent).toContain("17.00 km – 42.00 km");
+    expect(root.textContent).toContain("17,00 km – 42,00 km");
   });
 
   it("keeps the window ordered when the handles cross", () => {

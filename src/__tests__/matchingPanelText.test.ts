@@ -97,15 +97,34 @@ describe("stepNavState", () => {
 
   it("labels the current step, its window and its segments", () => {
     const nav = stepNavState(source, step, steps, true, false);
-    expect(nav.label).toBe("Ligne 1/1 · sous-ligne 2/3");
-    expect(nav.caption).toBe("2.00 → 4.00 km · 3 segment(s)");
+    expect(nav.label).toBe("Sous-ligne 2/3");
+    expect(nav.caption).toBe("2,00 → 4,00 km · 3 segments");
     expect(nav).toMatchObject({ validated: true, canPrev: true, canNext: true });
+  });
+
+  it("keeps the line part when the source has several lines", () => {
+    const two: Source = { ...source, lines: [source.lines[0], source.lines[0]] };
+    expect(stepNavState(two, step, steps, true, false).label).toBe("Ligne 1/2 · sous-ligne 2/3");
+  });
+
+  it("uses singular for one segment", () => {
+    const one: Source = {
+      ...source,
+      lines: [
+        {
+          ...source.lines[0],
+          subLines: [sub(0, true), { ...sub(1, true), segmentIds: [1] }, sub(2, true)],
+        },
+      ],
+    };
+    expect(stepNavState(one, step, steps, true, false).caption).toContain("1 segment");
+    expect(stepNavState(one, step, steps, true, false).caption).not.toContain("segments");
   });
 
   it("from outside the steps, only goes back to the last one", () => {
     const nav = stepNavState(source, null, steps, true, false);
     expect(nav).toMatchObject({ canPrev: true, canNext: false });
-    expect(nav.label).toBe("3 sous-ligne(s) validée(s)");
+    expect(nav.label).toBe("3 sous-lignes validées");
   });
 
   it("is frozen while disabled", () => {
@@ -172,6 +191,6 @@ describe("frontier caption", () => {
       false,
       7,
     );
-    expect(nav.caption).toBe("2.00 → 4.00 km · 7 segment(s) trouvé(s)");
+    expect(nav.caption).toBe("2,00 → 4,00 km · 7 segments trouvés");
   });
 });

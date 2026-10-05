@@ -164,6 +164,8 @@ export const BASE_CSS = `
   .wmegj-line-list {
     display: flex;
     flex-direction: column;
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
   }
   .wmegj-line-row--loading {
     opacity: 0.6;
@@ -220,6 +222,12 @@ export const BASE_CSS = `
     gap: 8px;
     min-width: 0;
   }
+  .wmegj-section > wz-label {
+    margin: 0;
+  }
+  wz-button.wmegj-icon-only {
+    --wz-button-border: 0;
+  }
   .wmegj-caption {
     margin: 0;
     font-size: 12px;
@@ -244,10 +252,14 @@ export const BASE_CSS = `
     gap: 4px;
   }
   .wmegj-source-name {
-    overflow-wrap: anywhere;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    overflow-wrap: normal;
   }
   .wmegj-source-card {
     display: block;
+    margin: 0;
   }
   .wmegj-change-source {
     align-self: flex-start;
@@ -353,7 +365,7 @@ export const BASE_CSS = `
   .wmegj-steps {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 12px;
   }
   .wmegj-matching-body {
     display: flex;
@@ -484,7 +496,7 @@ export const BASE_CSS = `
     position: relative;
   }
   .wmegj-menu-toggle {
-    font-size: 18px;
+    font-size: 20px;
     line-height: 1;
   }
   .wmegj-menu-list {

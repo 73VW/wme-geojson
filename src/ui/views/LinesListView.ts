@@ -156,6 +156,7 @@ export class LinesListView {
     this.changeBtn = wzButton({
       text: i18next.t("panel.lines.changeSource"),
       variant: "text",
+      size: "sm",
       onClick: () => this.setLoaderOpen(true),
     });
     this.changeBtn.classList.add("wmegj-change-source");
@@ -201,8 +202,10 @@ export class LinesListView {
     this.linesSection.hidden = !this.hasSource;
     this.setLoaderOpen(!this.hasSource);
     if (source) {
-      this.cardNameEl.textContent = sourceName(source);
-      this.cardIconEl.className = `w-icon ${source.kind === "file" ? "w-icon-script" : "w-icon-link"}`;
+      const name = sourceName(source);
+      this.cardNameEl.textContent = name;
+      this.cardNameEl.title = name;
+      this.cardIconEl.className = `w-icon ${source.kind === "file" ? "w-icon-route" : "w-icon-link"}`;
     }
   }
 

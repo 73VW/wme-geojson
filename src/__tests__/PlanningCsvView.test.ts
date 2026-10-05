@@ -12,7 +12,7 @@ describe("PlanningCsvView", () => {
     expect(view.root.querySelectorAll("input[type=file]")).toHaveLength(1);
     expect(view.root.querySelector<HTMLInputElement>("input[type=file]")!.accept).toBe(".csv");
     // The action reads once, on the button — no label repeating it.
-    expect(view.root.textContent?.split("Importer le CSV de planning")).toHaveLength(2);
+    expect(view.root.textContent?.split("Importer un planning (CSV)")).toHaveLength(2);
   });
 
   it("swaps the input for a removable chip once loaded", () => {

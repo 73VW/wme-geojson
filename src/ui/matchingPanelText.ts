@@ -73,6 +73,11 @@ export function navTarget(
   return direction === 1 && exitAtEnd && current !== null ? "exit" : null;
 }
 
+/** Km with two decimals in the UI language's number format. */
+export function formatKm(n: number): string {
+  return n.toLocaleString(i18next.language, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 export function stepNavState(
   source: Source,
   current: StepRef | null,
@@ -99,16 +104,21 @@ export function stepNavState(
   }
   // The sub-line total is only known once the line is fully cut.
   const subTotal = line.pendingTail.length === 0 ? line.subLines.length : null;
-  const label = i18next.t(
-    subTotal === null ? "panel.matching.nav.label" : "panel.matching.nav.labelOf",
-    {
-      line: current.lineIndex + 1,
-      lines: source.lines.length,
-      sub: current.subLineIndex + 1,
-      subs: subTotal ?? 0,
-    },
-  );
-  const window = `${sub.kmA.toFixed(2)} → ${sub.kmB.toFixed(2)} km`;
+  const single = source.lines.length === 1;
+  const labelKey = single
+    ? subTotal === null
+      ? "panel.matching.nav.subOnly"
+      : "panel.matching.nav.subOnlyOf"
+    : subTotal === null
+      ? "panel.matching.nav.label"
+      : "panel.matching.nav.labelOf";
+  const label = i18next.t(labelKey, {
+    line: current.lineIndex + 1,
+    lines: source.lines.length,
+    sub: current.subLineIndex + 1,
+    subs: subTotal ?? 0,
+  });
+  const window = `${formatKm(sub.kmA)} → ${formatKm(sub.kmB)} km`;
   const caption = sub.validated
     ? `${window} · ${i18next.t("panel.matching.nav.segments", { count: sub.segmentIds.length })}`
     : pendingCount !== null

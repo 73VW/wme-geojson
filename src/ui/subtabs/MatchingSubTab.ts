@@ -961,7 +961,7 @@ export class MatchingSubTab {
     button.title = props.label;
 
     const icon = document.createElement("i");
-    icon.className = `w-icon ${props.iconClass} w-icon-sm`;
+    icon.className = `w-icon ${props.iconClass}`;
     icon.setAttribute("aria-hidden", "true");
     button.appendChild(icon);
 
@@ -1018,7 +1018,7 @@ export class MatchingSubTab {
       this.guidedToggleBtn.title = toggleLabel;
       this.guidedToggleBtn.replaceChildren();
       const icon = document.createElement("i");
-      icon.className = `w-icon ${collapsed ? "w-icon-collapse-up" : "w-icon-collapse"} w-icon-sm`;
+      icon.className = `w-icon ${collapsed ? "w-icon-collapse-up" : "w-icon-collapse"}`;
       icon.setAttribute("aria-hidden", "true");
       this.guidedToggleBtn.appendChild(icon);
     }

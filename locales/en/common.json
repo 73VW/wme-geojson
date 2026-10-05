@@ -83,7 +83,8 @@
       "error": "Unable to read the file.",
       "remove": "Remove CSV (use a single time window)",
       "title": "Schedule (optional)",
-      "loaded": "Schedule loaded"
+      "loaded": "Schedule loaded",
+      "importAction": "+ Import a schedule (CSV)"
     },
     "startMatching": "Start matching",
     "startMatchingBurst": "Start burst mode",
@@ -215,22 +216,27 @@
         "next": "Next sub-line",
         "label": "Line {{line}}/{{lines}} · sub-line {{sub}}",
         "labelOf": "Line {{line}}/{{lines}} · sub-line {{sub}}/{{subs}}",
-        "segments": "{{count}} segment(s)",
         "toValidate": "to validate",
-        "summary": "{{count}} validated sub-line(s)",
-        "found": "{{count}} segment(s) found"
+        "segments_one": "{{count}} segment",
+        "segments_other": "{{count}} segments",
+        "found_one": "{{count}} segment found",
+        "found_other": "{{count}} segments found",
+        "summary_one": "{{count}} validated sub-line",
+        "summary_other": "{{count}} validated sub-lines",
+        "subOnly": "Sub-line {{sub}}",
+        "subOnlyOf": "Sub-line {{sub}}/{{subs}}"
       },
       "instructions": {
         "idle": "Start matching: manual to validate each sub-line, automatic to run through all of them.",
         "idleBrowse": "Resume matching, or browse the validated sub-lines with ‹ ›.",
-        "review": "Validated sub-line. Reselect its segments or re-run the matching, correct the selection in WME, then save.",
+        "review": "Reselect its segments or re-run matching, correct in WME, then save.",
         "reviewDirty": "The selection changed. Save it for this sub-line, or cancel.",
         "done": "Every sub-line is validated. Apply the closures from the sidebar, or browse them with ‹ ›.",
         "paused": "Paused. Resume, or browse the validated sub-lines with ‹ ›.",
         "error": "Matching failed. Try again."
       },
       "review": {
-        "selectMatched": "Select matched segments",
+        "selectMatched": "Select segments",
         "save": "Save",
         "cancel": "Cancel",
         "discardTitle": "Discard changes?",
@@ -306,7 +312,7 @@
         "unplannedDisruption": "Unplanned disruption"
       }
     },
-    "applyClosures": "Apply closures in WME",
+    "applyClosures": "Apply closures",
     "applyClosuresDisabled": "Finish matching every sub-line first",
     "applyClosuresProgress": "Adding closures… view {{index}}/{{count}}",
     "applyClosuresDone": "{{added}} closure(s) added, {{skipped}} already present. Click Save in WME.",
@@ -335,7 +341,7 @@
       "review": "Review matching",
       "prepareMte": "Prepare the MTE",
       "mteLinked": "Linked: {{name}}",
-      "mteLinkedUnloaded": "MTE linked (open the Events tab to see its name)",
+      "mteLinkedUnloaded": "MTE linked — name shown in the Events tab",
       "csvFallback": "Fallback CSV"
     }
   }

@@ -21,7 +21,9 @@ export class PlanningCsvView {
     this.inputWrap.appendChild(
       fileInput({
         accept: ".csv",
-        buttonLabel: i18next.t("panel.csvInput.label"),
+        buttonLabel: i18next.t("panel.csvInput.importAction"),
+        variant: "text",
+        size: "sm",
         onFile: props.onFile,
       }),
     );

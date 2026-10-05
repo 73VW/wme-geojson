@@ -143,6 +143,6 @@ describe("LinesListView", () => {
     view.setEntries([entry("a")], notStarted);
     expect(view.root.querySelector(".wmegj-source-card")?.tagName).toBe("WZ-CARD");
     expect(view.root.querySelector(".wmegj-line-list")?.tagName).toBe("WZ-LIST");
-    expect(view.root.querySelector(".wmegj-source-card i.w-icon-script")).not.toBeNull();
+    expect(view.root.querySelector(".wmegj-source-card i.w-icon-route")).not.toBeNull();
   });
 });
