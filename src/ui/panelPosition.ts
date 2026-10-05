@@ -5,6 +5,13 @@
 const GAP = 16;
 const TOP = 72;
 
+/** Right edge of WME's sidebar (#sidebar is always laid out), else of `fallback`. */
+export function sidebarRightEdge(doc: Document, fallback: Element | null): number {
+  const sidebar = doc.getElementById("sidebar");
+  const edges = [sidebar, fallback].map((el) => el?.getBoundingClientRect().right ?? 0);
+  return Math.max(...edges);
+}
+
 export function initialPanelPosition(input: {
   stored: { left: number; top: number } | null;
   sidebarRight: number;

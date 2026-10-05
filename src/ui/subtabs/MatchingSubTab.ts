@@ -26,7 +26,7 @@ import {
   inflatedTrackPolygon,
   sliceMultiLineByDistance,
 } from "../../matching/trackPortions";
-import { initialPanelPosition } from "../panelPosition";
+import { initialPanelPosition, sidebarRightEdge } from "../panelPosition";
 import { multiLineLengthKm } from "../../matching/trackPortions";
 import { closureWindowDefaults, promptClosureWindow } from "../components/promptClosureWindow";
 import { buildGlobalClosureRows } from "../../csv/syntheticSchedule";
@@ -1002,7 +1002,7 @@ export class MatchingSubTab {
     }
     const position = initialPanelPosition({
       stored,
-      sidebarRight: this.tabPane?.getBoundingClientRect().right ?? 0,
+      sidebarRight: sidebarRightEdge(document, this.tabPane),
       viewport: { width: window.innerWidth, height: window.innerHeight },
       panel: { width: panel.offsetWidth || 360, height: panel.offsetHeight || 400 },
     });
