@@ -1,5 +1,5 @@
 // Visible-distance window: two range inputs stacked on one track, so the
-// operator drags a start and an end handle on the same bar.
+// operator drags two handles on the same bar.
 
 import { i18next } from "../../../locales/i18n";
 import { wzLabel } from "../components/wz";
@@ -46,24 +46,18 @@ export function createRangeSlider(props: {
     fill.style.width = `${((hi - lo) / totalKm) * 100}%`;
   };
 
-  const onInput = (moved: HTMLInputElement) => (): void => {
-    let lo = Number(minInput.value);
-    let hi = Number(maxInput.value);
-    // Clamp the handle being dragged against the other one.
-    if (lo > hi) {
-      if (moved === minInput) {
-        lo = hi;
-        minInput.value = String(lo);
-      } else {
-        hi = lo;
-        maxInput.value = String(hi);
-      }
-    }
+  // The handles may cross: the window is always [smaller, larger]. Clamping
+  // instead would trap the lower handle under the upper one once they meet.
+  const onInput = (): void => {
+    const a = Number(minInput.value);
+    const b = Number(maxInput.value);
+    const lo = Math.min(a, b);
+    const hi = Math.max(a, b);
     render(lo, hi);
     props.onChange(lo, hi);
   };
-  minInput.addEventListener("input", onInput(minInput));
-  maxInput.addEventListener("input", onInput(maxInput));
+  minInput.addEventListener("input", onInput);
+  maxInput.addEventListener("input", onInput);
 
   render(0, totalKm);
   section.append(wzLabel(i18next.t("panel.range.title")), valueLabel, range);

@@ -30,11 +30,22 @@ describe("createRangeSlider", () => {
     expect(root.textContent).toContain("17.00 km – 42.00 km");
   });
 
-  it("never lets the start pass the end", () => {
+  it("keeps the window ordered when the handles cross", () => {
     const { min, max, move, onChange } = setup();
     move(max, 10);
     move(min, 20);
-    expect(onChange).toHaveBeenLastCalledWith(10, 10);
+    expect(onChange).toHaveBeenLastCalledWith(10, 20);
+  });
+
+  it("never gets stuck once both handles sit on the same spot", () => {
+    // Stacked handles: only the top one (max) can be grabbed, in both directions.
+    const { min, max, move, onChange } = setup();
+    move(min, 10);
+    move(max, 10);
+    move(max, 5);
+    expect(onChange).toHaveBeenLastCalledWith(5, 10);
+    move(max, 25);
+    expect(onChange).toHaveBeenLastCalledWith(10, 25);
     expect(min.value).toBe("10");
   });
 
