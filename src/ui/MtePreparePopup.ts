@@ -22,6 +22,7 @@ import {
   type MteSdk,
 } from "../mte";
 import type { ManualMteInfo } from "./promptMteInfo";
+import { alertDialog } from "./components/wzDialog";
 
 const NAME_FILTER_NEEDLE = "slowup";
 
@@ -66,7 +67,7 @@ export async function openMtePreparePopup(deps: MtePreparePopupDeps): Promise<vo
   //    sinon les popup blockers bloquent. On ouvre AVANT le fetch.
   const popup = window.open("", `wme-mte-prep-${deps.mteKey}`, POPUP_FEATURES);
   if (!popup) {
-    alert(i18next.t("panel.mtePopup.blocked"));
+    void alertDialog(i18next.t("panel.mtePopup.blocked"));
     return;
   }
 

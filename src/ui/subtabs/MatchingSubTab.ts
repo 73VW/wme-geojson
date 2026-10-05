@@ -16,7 +16,7 @@ import type { ClosureRange } from "../../csv/types";
 import { wzButton, fileInput, type WzButtonProps } from "../components/wz";
 import { parseSchedule } from "../../csv/parseSchedule";
 import { promptFinalFields } from "../promptFinalFields";
-import { confirmModal } from "../modal";
+import { alertDialog, confirmDialog } from "../components/wzDialog";
 import { MatchingHeaderView } from "../views/MatchingHeaderView";
 import {
   bboxOfMultiLineString,
@@ -1529,7 +1529,8 @@ export class MatchingSubTab {
   }
 
   private onRestartFromScratchClick(): void {
-    confirmModal({
+    confirmDialog({
+      title: i18next.t("panel.dialogs.restartTitle"),
       message: i18next.t("panel.matching.restartConfirm"),
       confirmLabel: i18next.t("panel.matching.restartFromScratch"),
       cancelLabel: i18next.t("panel.finalFields.cancel"),
@@ -1943,7 +1944,8 @@ export class MatchingSubTab {
     const stored = mteStore.get(mteKey);
     if (
       stored &&
-      !(await confirmModal({
+      !(await confirmDialog({
+        title: i18next.t("panel.dialogs.mteLinkedTitle"),
         message: i18next.t("panel.matching.mteAlreadyLinked", { id: stored }),
         confirmLabel: i18next.t("panel.matching.mteCreateAnyway"),
         cancelLabel: i18next.t("panel.finalFields.cancel"),
@@ -2132,7 +2134,7 @@ export class MatchingSubTab {
     if (!src) {
       const message = i18next.t("panel.matching.noPipelineRun");
       logger.warn("MatchPanel: " + message);
-      alert(message);
+      void alertDialog(message);
       return;
     }
 
@@ -2144,7 +2146,7 @@ export class MatchingSubTab {
     if (!hasAny) {
       const message = i18next.t("panel.matching.mustValidateFirst");
       logger.warn("MatchPanel: " + message);
-      alert(message);
+      void alertDialog(message);
       return;
     }
 
@@ -2221,7 +2223,7 @@ export class MatchingSubTab {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.error("MatchingSubTab: buildClosuresCsv failed", err);
-      alert(message);
+      void alertDialog(message);
     }
   }
 
@@ -2278,7 +2280,7 @@ export class MatchingSubTab {
   private async onApplyClosuresClick(): Promise<void> {
     if (this.applyingClosures) return;
     if (!this.wmeSDK.Editing.isEditingAllowed()) {
-      alert(i18next.t("panel.applyClosuresNoEditing"));
+      void alertDialog(i18next.t("panel.applyClosuresNoEditing"));
       return;
     }
     const items = await this.collectClosureItems();
@@ -2327,7 +2329,8 @@ export class MatchingSubTab {
     const isLoaded = () => mtes.getById({ majorTrafficEventId: mteId }) !== null;
     for (;;) {
       if (await pollUntil(isLoaded, MTE_LOAD_ATTEMPTS, MTE_LOAD_DELAY_MS)) return true;
-      const retry = await confirmModal({
+      const retry = await confirmDialog({
+        title: i18next.t("panel.dialogs.mteNotLoadedTitle"),
         message: i18next.t("panel.applyClosuresMteNotLoaded", { id: mteId }),
         confirmLabel: i18next.t("panel.applyClosuresMteRetry"),
         cancelLabel: i18next.t("panel.finalFields.cancel"),
