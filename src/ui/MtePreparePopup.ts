@@ -23,6 +23,7 @@ import {
 } from "../mte";
 import type { ManualMteInfo } from "./promptMteInfo";
 import { alertDialog } from "./components/wzDialog";
+import { TOKEN_FALLBACKS_CSS } from "./styles";
 
 const NAME_FILTER_NEEDLE = "slowup";
 
@@ -137,65 +138,75 @@ function manualContent(info: ManualMteInfo, bbox: [number, number, number, numbe
 // Shell + styles
 // ---------------------------------------------------------------------------
 
+const RUBIK_URL = "https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700&display=swap";
+
 function injectBaseStyles(doc: Document): void {
+  const font = doc.createElement("link");
+  font.rel = "stylesheet";
+  font.href = RUBIK_URL;
+  doc.head.appendChild(font);
+
   const style = doc.createElement("style");
   style.textContent = `
-    *,*::before,*::after { box-sizing: border-box; }
+    ${TOKEN_FALLBACKS_CSS}
+    *, *::before, *::after { box-sizing: border-box; }
     body {
       margin: 0;
-      padding: 20px 24px;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      font-size: 13px;
-      color: #222;
-      background: #fafafa;
+      padding: 24px;
+      font-family: Rubik, sans-serif;
+      font-size: 14px;
+      color: var(--content_p1);
+      background: var(--background_default);
     }
-    h1 { margin: 0 0 16px 0; font-size: 18px; font-weight: 700; }
+    h1 { margin: 0 0 16px; font-size: 20px; font-weight: 500; color: var(--content_default); }
     .row { display: flex; gap: 8px; align-items: center; padding: 6px 0; }
-    .row .label { font-size: 13px; font-weight: 600; min-width: 70px; }
-    .row .value { flex: 1; word-break: break-all; }
+    .row .label, .block-header .label, label.label {
+      font-size: 12px; font-weight: 500; color: var(--content_p1);
+    }
+    .row .label { min-width: 70px; }
+    .row .value { flex: 1; overflow-wrap: anywhere; }
     .block { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; }
     .block-header { display: flex; justify-content: space-between; align-items: center; }
-    .block-header .label { font-size: 13px; font-weight: 600; }
-    textarea {
+    textarea, input[type="text"] {
       width: 100%;
-      min-height: 80px;
-      font-size: 12px;
-      padding: 8px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      resize: vertical;
-      font-family: inherit;
-      background: #fff;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: var(--surface_default);
+      color: var(--content_default);
+      font: inherit;
+      padding: 8px 12px;
     }
-    input[type="text"] {
-      padding: 6px 8px;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      font-size: 13px;
+    textarea { min-height: 80px; resize: vertical; font-size: 12px; }
+    textarea:focus, input[type="text"]:focus {
+      outline: none; border-color: var(--primary); background: var(--background_default);
     }
     button {
-      padding: 5px 10px;
-      font-size: 12px;
+      border: none;
+      border-radius: 100px;
+      padding: 6px 14px;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--primary);
+      background: var(--surface_default);
       cursor: pointer;
-      border: 1px solid #bbb;
-      border-radius: 4px;
-      background: #f4f4f4;
     }
-    button:hover { background: #eaeaea; }
-    button.copy { padding: 3px 8px; }
+    button:hover { background: var(--surface_variant); }
+    button.copy { padding: 4px 10px; font-size: 12px; }
     button.candidate {
       text-align: left;
-      padding: 6px 8px;
-      border: 1px solid #ddd;
-      background: #fff;
+      border-radius: 8px;
+      color: var(--content_p1);
+      background: var(--background_default);
+      border: 1px solid var(--separator_default);
     }
-    button.candidate:hover { background: #f0f7ff; }
-    .badge { font-size: 12px; color: #555; padding: 4px 0; }
-    .divider { border: none; border-top: 1px solid #e3e3e3; margin: 10px 0; }
+    button.candidate:hover { background: var(--surface_default); }
+    .badge { font-size: 12px; color: var(--content_p3); padding: 4px 0; }
+    .divider { border: none; border-top: 1px solid var(--separator_default); margin: 12px 0; }
     .mte-row { display: flex; gap: 8px; align-items: center; }
     .candidates { display: flex; flex-direction: column; gap: 4px; }
-    .candidates-header { font-size: 12px; font-weight: 600; margin: 6px 0 2px 0; }
-    .empty { font-size: 12px; color: #888; margin: 6px 0 0 0; }
+    .candidates-header { font-size: 12px; font-weight: 500; margin: 8px 0 2px; }
+    .empty { font-size: 12px; color: var(--content_p3); margin: 6px 0 0; }
   `;
   doc.head.appendChild(style);
 }
