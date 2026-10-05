@@ -47,5 +47,10 @@ export function computeDisplayName(input: DisplayNameInput): string {
     return name;
   }
 
-  return i18next.t("panel.lines.fallbackName", { km: lengthKm.toFixed(1) });
+  return i18next.t("panel.lines.fallbackName", {
+    km: lengthKm.toLocaleString(i18next.language, {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    }),
+  });
 }

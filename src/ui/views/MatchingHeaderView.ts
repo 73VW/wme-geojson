@@ -4,6 +4,7 @@
 
 import { i18next } from "../../../locales/i18n";
 import type { LineProgress } from "../../domain/lineProgress";
+import { formatKm } from "../matchingPanelText";
 import { wzIconButton } from "../components/wz";
 
 export class MatchingHeaderView {
@@ -46,6 +47,6 @@ export class MatchingHeaderView {
           : i18next.t("panel.summary.notStarted");
     // Once matching is done, the length is noise.
     const showLength = km !== null && progress.kind !== "done";
-    this.summaryEl.textContent = showLength ? `${km.toFixed(2)} km · ${status}` : status;
+    this.summaryEl.textContent = showLength ? `${formatKm(km)} km · ${status}` : status;
   }
 }

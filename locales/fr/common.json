@@ -136,7 +136,7 @@
       },
       "retry": "Réessayer",
       "stepError": "Échec de l'étape de correspondance : {{message}}",
-      "burstStalled": "La correspondance automatique s'est arrêté : la dernière étape n'a produit aucune sous-ligne à valider.",
+      "burstStalled": "La correspondance automatique s'est arrêtée : la dernière étape n'a produit aucune sous-ligne à valider.",
       "mode": {
         "idle": "Mode non démarré",
         "interactive": "Mode manuel",

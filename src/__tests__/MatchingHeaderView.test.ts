@@ -21,10 +21,10 @@ describe("MatchingHeaderView", () => {
 
     header.setSummary(30.85, { kind: "notStarted" });
     expect(header.root.textContent).toContain("SS7+11 Les Cols");
-    expect(summary()).toBe("30.85 km · Pas commencé");
+    expect(summary()).toBe("30,85 km · Pas commencé");
 
     header.setSummary(30.85, { kind: "inProgress", percent: 40 });
-    expect(summary()).toBe("30.85 km · 40 % validé");
+    expect(summary()).toBe("30,85 km · 40 % validé");
 
     header.setSummary(null, { kind: "done" });
     expect(summary()).toBe("Correspondance terminée");

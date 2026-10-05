@@ -50,16 +50,16 @@ describe("computeDisplayName", () => {
 
   it("falls back to track length when no name and no slowUp", () => {
     const name = computeDisplayName({ lengthKm: 24.34, properties: {} });
-    expect(name).toBe("Tracé de 24.3 km");
+    expect(name).toBe("Tracé de 24,3 km");
   });
 
   it("falls back when properties is undefined", () => {
     const name = computeDisplayName({ lengthKm: 5, properties: undefined });
-    expect(name).toBe("Tracé de 5.0 km");
+    expect(name).toBe("Tracé de 5,0 km");
   });
 
   it("ignores a non-string properties.name", () => {
     const name = computeDisplayName({ lengthKm: 8, properties: { name: 42 } });
-    expect(name).toBe("Tracé de 8.0 km");
+    expect(name).toBe("Tracé de 8,0 km");
   });
 });
