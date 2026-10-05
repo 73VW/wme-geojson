@@ -261,15 +261,30 @@
       "okApply": "Apply"
     },
     "mteInfo": {
-      "title": "Prepare MTE — event details",
+      "title": "Prepare the MTE",
       "titleLabel": "Title",
       "startDate": "Start (date and time)",
       "endDate": "End (date and time)",
-      "description": "Description (copied into all 4 languages)",
+      "description": "Description",
       "url": "URL (optional)",
       "ok": "Continue",
       "errorRequired": "Title and dates are required.",
-      "errorDates": "End must be on or after start."
+      "errorDates": "End must be on or after start.",
+      "category": "Event category",
+      "lockLevel": "Lock level",
+      "categories": {
+        "concert": "Concert",
+        "construction": "Construction",
+        "crisis": "Crisis",
+        "demonstration": "Demonstration",
+        "drivingAdvisory": "Driving advisory",
+        "holidayFestival": "Holiday / festival",
+        "other": "Other",
+        "parade": "Parade",
+        "sportingEvent": "Sporting event",
+        "summit": "Summit",
+        "unplannedDisruption": "Unplanned disruption"
+      }
     },
     "applyClosures": "Apply closures in WME",
     "applyClosuresDisabled": "Finish matching every sub-line first",

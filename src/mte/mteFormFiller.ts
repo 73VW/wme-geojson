@@ -7,6 +7,7 @@
 // ponytail: sélecteurs DOM WME hors SDK, cassent à une refonte du panneau ;
 // fillMteForm lève alors une erreur et l'appelant retombe sur le popup.
 
+import i18next from "i18next";
 import type { MultiPolygon, Polygon } from "geojson";
 import type { MajorTrafficEventCategory, WmeSDK } from "wme-sdk-typings";
 import type { SlowupFullDetails } from "../lines/types";
@@ -20,7 +21,8 @@ export interface MteText {
 }
 
 export interface MteFormData {
-  category: MajorTrafficEventCategory | null;
+  category: MajorTrafficEventCategory;
+  lockLevel: LockLevel;
   polygon: Polygon | MultiPolygon | null;
   /** "YYYY-MM-DDTHH:mm" */
   start: string;
@@ -44,6 +46,40 @@ const LANG_LABEL: Record<MteLang, string> = {
 
 /** Longueur max du nom d'un MTE (maxlength du champ WME). */
 export const MTE_NAME_MAX = 25;
+
+export type LockLevel = 1 | 2 | 3 | 4;
+
+export interface MteEventOptions {
+  category: MajorTrafficEventCategory;
+  lockLevel: LockLevel;
+}
+
+export const DEFAULT_MTE_OPTIONS: MteEventOptions = { category: "SPORTING_EVENT", lockLevel: 1 };
+
+/** Categories offered by WME's MTE form (PARTNER_USER_COMMS is not). */
+export function categoryOptions(): { value: MajorTrafficEventCategory; label: string }[] {
+  return [
+    { value: "CONCERT", label: i18next.t("panel.mteInfo.categories.concert") },
+    { value: "CONSTRUCTION", label: i18next.t("panel.mteInfo.categories.construction") },
+    { value: "CRISIS", label: i18next.t("panel.mteInfo.categories.crisis") },
+    { value: "DEMONSTRATION", label: i18next.t("panel.mteInfo.categories.demonstration") },
+    { value: "DRIVING_ADVISORY", label: i18next.t("panel.mteInfo.categories.drivingAdvisory") },
+    { value: "HOLIDAY/FESTIVAL", label: i18next.t("panel.mteInfo.categories.holidayFestival") },
+    { value: "OTHER", label: i18next.t("panel.mteInfo.categories.other") },
+    { value: "PARADE", label: i18next.t("panel.mteInfo.categories.parade") },
+    { value: "SPORTING_EVENT", label: i18next.t("panel.mteInfo.categories.sportingEvent") },
+    { value: "SUMMIT", label: i18next.t("panel.mteInfo.categories.summit") },
+    {
+      value: "UNPLANNED_DISRUPTION",
+      label: i18next.t("panel.mteInfo.categories.unplannedDisruption"),
+    },
+  ];
+}
+
+/** WME ranks are 0-based: rank 0 may lock at level 1 only. */
+export function lockLevelOptions(userRank: number): { value: LockLevel; disabled: boolean }[] {
+  return ([1, 2, 3, 4] as const).map((value) => ({ value, disabled: value > userRank + 1 }));
+}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -149,12 +185,14 @@ export async function fillMteForm(sdk: WmeSDK, data: MteFormData): Promise<numbe
     await waitFor(() => !inForm(`${AREA} wz-text-input`), "création du polygone");
   }
 
-  if (data.category) {
-    const sel = inForm("wz-select.category") as HTMLElement & { value: string };
-    sel.value = data.category;
-    sel.dispatchEvent(new CustomEvent("change", { bubbles: true, composed: true }));
-    await sleep(150);
-  }
+  const sel = inForm("wz-select.category") as HTMLElement & { value: string };
+  sel.value = data.category;
+  sel.dispatchEvent(new CustomEvent("change", { bubbles: true, composed: true }));
+  await sleep(150);
+
+  // Lock chips are wz-checkable-chip#lockRank-0..3 (level 1..4).
+  inForm(`wz-checkable-chip#lockRank-${data.lockLevel - 1}`)?.click();
+  await sleep(150);
 
   const [sd, st] = toEditorDateTime(data.start);
   const [ed, et] = toEditorDateTime(data.end);
@@ -213,14 +251,19 @@ export function watchMteSaved(
   });
 }
 
-/** slowUp : 09:00–17:30 comme les fermetures par défaut, nom EN + traduction FR. */
+/**
+ * slowUp : 09:00–17:30 comme les fermetures par défaut, nom EN + traduction FR ;
+ * catégorie et verrouillage choisis dans la fenêtre « Préparer le MTE ».
+ */
 export function slowupFormData(
   d: SlowupFullDetails,
   polygon: Polygon | MultiPolygon | null,
+  options: MteEventOptions,
 ): MteFormData {
   const name = `SlowUP ${d.title}`;
   return {
-    category: "SPORTING_EVENT",
+    category: options.category,
+    lockLevel: options.lockLevel,
     polygon,
     start: `${d.date}T09:00`,
     end: `${d.date}T17:30`,
@@ -230,14 +273,16 @@ export function slowupFormData(
   };
 }
 
-/** Autre fermeture : catégorie laissée au choix de l'utilisateur. */
+/** Autre fermeture : infos, catégorie et verrouillage saisis dans « Préparer le MTE ». */
 export function manualFormData(
   info: ManualMteInfo,
   polygon: Polygon | MultiPolygon | null,
+  options: MteEventOptions,
 ): MteFormData {
   const text = { name: info.title, description: info.description };
   return {
-    category: null,
+    category: options.category,
+    lockLevel: options.lockLevel,
     polygon,
     start: info.startDate,
     end: info.endDate,

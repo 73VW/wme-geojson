@@ -261,15 +261,30 @@
       "okApply": "Appliquer"
     },
     "mteInfo": {
-      "title": "Préparer MTE — informations de l'événement",
+      "title": "Préparer le MTE",
       "titleLabel": "Titre",
       "startDate": "Début (date et heure)",
       "endDate": "Fin (date et heure)",
-      "description": "Description (recopiée dans les 4 langues)",
+      "description": "Description",
       "url": "URL (optionnelle)",
       "ok": "Continuer",
       "errorRequired": "Le titre et les dates sont obligatoires.",
-      "errorDates": "La fin doit être après le début."
+      "errorDates": "La fin doit être après le début.",
+      "category": "Catégorie de l'événement",
+      "lockLevel": "Niveau de verrouillage",
+      "categories": {
+        "concert": "Concert",
+        "construction": "Travaux",
+        "crisis": "Situation de crise",
+        "demonstration": "Manifestation",
+        "drivingAdvisory": "Avis aux conducteurs locaux",
+        "holidayFestival": "Célébrations",
+        "other": "Autre",
+        "parade": "Parade",
+        "sportingEvent": "Événement sportif",
+        "summit": "Sommet",
+        "unplannedDisruption": "Perturbation imprévue"
+      }
     },
     "applyClosures": "Appliquer les fermetures dans WME",
     "applyClosuresDisabled": "Terminez d'abord le matching de toutes les sous-lignes",

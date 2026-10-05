@@ -1929,15 +1929,6 @@ export class MatchingSubTab {
     if (!slowupBbox) return;
 
     const refid = entry.slowupDetails?.refid;
-    let source: MtePreparePopupDeps["source"];
-    if (refid) {
-      source = { refid };
-    } else {
-      const manual = await promptMteInfo({ title: entry.displayName });
-      if (!manual) return;
-      source = { manual };
-    }
-
     const slowupPolygon = inflatedTrackPolygon(entry.track.geometry, 500);
     const mteKey = mteKeyOf(entry);
 
@@ -1954,13 +1945,25 @@ export class MatchingSubTab {
       return;
     }
 
+    const info = await promptMteInfo({
+      title: entry.displayName,
+      userRank: this.wmeSDK.State.getUserInfo()?.rank ?? 0,
+      askDetails: !refid,
+    });
+    if (!info) return;
+
+    let source: MtePreparePopupDeps["source"];
+    if (refid) source = { refid };
+    else if (info.manual) source = { manual: info.manual };
+    else return;
+
     // Remplit le formulaire WME ; l'ID est stocké quand l'utilisateur enregistre.
     try {
       const geometry = slowupPolygon?.geometry ?? null;
       const data =
         "refid" in source
-          ? slowupFormData(await fetchSlowupFullDetails(source.refid), geometry)
-          : manualFormData(source.manual, geometry);
+          ? slowupFormData(await fetchSlowupFullDetails(source.refid), geometry, info.options)
+          : manualFormData(source.manual, geometry, info.options);
       const draftId = await fillMteForm(this.wmeSDK, data);
       watchMteSaved(this.wmeSDK, draftId, (id) => {
         logger.info(`MTE enregistré : ${draftId} → ${id}`);

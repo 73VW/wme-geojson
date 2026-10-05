@@ -1,9 +1,26 @@
-// Fenêtre de saisie des infos MTE pour une fermeture qui n'est pas un slowup
-// (pas d'API SchweizMobil pour fournir titre / dates / description / URL).
+// Fenêtre « Préparer le MTE » : catégorie et niveau de verrouillage toujours ;
+// titre / dates / description / URL seulement hors slowUp (l'API
+// SchweizMobil les fournit pour un slowUp).
 
 import i18next from "i18next";
-import { el, labeledInput } from "./promptFinalFields";
-import { MTE_NAME_MAX } from "../mte/mteFormFiller";
+import {
+  DEFAULT_MTE_OPTIONS,
+  MTE_NAME_MAX,
+  categoryOptions,
+  lockLevelOptions,
+  type LockLevel,
+  type MteEventOptions,
+} from "../mte/mteFormFiller";
+import type { MajorTrafficEventCategory } from "wme-sdk-typings";
+import {
+  dateTimeInput,
+  readValue,
+  wzChipSelect,
+  wzSelect,
+  wzTextInput,
+  wzTextarea,
+} from "./components/wz";
+import { wzDialog } from "./components/wzDialog";
 
 export interface ManualMteInfo {
   title: string;
@@ -11,6 +28,12 @@ export interface ManualMteInfo {
   endDate: string; // "YYYY-MM-DDTHH:mm" (datetime-local)
   description: string;
   urlLink: string; // "" si absente
+}
+
+export interface MteInfoResult {
+  options: MteEventOptions;
+  /** null quand les détails viennent de l'API slowUp. */
+  manual: ManualMteInfo | null;
 }
 
 /** Renvoie un message d'erreur i18n, ou null si la saisie est valide. */
@@ -22,126 +45,78 @@ export function validateManualMteInfo(info: ManualMteInfo): string | null {
   return null;
 }
 
-export function promptMteInfo(defaults: { title: string }): Promise<ManualMteInfo | null> {
-  return new Promise((resolve) => {
-    const titleInput = el("input");
-    titleInput.type = "text";
-    // Limite WME du nom d'un MTE ; maxLength ne tronque pas la valeur par défaut.
-    titleInput.maxLength = MTE_NAME_MAX;
-    titleInput.value = defaults.title.slice(0, MTE_NAME_MAX);
+export async function promptMteInfo(defaults: {
+  title: string;
+  userRank: number;
+  askDetails: boolean;
+}): Promise<MteInfoResult | null> {
+  const category = wzSelect({
+    label: i18next.t("panel.mteInfo.category"),
+    value: DEFAULT_MTE_OPTIONS.category,
+    options: categoryOptions(),
+  });
+  const lockLevel = wzChipSelect({
+    label: i18next.t("panel.mteInfo.lockLevel"),
+    value: String(DEFAULT_MTE_OPTIONS.lockLevel),
+    options: lockLevelOptions(defaults.userRank).map((option) => ({
+      value: String(option.value),
+      label: String(option.value),
+      disabled: option.disabled,
+    })),
+  });
 
-    const startInput = el("input");
-    startInput.type = "datetime-local";
-
-    const endInput = el("input");
-    endInput.type = "datetime-local";
-    // Une fermeture d'un jour est le cas courant : on recopie le début.
-    startInput.addEventListener("change", () => {
-      if (!endInput.value || endInput.value < startInput.value) endInput.value = startInput.value;
-    });
-
-    const descriptionInput = el("textarea");
-    descriptionInput.rows = 4;
-    descriptionInput.style.resize = "vertical";
-    descriptionInput.style.fontFamily = "inherit";
-
-    const urlInput = el("input");
-    urlInput.type = "url";
-
-    const errorBanner = el("p");
-    errorBanner.style.margin = "0";
-    errorBanner.style.color = "#c00";
-    errorBanner.style.fontSize = "12px";
-    errorBanner.style.display = "none";
-
-    const dialog = el("dialog");
-    dialog.style.border = "none";
-    dialog.style.borderRadius = "8px";
-    dialog.style.padding = "28px 32px";
-    dialog.style.maxWidth = "420px";
-    dialog.style.width = "90vw";
-    dialog.style.boxShadow = "0 6px 32px rgba(0,0,0,0.25)";
-
-    const heading = el("h3");
-    heading.textContent = i18next.t("panel.mteInfo.title");
-    heading.style.margin = "0 0 16px 0";
-    heading.style.fontSize = "16px";
-    heading.style.fontWeight = "700";
-
-    const form = el("form");
-    form.method = "dialog";
-    form.style.display = "flex";
-    form.style.flexDirection = "column";
-    form.style.gap = "12px";
-    form.appendChild(labeledInput(i18next.t("panel.mteInfo.titleLabel"), titleInput, "pmi-title"));
-    form.appendChild(labeledInput(i18next.t("panel.mteInfo.startDate"), startInput, "pmi-start"));
-    form.appendChild(labeledInput(i18next.t("panel.mteInfo.endDate"), endInput, "pmi-end"));
-    form.appendChild(
-      labeledInput(i18next.t("panel.mteInfo.description"), descriptionInput, "pmi-description"),
-    );
-    form.appendChild(labeledInput(i18next.t("panel.mteInfo.url"), urlInput, "pmi-url"));
-    form.appendChild(errorBanner);
-
-    const buttonRow = el("div");
-    buttonRow.style.display = "flex";
-    buttonRow.style.justifyContent = "flex-end";
-    buttonRow.style.gap = "10px";
-    buttonRow.style.marginTop = "8px";
-
-    const cancelBtn = el("button");
-    cancelBtn.type = "button";
-    cancelBtn.textContent = i18next.t("panel.finalFields.cancel");
-    cancelBtn.style.padding = "7px 16px";
-    cancelBtn.style.cursor = "pointer";
-    cancelBtn.addEventListener("click", () => settle(null));
-
-    const okBtn = el("button");
-    okBtn.type = "submit";
-    okBtn.textContent = i18next.t("panel.mteInfo.ok");
-    okBtn.style.padding = "7px 16px";
-    okBtn.style.cursor = "pointer";
-    okBtn.style.fontWeight = "bold";
-
-    buttonRow.appendChild(cancelBtn);
-    buttonRow.appendChild(okBtn);
-    form.appendChild(buttonRow);
-
-    form.addEventListener("submit", (e) => {
-      e.preventDefault();
-      const info: ManualMteInfo = {
-        title: titleInput.value.trim(),
-        startDate: startInput.value,
-        endDate: endInput.value,
-        description: descriptionInput.value.trim(),
-        urlLink: urlInput.value.trim(),
-      };
-      const error = validateManualMteInfo(info);
-      if (error) {
-        errorBanner.textContent = error;
-        errorBanner.style.display = "block";
-        return;
-      }
-      settle(info);
-    });
-
-    dialog.addEventListener("cancel", (e) => {
-      e.preventDefault();
-      settle(null);
-    });
-
-    dialog.appendChild(heading);
-    dialog.appendChild(form);
-    document.body.appendChild(dialog);
-    dialog.showModal();
-    titleInput.focus();
-
-    let settled = false;
-    function settle(result: ManualMteInfo | null): void {
-      if (settled) return;
-      settled = true;
-      dialog.close();
-      dialog.remove();
-      resolve(result);
+  // Limite WME du nom d'un MTE ; maxLength ne tronque pas la valeur par défaut.
+  const title = wzTextInput({
+    label: i18next.t("panel.mteInfo.titleLabel"),
+    value: defaults.title.slice(0, MTE_NAME_MAX),
+    maxLength: MTE_NAME_MAX,
+  });
+  const start = dateTimeInput({ label: i18next.t("panel.mteInfo.startDate") });
+  const end = dateTimeInput({ label: i18next.t("panel.mteInfo.endDate") });
+  // Une fermeture d'un jour est le cas courant : on recopie le début.
+  start.input.addEventListener("change", () => {
+    if (!end.input.value || end.input.value < start.input.value) {
+      end.input.value = start.input.value;
     }
   });
+  const dates = document.createElement("div");
+  dates.className = "wmegj-row";
+  dates.append(start.root, end.root);
+  const description = wzTextarea({ label: i18next.t("panel.mteInfo.description") });
+  const url = wzTextInput({ label: i18next.t("panel.mteInfo.url"), type: "url" });
+
+  const body = defaults.askDetails
+    ? [category, dates, title, description, url, lockLevel.root]
+    : [category, lockLevel.root];
+
+  let result: MteInfoResult | null = null;
+  const confirmed = await wzDialog({
+    title: i18next.t("panel.mteInfo.title"),
+    body,
+    primaryLabel: i18next.t("panel.mteInfo.ok"),
+    cancelLabel: i18next.t("panel.finalFields.cancel"),
+    focus: defaults.askDetails ? start.input : undefined,
+    onPrimary: () => {
+      const options: MteEventOptions = {
+        category: readValue(category) as MajorTrafficEventCategory,
+        lockLevel: Number(lockLevel.getValue()) as LockLevel,
+      };
+      if (!defaults.askDetails) {
+        result = { options, manual: null };
+        return null;
+      }
+      const manual: ManualMteInfo = {
+        title: readValue(title).trim(),
+        startDate: start.input.value,
+        endDate: end.input.value,
+        description: readValue(description).trim(),
+        urlLink: readValue(url).trim(),
+      };
+      const error = validateManualMteInfo(manual);
+      if (error) return error;
+      result = { options, manual };
+      return null;
+    },
+  });
+  return confirmed ? result : null;
 }
