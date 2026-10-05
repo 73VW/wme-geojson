@@ -128,7 +128,7 @@ export const BASE_CSS = `
   .wmegj-time::-webkit-calendar-picker-indicator {
     display: none;
   }
-  .wmegj-icon-only {
+  button.wmegj-icon-only {
     flex: 0 0 auto;
     width: 32px;
     height: 32px;
@@ -139,10 +139,10 @@ export const BASE_CSS = `
     color: var(--content_p2);
     cursor: pointer;
   }
-  .wmegj-icon-only:hover:not(:disabled) {
+  button.wmegj-icon-only:hover:not(:disabled) {
     background: var(--surface_default);
   }
-  .wmegj-icon-only:disabled {
+  button.wmegj-icon-only:disabled {
     color: var(--hairline);
     cursor: default;
   }
@@ -233,22 +233,24 @@ export const BASE_CSS = `
   .wmegj-load-error:empty {
     display: none;
   }
-  .wmegj-source-card {
-    display: flex;
+  .wmegj-card-header {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
-    gap: 4px;
-    padding: 8px 4px 8px 12px;
-    border-radius: 8px;
-    background: var(--surface_default);
+    gap: 8px;
   }
-  .wmegj-source-card[hidden] {
-    display: none;
+  .wmegj-card-actions {
+    display: flex;
+    gap: 4px;
   }
   .wmegj-source-name {
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--content_default);
     overflow-wrap: anywhere;
+  }
+  .wmegj-source-card {
+    display: block;
+  }
+  .wmegj-change-source {
+    align-self: flex-start;
   }
   .wmegj-header {
     display: flex;

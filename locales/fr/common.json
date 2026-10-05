@@ -108,7 +108,6 @@
       "centerAll": "Centrer sur toutes les lignes",
       "center": "Centrer",
       "progressDone": "Terminé",
-      "progressPercent": "{{percent}} %",
       "loadSlowups": "Charger les slowUps",
       "otherSource": "Autre source",
       "chooseFile": "Choisir un fichier",
@@ -116,7 +115,10 @@
       "slowupsSource": "slowUps",
       "lineCount_one": "{{count}} ligne",
       "lineCount_other": "{{count}} lignes",
-      "clearSource": "Retirer cette source"
+      "clearSource": "Retirer cette source",
+      "sourceTitle": "Source",
+      "linesTitle": "Lignes",
+      "changeSource": "Changer de source"
     },
     "matching": {
       "panelTitle": "Correspondance",

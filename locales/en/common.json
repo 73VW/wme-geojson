@@ -108,7 +108,6 @@
       "centerAll": "Center on all lines",
       "center": "Center",
       "progressDone": "Done",
-      "progressPercent": "{{percent}}%",
       "loadSlowups": "Load the slowUps",
       "otherSource": "Other source",
       "chooseFile": "Choose a file",
@@ -116,7 +115,10 @@
       "slowupsSource": "slowUps",
       "lineCount_one": "{{count}} line",
       "lineCount_other": "{{count}} lines",
-      "clearSource": "Remove this source"
+      "clearSource": "Remove this source",
+      "sourceTitle": "Source",
+      "linesTitle": "Lines",
+      "changeSource": "Change source"
     },
     "matching": {
       "panelTitle": "Matching",

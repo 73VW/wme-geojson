@@ -2,7 +2,14 @@ import { i18next } from "../../../locales/i18n";
 import type { LineProgress } from "../../domain/lineProgress";
 import { SLOWUPS_GEOJSON_URL } from "../../lines/slowupClient";
 import type { LineEntry } from "../../lines/types";
-import { fileInput, readValue, wzButton, wzLabel, wzTextInput } from "../components/wz";
+import {
+  fileInput,
+  readValue,
+  wzButton,
+  wzIconButton,
+  wzLabel,
+  wzTextInput,
+} from "../components/wz";
 import { LineRowView } from "./LineRowView";
 
 export type LoadedSource =
@@ -52,7 +59,13 @@ export class LinesListView {
   private readonly cardEl: HTMLElement;
   private readonly cardNameEl: HTMLElement;
   private readonly cardCountEl: HTMLElement;
+  private readonly cardIconEl: HTMLElement;
+  private readonly sourceSection: HTMLElement;
+  private readonly linesSection: HTMLElement;
+  private readonly loader: HTMLElement;
+  private readonly changeBtn: HTMLElement;
   private readonly listEl: HTMLElement;
+  private hasSource = false;
   private readonly props: LinesListProps;
 
   constructor(props: LinesListProps) {
@@ -106,34 +119,70 @@ export class LinesListView {
     this.errorEl.className = "wmegj-load-error";
 
     // --- Loaded source card -------------------------------------------------
-    this.cardEl = document.createElement("div");
+    this.cardEl = document.createElement("wz-card");
+    this.cardEl.setAttribute("size", "sm");
+    this.cardEl.setAttribute("variant", "elevated");
+    this.cardEl.setAttribute("elevation", "0");
     this.cardEl.className = "wmegj-source-card";
-    this.cardEl.hidden = true;
-    const cardText = document.createElement("div");
-    cardText.className = "wmegj-line-text";
-    this.cardNameEl = document.createElement("span");
+    const header = document.createElement("div");
+    header.className = "wmegj-card-header";
+    this.cardIconEl = document.createElement("i");
+    this.cardNameEl = document.createElement("wz-subhead5");
     this.cardNameEl.className = "wmegj-source-name";
-    this.cardCountEl = document.createElement("span");
-    this.cardCountEl.className = "wmegj-line-caption";
-    cardText.append(this.cardNameEl, this.cardCountEl);
-    const centerAll = iconButton(
+    const actions = document.createElement("div");
+    actions.className = "wmegj-card-actions";
+    const centerAll = wzIconButton(
       "w-icon-recenter",
       i18next.t("panel.lines.centerAll"),
-      "wmegj-source-center",
+      props.onCenterAll,
     );
-    centerAll.addEventListener("click", () => props.onCenterAll());
-    const clear = iconButton(
+    centerAll.classList.add("wmegj-source-center");
+    const clear = wzIconButton(
       "w-icon-x",
       i18next.t("panel.lines.clearSource"),
-      "wmegj-source-clear",
+      props.onClearSource,
     );
-    clear.addEventListener("click", () => props.onClearSource());
-    this.cardEl.append(cardText, centerAll, clear);
+    clear.classList.add("wmegj-source-clear");
+    actions.append(centerAll, clear);
+    header.append(this.cardIconEl, this.cardNameEl, actions);
+    this.cardCountEl = document.createElement("wz-caption");
+    this.cardCountEl.className = "wmegj-source-count";
+    this.cardEl.append(header, this.cardCountEl);
 
-    this.listEl = document.createElement("div");
+    this.sourceSection = document.createElement("section");
+    this.sourceSection.className = "wmegj-section";
+    this.sourceSection.append(wzLabel(i18next.t("panel.lines.sourceTitle")), this.cardEl);
+
+    this.changeBtn = wzButton({
+      text: i18next.t("panel.lines.changeSource"),
+      variant: "text",
+      onClick: () => this.setLoaderOpen(true),
+    });
+    this.changeBtn.classList.add("wmegj-change-source");
+
+    this.loader = document.createElement("div");
+    this.loader.className = "wmegj-section wmegj-loader";
+    this.loader.append(slowupsBtn, other);
+
+    this.listEl = document.createElement("wz-list");
     this.listEl.className = "wmegj-line-list";
+    this.linesSection = document.createElement("section");
+    this.linesSection.className = "wmegj-section";
+    this.linesSection.append(wzLabel(i18next.t("panel.lines.linesTitle")), this.listEl);
 
-    this.root.append(slowupsBtn, other, this.errorEl, this.cardEl, this.listEl);
+    this.setSource(null);
+    this.root.append(
+      this.sourceSection,
+      this.changeBtn,
+      this.loader,
+      this.errorEl,
+      this.linesSection,
+    );
+  }
+
+  private setLoaderOpen(open: boolean): void {
+    this.loader.hidden = !open;
+    this.changeBtn.hidden = open || !this.hasSource;
   }
 
   /** Pre-fill the URL field (e.g. from the query param). */
@@ -146,15 +195,22 @@ export class LinesListView {
   }
 
   setSource(source: LoadedSource | null): void {
-    this.cardEl.hidden = source === null;
-    if (source) this.cardNameEl.textContent = sourceName(source);
+    this.hasSource = source !== null;
+    this.sourceSection.hidden = !this.hasSource;
+    this.cardEl.hidden = !this.hasSource;
+    this.linesSection.hidden = !this.hasSource;
+    this.setLoaderOpen(!this.hasSource);
+    if (source) {
+      this.cardNameEl.textContent = sourceName(source);
+      this.cardIconEl.className = `w-icon ${source.kind === "file" ? "w-icon-script" : "w-icon-link"}`;
+    }
   }
 
   setEntries(entries: readonly LineEntry[], progressOf: (id: string) => LineProgress): void {
     this.cardCountEl.textContent = i18next.t("panel.lines.lineCount", { count: entries.length });
     this.listEl.replaceChildren();
     if (entries.length === 0) {
-      if (!this.cardEl.hidden) {
+      if (this.hasSource) {
         const empty = document.createElement("p");
         empty.className = "wmegj-caption";
         empty.textContent = i18next.t("panel.lines.empty");

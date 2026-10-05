@@ -117,4 +117,32 @@ describe("LinesListView", () => {
     view.clearError();
     expect(error.textContent).toBe("");
   });
+
+  it("folds the loader away once a source is loaded, and brings it back on demand", () => {
+    const view = new LinesListView(props());
+    const loader = () => view.root.querySelector<HTMLElement>(".wmegj-loader")!;
+    const change = () => view.root.querySelector<HTMLElement>(".wmegj-change-source")!;
+    expect(loader().hidden).toBe(false);
+    expect(change().hidden).toBe(true);
+
+    view.setSource({ kind: "slowups" });
+    expect(loader().hidden).toBe(true);
+    expect(change().hidden).toBe(false);
+
+    change().click();
+    expect(loader().hidden).toBe(false);
+    expect(change().hidden).toBe(true);
+
+    view.setSource(null);
+    expect(loader().hidden).toBe(false);
+  });
+
+  it("shows the source as a WME card and the lines in a WME list", () => {
+    const view = new LinesListView(props());
+    view.setSource({ kind: "file", name: "rallye.kmz" });
+    view.setEntries([entry("a")], notStarted);
+    expect(view.root.querySelector(".wmegj-source-card")?.tagName).toBe("WZ-CARD");
+    expect(view.root.querySelector(".wmegj-line-list")?.tagName).toBe("WZ-LIST");
+    expect(view.root.querySelector(".wmegj-source-card i.w-icon-script")).not.toBeNull();
+  });
 });
