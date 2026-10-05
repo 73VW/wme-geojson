@@ -23,7 +23,7 @@ function warnMissingTag(tagName: string): void {
 
 export interface WzButtonProps {
   text: string;
-  variant?: "primary" | "secondary" | "danger";
+  variant?: "primary" | "secondary" | "danger" | "text";
   disabled?: boolean;
   onClick?: () => void;
 }
@@ -82,6 +82,7 @@ export interface WzTextInputProps {
   placeholder?: string;
   type?: "text" | "url";
   disabled?: boolean;
+  maxLength?: number;
   onInput?: (value: string) => void;
 }
 
@@ -111,6 +112,7 @@ export function wzTextInput(props: WzTextInputProps): HTMLElement {
     input.value = props.value ?? "";
     input.placeholder = props.placeholder ?? "";
     input.disabled = props.disabled ?? false;
+    if (props.maxLength !== undefined) input.maxLength = props.maxLength;
     if (props.onInput) {
       const handler = props.onInput;
       input.addEventListener("input", () => {
@@ -128,6 +130,7 @@ export function wzTextInput(props: WzTextInputProps): HTMLElement {
   if (props.placeholder) el.setAttribute("placeholder", props.placeholder);
   if (props.type) el.setAttribute("type", props.type);
   if (props.disabled) el.setAttribute("disabled", "");
+  if (props.maxLength !== undefined) el.setAttribute("maxlength", String(props.maxLength));
   (el as unknown as { value?: string }).value = props.value ?? "";
   (el as unknown as { placeholder?: string }).placeholder = props.placeholder ?? "";
   if (props.label) {
@@ -409,4 +412,182 @@ function getFirstSelectedFile(detail: unknown): File | null {
   }
 
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Form field helpers. Each one renders the WME component when registered and
+// a plain-HTML equivalent otherwise (unit tests, or a WME rename).
+// ---------------------------------------------------------------------------
+
+function isTagRegistered(tagName: string): boolean {
+  const registered =
+    typeof customElements !== "undefined" && customElements.get(tagName) !== undefined;
+  if (!registered) warnMissingTag(tagName);
+  return registered;
+}
+
+/** Small field title (WME `wz-label`). */
+export function wzLabel(text: string): HTMLElement {
+  const el = document.createElement(isTagRegistered("wz-label") ? "wz-label" : "span");
+  el.className = "wmegj-field-label";
+  el.textContent = text;
+  return el;
+}
+
+function fallbackField(label: string, control: HTMLElement): HTMLElement {
+  const wrapper = document.createElement("label");
+  wrapper.className = "wmegj-field";
+  wrapper.append(wzLabel(label), control);
+  return wrapper;
+}
+
+export function wzTextarea(props: {
+  label: string;
+  value?: string;
+  placeholder?: string;
+}): HTMLElement {
+  if (!isTagRegistered("wz-textarea")) {
+    const area = document.createElement("textarea");
+    area.rows = 4;
+    area.value = props.value ?? "";
+    area.placeholder = props.placeholder ?? "";
+    return fallbackField(props.label, area);
+  }
+  const el = document.createElement("wz-textarea");
+  el.setAttribute("label", props.label);
+  if (props.placeholder) el.setAttribute("placeholder", props.placeholder);
+  if (props.value) el.setAttribute("value", props.value);
+  (el as unknown as { value: string }).value = props.value ?? "";
+  return el;
+}
+
+export function wzSelect(props: {
+  label: string;
+  value: string;
+  options: { value: string; label: string }[];
+}): HTMLElement {
+  if (!isTagRegistered("wz-select")) {
+    const select = document.createElement("select");
+    for (const option of props.options) {
+      const optionEl = document.createElement("option");
+      optionEl.value = option.value;
+      optionEl.textContent = option.label;
+      select.appendChild(optionEl);
+    }
+    select.value = props.value;
+    return fallbackField(props.label, select);
+  }
+  const el = document.createElement("wz-select");
+  el.setAttribute("label", props.label);
+  for (const option of props.options) {
+    const optionEl = document.createElement("wz-option");
+    optionEl.setAttribute("value", option.value);
+    optionEl.textContent = option.label;
+    el.appendChild(optionEl);
+  }
+  el.setAttribute("value", props.value);
+  (el as unknown as { value: string }).value = props.value;
+  return el;
+}
+
+export function wzCheckbox(props: { label: string; checked: boolean }): HTMLElement {
+  if (!isTagRegistered("wz-checkbox")) {
+    const wrapper = document.createElement("label");
+    wrapper.className = "wmegj-row";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = props.checked;
+    box.className = "wmegj-row-fixed";
+    const text = document.createElement("span");
+    text.textContent = props.label;
+    wrapper.append(box, text);
+    return wrapper;
+  }
+  const el = document.createElement("wz-checkbox");
+  el.textContent = props.label;
+  if (props.checked) el.setAttribute("checked", "");
+  (el as unknown as { checked: boolean }).checked = props.checked;
+  return el;
+}
+
+/** One-of-n chips, like WME's lock level selector. */
+export function wzChipSelect(props: {
+  label: string;
+  value: string;
+  options: { value: string; label: string; disabled?: boolean }[];
+}): { root: HTMLElement; getValue(): string } {
+  const useChips = isTagRegistered("wz-checkable-chip");
+  let current = props.value;
+  const chips: { value: string; el: HTMLElement }[] = [];
+
+  const render = (): void => {
+    for (const chip of chips) {
+      const checked = chip.value === current;
+      chip.el.toggleAttribute("checked", checked);
+      (chip.el as unknown as { checked: boolean }).checked = checked;
+      chip.el.setAttribute("aria-pressed", String(checked));
+    }
+  };
+
+  const row = document.createElement("div");
+  row.className = "wmegj-chips";
+  for (const option of props.options) {
+    const el = document.createElement(useChips ? "wz-checkable-chip" : "button");
+    el.textContent = option.label;
+    el.setAttribute("value", option.value);
+    if (useChips) el.setAttribute("size", "md");
+    if (option.disabled) {
+      el.setAttribute("disabled", "");
+      (el as unknown as { disabled: boolean }).disabled = true;
+    }
+    el.addEventListener("click", () => {
+      if (option.disabled) return;
+      current = option.value;
+      render();
+    });
+    chips.push({ value: option.value, el });
+    row.appendChild(el);
+  }
+  render();
+
+  const root = document.createElement("div");
+  root.className = "wmegj-field";
+  root.append(wzLabel(props.label), row);
+  return { root, getValue: () => current };
+}
+
+/**
+ * WME's own date/time pickers have no documented API, so dates use a native
+ * datetime-local input dressed like a wz-text-input ("YYYY-MM-DDTHH:mm").
+ */
+export function dateTimeInput(props: { label?: string; value?: string }): {
+  root: HTMLElement;
+  input: HTMLInputElement;
+} {
+  const input = document.createElement("input");
+  input.type = "datetime-local";
+  input.className = "wmegj-datetime";
+  input.value = props.value ?? "";
+  if (!props.label) return { root: input, input };
+  input.setAttribute("aria-label", props.label);
+  const root = document.createElement("div");
+  root.className = "wmegj-field";
+  root.append(wzLabel(props.label), input);
+  return { root, input };
+}
+
+/** Value of a wz field or of its plain-HTML fallback. */
+export function readValue(el: HTMLElement): string {
+  const own = (el as unknown as { value?: unknown }).value;
+  if (typeof own === "string") return own;
+  const nested = el.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+    "input, textarea, select",
+  );
+  return nested?.value ?? "";
+}
+
+export function isChecked(el: HTMLElement): boolean {
+  const own = (el as unknown as { checked?: unknown }).checked;
+  if (typeof own === "boolean") return own;
+  return el.querySelector<HTMLInputElement>("input[type=checkbox]")?.checked ?? false;
 }
