@@ -105,6 +105,14 @@ export function wzDialog(opts: WzDialogOptions): Promise<boolean> {
     function onKeyDown(event: KeyboardEvent): void {
       const isTopmost = openDialogs[openDialogs.length - 1] === host;
       if (!isTopmost) return;
+      // keyCode 229: some browsers report the composition-ending key this way.
+      const isComposing = event.isComposing || event.keyCode === 229;
+      if (isComposing) return;
+
+      // An open wz-select (expanded) handles Escape/Enter itself, on keyup.
+      const path = event.composedPath();
+      const menuOpen = path.some((node) => (node as { expanded?: unknown }).expanded === true);
+      if (menuOpen) return;
 
       if (event.key === "Escape") {
         event.preventDefault();
@@ -116,7 +124,6 @@ export function wzDialog(opts: WzDialogOptions): Promise<boolean> {
 
       // Enter keeps its normal meaning in a textarea (new line) and on a
       // button (activates that button — e.g. Cancel must not submit).
-      const path = event.composedPath();
       const inTextarea = path.some(
         (node) => node instanceof HTMLElement && /^(TEXTAREA|WZ-TEXTAREA)$/.test(node.tagName),
       );

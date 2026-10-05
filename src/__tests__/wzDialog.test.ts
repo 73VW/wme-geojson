@@ -106,4 +106,23 @@ describe("wzDialog", () => {
     void wzDialog({ title: "T", primaryLabel: "OK", cancelLabel: "Annuler" });
     expect(document.activeElement).toBe(primary());
   });
+
+  it("leaves Escape and Enter to an open menu inside the dialog", () => {
+    // wz-select handles its keys on keyup and exposes `expanded` while open.
+    const select = document.createElement("div");
+    Object.assign(select, { expanded: true });
+    void wzDialog({ title: "T", body: [select], primaryLabel: "OK", cancelLabel: "Annuler" });
+    key(select, "Escape");
+    key(select, "Enter");
+    expect(document.querySelector("dialog")).not.toBeNull();
+  });
+
+  it("does not submit on the Enter that ends an IME composition", () => {
+    const input = document.createElement("input");
+    void wzDialog({ title: "T", body: [input], primaryLabel: "OK" });
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true }),
+    );
+    expect(document.querySelector("dialog")).not.toBeNull();
+  });
 });
