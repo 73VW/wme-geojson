@@ -107,12 +107,22 @@ describe("wzDialog", () => {
     expect(document.activeElement).toBe(primary());
   });
 
-  it("leaves Escape and Enter to an open menu inside the dialog", () => {
-    // wz-select handles its keys on keyup and exposes `expanded` while open.
+  it("Escape closes an open menu inside the dialog, not the dialog", () => {
+    // wz-select exposes `expanded` while open; wz-dialog stops Escape before
+    // the select sees it, so the dialog has to close the menu itself.
     const select = document.createElement("div");
-    Object.assign(select, { expanded: true });
+    const hideMenu = vi.fn(() => Object.assign(select, { expanded: false }));
+    Object.assign(select, { expanded: true, hideMenu });
     void wzDialog({ title: "T", body: [select], primaryLabel: "OK", cancelLabel: "Annuler" });
     key(select, "Escape");
+    expect(hideMenu).toHaveBeenCalledOnce();
+    expect(document.querySelector("dialog")).not.toBeNull();
+  });
+
+  it("leaves Enter to an open menu inside the dialog", () => {
+    const select = document.createElement("div");
+    Object.assign(select, { expanded: true });
+    void wzDialog({ title: "T", body: [select], primaryLabel: "OK" });
     key(select, "Enter");
     expect(document.querySelector("dialog")).not.toBeNull();
   });

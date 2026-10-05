@@ -27,6 +27,12 @@ interface WzDialogElement extends HTMLElement {
   hideDialog?: () => void;
 }
 
+/** wz-select while its option menu is open. */
+interface OpenableMenu {
+  expanded?: boolean;
+  hideMenu?: () => void;
+}
+
 // Topmost last: only the top dialog handles Enter / Escape.
 const openDialogs: HTMLElement[] = [];
 
@@ -109,10 +115,20 @@ export function wzDialog(opts: WzDialogOptions): Promise<boolean> {
       const isComposing = event.isComposing || event.keyCode === 229;
       if (isComposing) return;
 
-      // An open wz-select (expanded) handles Escape/Enter itself, on keyup.
+      // An open wz-select (expanded) handles Enter itself. Escape never reaches
+      // it (wz-dialog stops it on window), so close the menu here instead.
       const path = event.composedPath();
-      const menuOpen = path.some((node) => (node as { expanded?: unknown }).expanded === true);
-      if (menuOpen) return;
+      const openMenu = path.find((node) => (node as OpenableMenu).expanded === true) as
+        | OpenableMenu
+        | undefined;
+      if (openMenu) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          openMenu.hideMenu?.();
+        }
+        return;
+      }
 
       if (event.key === "Escape") {
         event.preventDefault();
