@@ -550,13 +550,15 @@ export const BASE_CSS = `
     min-width: 0;
   }
   .wmegj-guided-title {
-    font-size: 16px;
+    font-size: 12px;
     font-weight: 500;
-    color: var(--content_default);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--content_p1);
   }
   .wmegj-guided-status {
-    font-size: 12px;
-    color: var(--content_p3);
+    font-size: 13px;
+    color: var(--content_default);
   }
   .wmegj-guided-header-actions {
     display: flex;
@@ -597,7 +599,6 @@ export const BASE_CSS = `
     font-weight: 500;
     color: var(--content_default);
   }
-  .wmegj-guided-count,
   .wmegj-guided-instruction,
   .wmegj-guided-meta,
   .wmegj-guided-feedback {

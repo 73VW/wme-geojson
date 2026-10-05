@@ -141,12 +141,7 @@
         "interactive": "Mode manuel",
         "burst": "Mode automatique"
       },
-      "rowHeader": "Ligne {{index}} / {{total}} — {{km}} km, {{startTime}} → {{endTime}}",
-      "rowHeaderWithSubLine": "Ligne {{index}} / {{total}} — {{km}} km, {{startTime}} → {{endTime}} | sous-ligne {{subIndex}}/{{subTotal}}",
-      "rowHeaderNoTime": "Ligne {{index}} / {{total}} — {{km}} km",
-      "rowHeaderWithSubLineNoTime": "Ligne {{index}} / {{total}} — {{km}} km | sous-ligne {{subIndex}}/{{subTotal}}",
       "validateOrCorrect": "Vérifiez la sélection dans WME, corrigez-la si besoin, puis validez.",
-      "segmentsMatched": "{{count}} segment(s) trouvé(s)",
       "matchingInProgress": "Recherche des segments…",
       "subLinesTitle": "Sous-lignes courantes",
       "debugTitle": "Debug — Source courante",
@@ -210,7 +205,6 @@
         "mergePreparingTrack": "Préparation du tracé slowup fusionné...",
         "mergeRecomputing": "Recalcul de l'état merge des chaînes...",
         "mergeInitialized": "Merge initialisé pour ce slowup.",
-        "completedSummary": "Matching terminé : {{rowsValidated}} ligne(s) validée(s), {{totalSegments}} segment(s) sélectionné(s). Vous pouvez télécharger le fichier de fermetures.",
         "pauseFinalizingStep": "Finalisation de l'étape avant mise en pause…",
         "unknown": "Étape du pipeline"
       },
@@ -223,7 +217,8 @@
         "labelOf": "Ligne {{line}}/{{lines}} · sous-ligne {{sub}}/{{subs}}",
         "segments": "{{count}} segment(s)",
         "toValidate": "à valider",
-        "summary": "{{count}} sous-ligne(s) validée(s)"
+        "summary": "{{count}} sous-ligne(s) validée(s)",
+        "found": "{{count}} segment(s) trouvé(s)"
       },
       "instructions": {
         "idle": "Démarrez la correspondance : manuelle pour valider chaque sous-ligne, automatique pour tout enchaîner.",
@@ -246,7 +241,7 @@
       "menu": {
         "more": "Plus d'actions",
         "debug": "Debug",
-        "backToMatching": "Retour à la correspondance"
+        "backToMatching": "← Retour à la correspondance"
       },
       "kicker": "Ligne"
     },

@@ -141,12 +141,7 @@
         "interactive": "Manual mode",
         "burst": "Automatic mode"
       },
-      "rowHeader": "Line {{index}} / {{total}} — {{km}} km, {{startTime}} → {{endTime}}",
-      "rowHeaderWithSubLine": "Line {{index}} / {{total}} — {{km}} km, {{startTime}} → {{endTime}} | sub-line {{subIndex}}/{{subTotal}}",
-      "rowHeaderNoTime": "Line {{index}} / {{total}} — {{km}} km",
-      "rowHeaderWithSubLineNoTime": "Line {{index}} / {{total}} — {{km}} km | sub-line {{subIndex}}/{{subTotal}}",
       "validateOrCorrect": "Check the selection in WME, correct it if needed, then validate.",
-      "segmentsMatched": "{{count}} segment(s) matched",
       "matchingInProgress": "Matching segments…",
       "subLinesTitle": "Current sub-lines",
       "debugTitle": "Debug — Current source",
@@ -210,7 +205,6 @@
         "mergePreparingTrack": "Preparing merged slowup track...",
         "mergeRecomputing": "Recomputing merged chain state...",
         "mergeInitialized": "Merge initialized for this slowup.",
-        "completedSummary": "Matching complete: {{rowsValidated}} row(s) validated, {{totalSegments}} segment(s) selected. You can now download the closures file.",
         "pauseFinalizingStep": "Finalizing the current step before pausing…",
         "unknown": "Pipeline step"
       },
@@ -223,7 +217,8 @@
         "labelOf": "Line {{line}}/{{lines}} · sub-line {{sub}}/{{subs}}",
         "segments": "{{count}} segment(s)",
         "toValidate": "to validate",
-        "summary": "{{count}} validated sub-line(s)"
+        "summary": "{{count}} validated sub-line(s)",
+        "found": "{{count}} segment(s) found"
       },
       "instructions": {
         "idle": "Start matching: manual to validate each sub-line, automatic to run through all of them.",
@@ -246,7 +241,7 @@
       "menu": {
         "more": "More actions",
         "debug": "Debug",
-        "backToMatching": "Back to matching"
+        "backToMatching": "← Back to matching"
       },
       "kicker": "Line"
     },

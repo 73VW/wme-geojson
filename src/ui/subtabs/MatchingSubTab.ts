@@ -21,6 +21,7 @@ import { PlanningCsvView } from "../views/PlanningCsvView";
 import { createRangeSlider } from "../views/RangeSliderView";
 import { MatchingStepsView, type LinkedMte } from "../views/MatchingStepsView";
 import { lineProgress } from "../../domain/lineProgress";
+import { isMatchingComplete } from "../../domain/isMatchingComplete";
 import {
   bboxOfMultiLineString,
   inflatedTrackPolygon,
@@ -67,7 +68,6 @@ import { fetchSlowupFullDetails } from "../../lines/slowupClient";
 import {
   controlsFor,
   reduceMatchingUi,
-  statusKeyFor,
   type ButtonView,
   type MatchingUiEvent,
   type MatchingUiState,
@@ -76,7 +76,13 @@ import { StepReview, reviewControlsFor } from "../../controller/StepReview";
 import { frontierStep, navigableSteps, sameStep, type StepRef } from "../../domain/steps";
 import { StepNavView } from "../views/StepNavView";
 import { PanelMenuView } from "../views/PanelMenuView";
-import { instructionKey, navEnabled, navTarget, stepNavState } from "../matchingPanelText";
+import {
+  instructionKey,
+  navEnabled,
+  navTarget,
+  panelStatusKey,
+  stepNavState,
+} from "../matchingPanelText";
 import { wzButton } from "../components/wz";
 
 const TARGET_ZOOM = 16;
@@ -147,8 +153,6 @@ export class MatchingSubTab {
   private guidedRetryBtn: HTMLElement | null = null;
 
   // Guided sub-panel text elements
-  private guidedRowHeaderEl: HTMLElement | null = null;
-  private guidedSegmentCountEl: HTMLElement | null = null;
   private guidedInstructionEl: HTMLElement | null = null;
   private guidedLoaderEl: HTMLElement | null = null;
   private guidedLoaderTextEl: HTMLElement | null = null;
@@ -448,8 +452,6 @@ export class MatchingSubTab {
     if (guidedMatchingRow?.parentElement) {
       guidedMatchingRow.parentElement.removeChild(guidedMatchingRow);
     }
-    this.guidedRowHeaderEl = null;
-    this.guidedSegmentCountEl = null;
     this.guidedInstructionEl = null;
     this.guidedLoaderEl = null;
     this.guidedLoaderTextEl = null;
@@ -749,18 +751,6 @@ export class MatchingSubTab {
     });
     matchPane.appendChild(this.stepNav.root);
 
-    const headerEl = document.createElement("p");
-    headerEl.className = "wmegj-guided-row";
-    headerEl.textContent = "—";
-    matchPane.appendChild(headerEl);
-    this.guidedRowHeaderEl = headerEl;
-
-    const countEl = document.createElement("p");
-    countEl.className = "wmegj-guided-count";
-    countEl.textContent = i18next.t("panel.matching.segmentsMatched", { count: 0 });
-    matchPane.appendChild(countEl);
-    this.guidedSegmentCountEl = countEl;
-
     const instructionEl = document.createElement("p");
     instructionEl.className = "wmegj-guided-instruction";
     matchPane.appendChild(instructionEl);
@@ -889,7 +879,7 @@ export class MatchingSubTab {
     this.guidedDebugPaneEl = debugPane;
     debugPane.appendChild(
       wzButton({
-        text: "← " + i18next.t("panel.matching.menu.backToMatching"),
+        text: i18next.t("panel.matching.menu.backToMatching"),
         variant: "text",
         onClick: () => this.setGuidedActiveTab("match"),
       }),
@@ -1120,14 +1110,6 @@ export class MatchingSubTab {
     this.trackLayer?.setHighlightedSlice(null);
     this.setGuidedLoading(false);
 
-    if (this.guidedRowHeaderEl) {
-      this.guidedRowHeaderEl.textContent = "—";
-    }
-    if (this.guidedSegmentCountEl) {
-      this.guidedSegmentCountEl.textContent = i18next.t("panel.matching.segmentsMatched", {
-        count: 0,
-      });
-    }
     if (this.guidedManualActionsEl) {
       this.guidedManualActionsEl.style.display = "flex";
     }
@@ -1518,12 +1500,6 @@ export class MatchingSubTab {
   private applyTransitionEffects(prev: MatchingUiState, next: MatchingUiState): void {
     if (next.kind === "done" && prev.kind !== "done") {
       this.store.setPhase("done");
-      if (this.guidedSegmentCountEl) {
-        this.guidedSegmentCountEl.textContent = i18next.t("panel.matching.steps.completedSummary", {
-          rowsValidated: next.rowsValidated,
-          totalSegments: next.totalSegments,
-        });
-      }
       this.trackLayer?.setHighlightedSlice(null);
       // Review finding #6: return the operator to a clean map view.
       try {
@@ -1557,6 +1533,7 @@ export class MatchingSubTab {
       src !== null,
     );
     const hidden: ButtonView = { visible: false, enabled: false };
+    const complete = isMatchingComplete(src);
     // While a validated sub-line is reviewed, its own controls replace the run controls.
     const c = reviewState
       ? {
@@ -1570,7 +1547,10 @@ export class MatchingSubTab {
           retry: hidden,
           doneClose: hidden,
         }
-      : run;
+      : complete && this.uiState.kind === "idle"
+        ? // A fully matched line has nothing left to start.
+          { ...run, start: hidden, startBurst: hidden }
+        : run;
     this.applyButtonView(this.guidedStartBtn, c.start);
     this.applyButtonView(this.guidedStartBurstBtn, c.startBurst);
     this.applyButtonView(this.guidedValidateBtn, c.validate);
@@ -1597,6 +1577,9 @@ export class MatchingSubTab {
           steps,
           navEnabled(this.uiState.kind, reviewState, this.rematchRunning),
           this.exitAtEnd(),
+          this.uiState.kind === "waiting"
+            ? (this.lazyPipeline?.getPendingMatched().length ?? null)
+            : null,
         ),
       );
     }
@@ -1610,6 +1593,7 @@ export class MatchingSubTab {
                 run: this.uiState.kind,
                 review: reviewState,
                 hasValidated: navigableSteps(src, false).length > 0,
+                complete,
               }),
             );
     }
@@ -1632,9 +1616,11 @@ export class MatchingSubTab {
     ]);
 
     if (this.guidedStatusEl) {
-      this.guidedStatusEl.textContent = i18next.t(
-        `panel.matching.panelStatus.${statusKeyFor(this.uiState)}`,
+      const status = i18next.t(
+        `panel.matching.panelStatus.${panelStatusKey(this.uiState.kind, complete)}`,
       );
+      const name = this.registry.getSelected()?.displayName;
+      this.guidedStatusEl.textContent = name ? `${name} · ${status}` : status;
     }
   }
 
@@ -1766,34 +1752,12 @@ export class MatchingSubTab {
     const cursor = this.currentStep() ?? src.cursor;
     if (!cursor) {
       this.trackLayer?.setHighlightedSlice(null);
-      if (this.guidedRowHeaderEl) this.guidedRowHeaderEl.textContent = "—";
       return;
     }
 
     const line = src.lines[cursor.lineIndex];
     if (!line) return;
     const sub = line.subLines[cursor.subLineIndex];
-
-    // Header text — no chaîne suffix.
-    if (this.guidedRowHeaderEl) {
-      this.guidedRowHeaderEl.textContent = this.formatHeader(
-        src,
-        cursor.lineIndex,
-        cursor.subLineIndex,
-      );
-    }
-
-    // Segment count for the current sub-line. Before validation the matched
-    // ids live on the pipeline (pendingMatched) — sub.segmentIds is only filled
-    // on validate — so prefer the pending count while the gate is open.
-    if (this.guidedSegmentCountEl && sub) {
-      const count = sub.validated
-        ? sub.segmentIds.length
-        : (this.lazyPipeline?.getPendingMatched().length ?? sub.segmentIds.length);
-      this.guidedSegmentCountEl.textContent = i18next.t("panel.matching.segmentsMatched", {
-        count,
-      });
-    }
 
     // Sub-line overlay highlights only the current sub-line geometry.
     if (sub) {
@@ -1803,40 +1767,6 @@ export class MatchingSubTab {
     } else {
       this.trackLayer?.setHighlightedSlice(null);
     }
-  }
-
-  private formatHeader(src: Source, lineIndex: number, subLineIndex: number): string {
-    const line = src.lines[lineIndex];
-    const hasTime = Boolean(line.startISO && line.endISO);
-    // A line with exactly one sub-line covering the whole line omits the suffix.
-    const singleWholeSubLine =
-      line.subLines.length === 1 &&
-      line.pendingTail.length === 0 &&
-      line.subLines[0].kmA <= 1e-9 &&
-      Math.abs(line.subLines[0].kmB - line.lengthKm) < 1e-6;
-
-    const base = {
-      index: lineIndex + 1,
-      total: src.lines.length,
-      km: line.lengthKm.toFixed(1),
-      startTime: line.startISO ? line.startISO.slice(11, 16) : "",
-      endTime: line.endISO ? line.endISO.slice(11, 16) : "",
-    };
-
-    if (singleWholeSubLine) {
-      return hasTime
-        ? i18next.t("panel.matching.rowHeader", base)
-        : i18next.t("panel.matching.rowHeaderNoTime", base);
-    }
-
-    const withSub = {
-      ...base,
-      subIndex: subLineIndex + 1,
-      subTotal: line.subLines.length,
-    };
-    return hasTime
-      ? i18next.t("panel.matching.rowHeaderWithSubLine", withSub)
-      : i18next.t("panel.matching.rowHeaderWithSubLineNoTime", withSub);
   }
 
   private async openMtePopup(): Promise<void> {
