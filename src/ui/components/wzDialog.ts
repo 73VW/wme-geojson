@@ -17,6 +17,8 @@ export interface WzDialogOptions {
   /** Runs on primary click / Enter. Return an error message to stay open. */
   onPrimary?: () => string | null;
   focus?: HTMLElement;
+  /** WME widths: xs 320px, sm 400px (default), lg 560px, xl 720px. */
+  size?: "xs" | "sm" | "lg" | "xl";
 }
 
 interface WzDialogElement extends HTMLElement {
@@ -67,7 +69,7 @@ export function wzDialog(opts: WzDialogOptions): Promise<boolean> {
   let host: WzDialogElement;
   if (useNative) {
     host = document.createElement("wz-dialog");
-    host.setAttribute("size", "sm");
+    host.setAttribute("size", opts.size ?? "sm");
     host.setAttribute("dismissible", "false");
     const content = document.createElement("wz-dialog-content");
     content.appendChild(body);

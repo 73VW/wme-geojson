@@ -50,4 +50,11 @@ describe("promptMteInfo", () => {
       manual: null,
     });
   });
+
+  it("stacks start and end dates like the native MTE form", () => {
+    void promptMteInfo({ title: "x", userRank: 0, askDetails: true });
+    expect(document.querySelectorAll("dialog .wmegj-datetime")).toHaveLength(2);
+    expect(document.querySelectorAll("dialog .wmegj-row .wmegj-datetime")).toHaveLength(0);
+    document.body.replaceChildren();
+  });
 });

@@ -110,6 +110,7 @@ export async function promptClosureWindow(
   let windows: ClosureWindow[] = [];
   const confirmed = await wzDialog({
     title: i18next.t("panel.modal.closureWindow.title"),
+    size: "lg",
     body: [header, linesBox, addBtn],
     primaryLabel: i18next.t(
       mode === "apply" ? "panel.modal.closureWindow.apply" : "panel.modal.closureWindow.download",

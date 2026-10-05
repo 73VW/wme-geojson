@@ -79,14 +79,11 @@ export async function promptMteInfo(defaults: {
       end.input.value = start.input.value;
     }
   });
-  const dates = document.createElement("div");
-  dates.className = "wmegj-row";
-  dates.append(start.root, end.root);
   const description = wzTextarea({ label: i18next.t("panel.mteInfo.description") });
   const url = wzTextInput({ label: i18next.t("panel.mteInfo.url"), type: "url" });
 
   const body = defaults.askDetails
-    ? [category, dates, title, description, url, lockLevel.root]
+    ? [category, start.root, end.root, title, description, url, lockLevel.root]
     : [category, lockLevel.root];
 
   let result: MteInfoResult | null = null;
