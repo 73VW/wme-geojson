@@ -493,6 +493,74 @@ export const BASE_CSS = `
     opacity: 0.5;
     cursor: default;
   }
+  .wmegj-step-nav {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 8px;
+    background: var(--surface_default);
+  }
+  .wmegj-step-nav-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+  .wmegj-step-nav-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--content_default);
+  }
+  .wmegj-step-nav.is-validated .wmegj-step-nav-label::after {
+    content: " ✓";
+    color: var(--safe_variant);
+  }
+  .wmegj-menu {
+    position: relative;
+  }
+  .wmegj-menu-toggle {
+    font-size: 18px;
+    line-height: 1;
+  }
+  .wmegj-menu-list {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 2;
+    min-width: 200px;
+    padding: 4px 0;
+    border-radius: 8px;
+    background: var(--background_default);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    display: flex;
+    flex-direction: column;
+  }
+  .wmegj-menu-list[hidden] {
+    display: none;
+  }
+  .wmegj-menu-item {
+    padding: 8px 16px;
+    border: none;
+    background: none;
+    color: var(--content_p1);
+    font: inherit;
+    font-size: 14px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .wmegj-menu-item:hover:not(:disabled) {
+    background: var(--background_variant);
+  }
+  .wmegj-menu-item.is-danger {
+    color: var(--alarming_variant);
+  }
+  .wmegj-menu-item:disabled {
+    color: var(--hairline_strong);
+    cursor: default;
+  }
 `;
 
 /** Inject BASE_CSS into `doc` once; later calls are no-ops. */
