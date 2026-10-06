@@ -10,6 +10,21 @@ import type { Feature, LineString, Position } from "geojson";
 
 // Approximate meters-per-degree latitude (constant)
 const METERS_PER_DEG_LAT = 111320;
+// Beyond this, the planar foot point drifts by metres: use turf's geodesic
+// distance instead (real tracks: 99% of edges < 300 m).
+const LONG_EDGE_KM = 1;
+
+// Same earth radius as turf, so distances match its haversine.
+const EARTH_RADIUS_M = 6371008.8;
+
+function haversineMeters(p: Position, q: Position): number {
+  const rad = Math.PI / 180;
+  const dLat = (q[1] - p[1]) * rad;
+  const dLon = (q[0] - p[0]) * rad;
+  const h =
+    Math.sin(dLat / 2) ** 2 + Math.cos(p[1] * rad) * Math.cos(q[1] * rad) * Math.sin(dLon / 2) ** 2;
+  return 2 * EARTH_RADIUS_M * Math.asin(Math.sqrt(h));
+}
 
 interface EdgeItem {
   // rbush bbox
@@ -81,10 +96,10 @@ export function buildTrackSpatialIndex(track: Feature<LineString>): TrackSpatial
     posit: Position,
     item: EdgeItem,
   ): { distanceMeters: number; locationKm: number } {
-    const distanceMeters = pointToLineDistance(point(posit), item.edgeLine, { units: "meters" });
-
-    // Compute t using cosine-corrected Cartesian projection so longitude and
-    // latitude deltas have comparable metric weight.
+    // Cosine-corrected Cartesian projection: longitude and latitude deltas get
+    // comparable metric weight. The distance is the haversine to that foot
+    // point: this is the matcher's innermost loop, and turf's geodesic
+    // pointToLineDistance cost seconds per stage here.
     const [ax, ay] = item.a;
     const [bx, by] = item.b;
     const cosLat = Math.cos(((ay + by) / 2) * (Math.PI / 180));
@@ -97,6 +112,10 @@ export function buildTrackSpatialIndex(track: Feature<LineString>): TrackSpatial
       t = Math.max(0, Math.min(1, t));
     }
 
+    const distanceMeters =
+      item.edgeLengthKm > LONG_EDGE_KM
+        ? pointToLineDistance(point(posit), item.edgeLine, { units: "meters" })
+        : haversineMeters(posit, [ax + t * (bx - ax), ay + t * (by - ay)]);
     const locationKm = item.chainageStartKm + t * item.edgeLengthKm;
     return { distanceMeters, locationKm };
   }
