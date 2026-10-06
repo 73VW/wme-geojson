@@ -1,4 +1,4 @@
-import type { WmeSDK } from "wme-sdk-typings";
+import type { SdkFeature, WmeSDK } from "wme-sdk-typings";
 import type { Position } from "geojson";
 import type { LineEntry } from "../lines/types";
 import { logger } from "../utils/logger";
@@ -27,23 +27,24 @@ export class LinesPreviewLayer {
     this.ensureLayer();
     this.wmeSDK.Map.removeAllFeaturesFromLayer({ layerName: LinesPreviewLayer.LAYER_NAME });
 
+    // One SDK call: each addFeatureToLayer call re-renders the whole layer.
+    const features: SdkFeature[] = [];
     entries.forEach((entry) => {
       entry.track.geometry.coordinates.forEach((lineCoords, lineIndex) => {
         if (lineCoords.length < 2) return;
         // The SDK rejects 3D coords — strip elevation to [lon, lat].
         const coords2d: Position[] = lineCoords.map((c) => [c[0], c[1]]);
-        const featureId = `${entry.id}-line-${lineIndex}`;
-        this.wmeSDK.Map.addFeatureToLayer({
-          layerName: LinesPreviewLayer.LAYER_NAME,
-          feature: {
-            id: featureId,
-            type: "Feature",
-            geometry: { type: "LineString", coordinates: coords2d },
-            properties: { kind: PREVIEW_KIND, color: entry.color },
-          },
+        features.push({
+          id: `${entry.id}-line-${lineIndex}`,
+          type: "Feature",
+          geometry: { type: "LineString", coordinates: coords2d },
+          properties: { kind: PREVIEW_KIND, color: entry.color },
         });
       });
     });
+    if (features.length > 0) {
+      this.wmeSDK.Map.addFeaturesToLayer({ layerName: LinesPreviewLayer.LAYER_NAME, features });
+    }
   }
 
   /** Remove the layer. Never throws. */

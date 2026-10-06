@@ -4,7 +4,7 @@ import {
   bbox4OfMultiLineString,
   computeMatchingWorkItems,
   multiLineLengthKm,
-  sliceMultiLineByDistance,
+  sliceMultiLineByDistanceBatch,
 } from "../matching/trackPortions";
 import type { Line, Source } from "./types";
 
@@ -41,8 +41,9 @@ export function buildGeojsonSource(input: BuildGeojsonSourceInput): Source {
   }
 
   const workItems = computeMatchingWorkItems(input.csvRows, fullLengthKm);
+  const geoms = sliceMultiLineByDistanceBatch(input.track.geometry, workItems);
   workItems.forEach((item, idx) => {
-    const geom = sliceMultiLineByDistance(input.track.geometry, item.kmA, item.kmB);
+    const geom = geoms[idx];
     const bbox = bbox4OfMultiLineString(geom);
     if (!bbox) {
       input.onWarning?.(

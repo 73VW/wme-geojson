@@ -19,15 +19,19 @@ function makeSdkMock(features: AddedFeature[]) {
       removeAllFeaturesFromLayer: vi.fn(() => {
         features.length = 0;
       }),
-      addFeatureToLayer: vi.fn(
-        (args: { feature: { geometry: { type: string }; properties?: { kind?: unknown } } }) => {
-          features.push({
-            geometryType: args.feature.geometry.type,
-            coordinates: (args.feature.geometry as { coordinates?: unknown }).coordinates,
-            kind: args.feature.properties?.kind,
-            km: (args.feature.properties as { km?: unknown } | undefined)?.km,
-            lineColor: (args.feature.properties as { lineColor?: unknown } | undefined)?.lineColor,
-          });
+      addFeaturesToLayer: vi.fn(
+        (args: {
+          features: { geometry: { type: string }; properties?: Record<string, unknown> }[];
+        }) => {
+          for (const feature of args.features) {
+            features.push({
+              geometryType: feature.geometry.type,
+              coordinates: (feature.geometry as { coordinates?: unknown }).coordinates,
+              kind: feature.properties?.kind,
+              km: feature.properties?.km,
+              lineColor: feature.properties?.lineColor,
+            });
+          }
         },
       ),
     },
@@ -167,5 +171,26 @@ describe("TrackLayer label visibility", () => {
 
     expect(lineColors).toHaveLength(2);
     expect(lineColors[0]).not.toBe(lineColors[1]);
+  });
+});
+
+describe("TrackLayer SDK batching", () => {
+  it("adds track, slice and labels in a single SDK call per redraw", () => {
+    const features: AddedFeature[] = [];
+    const sdk = makeSdkMock(features);
+    const layer = new TrackLayer(sdk);
+
+    layer.draw(makeTrack());
+    layer.setVisibleDistances(null);
+    layer.setHighlightedSlice(makeTrack().geometry);
+    vi.mocked(sdk.Map.addFeaturesToLayer).mockClear();
+
+    layer.setVisibleRange(0, layer.getTotalKm());
+
+    expect(sdk.Map.addFeaturesToLayer).toHaveBeenCalledTimes(1);
+    const kinds = features.map((f) => f.kind);
+    expect(kinds.slice(0, 2)).toEqual(["line", "slice"]);
+    expect(kinds.length).toBeGreaterThan(2);
+    expect(kinds.slice(2).every((kind) => kind === "label")).toBe(true);
   });
 });

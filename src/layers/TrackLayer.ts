@@ -1,4 +1,4 @@
-import type { WmeSDK } from "wme-sdk-typings";
+import type { SdkFeature, WmeSDK } from "wme-sdk-typings";
 import type { MultiLineString, Position } from "geojson";
 import type { NormalizedTrack } from "../geojson/types";
 import { logger } from "../utils/logger";
@@ -247,56 +247,61 @@ export class TrackLayer {
   private drawFeatures(track: NormalizedTrack, labels: DistanceLabel[]): void {
     const baseId = track.trackId !== null ? String(track.trackId) : `track-${Date.now()}`;
 
-    track.geometry.coordinates.forEach((lineCoords, index) => {
-      this.addLineFeature(`${baseId}-line-${index}`, lineCoords, index);
-    });
-
-    this.drawLabels(labels);
+    this.addFeatures([
+      ...track.geometry.coordinates.map((lineCoords, index) =>
+        this.lineFeature(`${baseId}-line-${index}`, lineCoords, index),
+      ),
+      ...labels.map(labelFeature),
+    ]);
   }
 
-  private drawLabels(labels: DistanceLabel[]): void {
-    for (const label of labels) {
-      this.addLabelFeature(label);
-    }
+  /**
+   * One SDK call per redraw: each addFeatureToLayer call re-renders the whole
+   * layer, so adding features one by one made a 193-row CSV import take ~10s.
+   */
+  private addFeatures(features: SdkFeature[]): void {
+    if (features.length === 0) return;
+    this.wmeSDK.Map.addFeaturesToLayer({ layerName: TrackLayer.LAYER_NAME, features });
   }
 
   /**
    * Re-render the layer from the cached track + label set under the current
    * filter state (range + distance list). Clearing instead of dropping the
    * layer keeps the styleContext + styleRules registered, so this only costs
-   * the per-feature insert.
+   * the feature insert.
    */
   private redraw(): void {
     if (!this.currentTrack) return;
 
     this.wmeSDK.Map.removeAllFeaturesFromLayer({ layerName: TrackLayer.LAYER_NAME });
-    this.drawTrackInRange(this.currentRangeLo, this.currentRangeHi);
-    this.drawHighlightedSlice();
-    this.drawLabels(this.filterLabels());
+    this.addFeatures([
+      ...this.trackFeaturesInRange(this.currentRangeLo, this.currentRangeHi),
+      ...this.highlightedSliceFeatures(),
+      ...this.filterLabels().map(labelFeature),
+    ]);
   }
 
   /**
-   * Add the highlighted-slice features last in z-order (after the base track,
-   * before the labels) so the cyan overlay is visible without hiding the km
-   * point markers.
+   * Highlighted-slice features go after the base track and before the labels
+   * in z-order, so the cyan overlay is visible without hiding the km point
+   * markers.
    */
-  private drawHighlightedSlice(): void {
-    if (!this.highlightedSlice) return;
+  private highlightedSliceFeatures(): SdkFeature[] {
+    if (!this.highlightedSlice) return [];
 
+    const features: SdkFeature[] = [];
     this.highlightedSlice.coordinates.forEach((lineCoords, index) => {
       if (lineCoords.length < 2) return;
       const coords2d: Position[] = lineCoords.map((c) => [c[0], c[1]]);
       const featureId = `slice-highlight-${index}`;
-      this.wmeSDK.Map.addFeatureToLayer({
-        layerName: TrackLayer.LAYER_NAME,
-        feature: {
-          id: featureId,
-          type: "Feature",
-          geometry: { type: "LineString", coordinates: coords2d },
-          properties: { kind: SLICE_KIND, featureId },
-        },
+      features.push({
+        id: featureId,
+        type: "Feature",
+        geometry: { type: "LineString", coordinates: coords2d },
+        properties: { kind: SLICE_KIND, featureId },
       });
     });
+    return features;
   }
 
   /**
@@ -310,13 +315,13 @@ export class TrackLayer {
   }
 
   /**
-   * Slice each sub-line to the requested distance window and add the visible
-   * portions back to the layer. Cumulative distance is continuous across
+   * Slice each sub-line to the requested distance window and return the
+   * visible portions as features. Cumulative distance is continuous across
    * sub-lines (matching computeDistanceLabels), so we track an offset per
    * sub-line and clip individually.
    */
-  private drawTrackInRange(lo: number, hi: number): void {
-    if (!this.currentTrack) return;
+  private trackFeaturesInRange(lo: number, hi: number): SdkFeature[] {
+    if (!this.currentTrack) return [];
 
     const baseId =
       this.currentTrack.trackId !== null
@@ -324,6 +329,7 @@ export class TrackLayer {
         : `track-${Date.now()}`;
 
     let cumulativeKm = 0;
+    const features: SdkFeature[] = [];
 
     this.currentTrack.geometry.coordinates.forEach((lineCoords, index) => {
       const lineLengthKm = sumSegmentDistances(lineCoords);
@@ -340,25 +346,23 @@ export class TrackLayer {
       const clippedCoords = sliceLineByDistance(lineCoords, localLo, localHi);
       if (clippedCoords.length < 2) return;
 
-      this.addLineFeature(`${baseId}-line-${index}`, clippedCoords, index);
+      features.push(this.lineFeature(`${baseId}-line-${index}`, clippedCoords, index));
     });
+    return features;
   }
 
-  private addLineFeature(featureId: string, lineCoords: Position[], subLineIndex: number): void {
+  private lineFeature(featureId: string, lineCoords: Position[], subLineIndex: number): SdkFeature {
     // The SDK rejects 3D coords with "Only 2D points are supported" — strip
     // any elevation here even though NormalizedTrack keeps the 3D data intact.
     const coords2d: Position[] = lineCoords.map((c) => [c[0], c[1]]);
     const lineColor = this.getLineColor(subLineIndex);
 
-    this.wmeSDK.Map.addFeatureToLayer({
-      layerName: TrackLayer.LAYER_NAME,
-      feature: {
-        id: featureId,
-        type: "Feature",
-        geometry: { type: "LineString", coordinates: coords2d },
-        properties: { kind: LINE_KIND, featureId, lineColor },
-      },
-    });
+    return {
+      id: featureId,
+      type: "Feature",
+      geometry: { type: "LineString", coordinates: coords2d },
+      properties: { kind: LINE_KIND, featureId, lineColor },
+    };
   }
 
   private getLineColor(subLineIndex: number): string {
@@ -367,19 +371,6 @@ export class TrackLayer {
     }
 
     return SUBLINE_PALETTE[subLineIndex % SUBLINE_PALETTE.length];
-  }
-
-  private addLabelFeature(label: DistanceLabel): void {
-    const featureId = labelFeatureId(label);
-    this.wmeSDK.Map.addFeatureToLayer({
-      layerName: TrackLayer.LAYER_NAME,
-      feature: {
-        id: featureId,
-        type: "Feature",
-        geometry: { type: "Point", coordinates: label.coord },
-        properties: { kind: LABEL_KIND, featureId, km: label.labelKm ?? label.km },
-      },
-    });
   }
 
   /**
@@ -427,6 +418,16 @@ export class TrackLayer {
       },
     ];
   }
+}
+
+function labelFeature(label: DistanceLabel): SdkFeature {
+  const featureId = labelFeatureId(label);
+  return {
+    id: featureId,
+    type: "Feature",
+    geometry: { type: "Point", coordinates: label.coord },
+    properties: { kind: LABEL_KIND, featureId, km: label.labelKm ?? label.km },
+  };
 }
 
 function labelFeatureId(label: DistanceLabel): string {
