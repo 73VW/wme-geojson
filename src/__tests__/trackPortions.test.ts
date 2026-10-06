@@ -5,6 +5,7 @@ import {
   computePortions,
   multiLineLengthKm,
   sliceMultiLineByDistance,
+  sliceMultiLineByDistanceBatch,
   trimTrailingCoordinate,
 } from "../matching/trackPortions";
 
@@ -219,6 +220,19 @@ describe("sliceMultiLineByDistance", () => {
     const geom = buildTwoSubLineMLS();
     const result = sliceMultiLineByDistance(geom, 0, 10);
     expect(result.type).toBe("MultiLineString");
+  });
+
+  it("batch slicing matches one slice per window", () => {
+    const geom = buildTwoSubLineMLS();
+    const windows = [
+      { kmA: 0, kmB: 0.5 },
+      { kmA: 0.5, kmB: 1.8 },
+      { kmA: 1.8, kmB: 10 },
+      { kmA: 1, kmB: 0.5 },
+    ];
+    expect(sliceMultiLineByDistanceBatch(geom, windows)).toEqual(
+      windows.map(({ kmA, kmB }) => sliceMultiLineByDistance(geom, kmA, kmB)),
+    );
   });
 });
 

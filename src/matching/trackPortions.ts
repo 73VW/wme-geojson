@@ -121,34 +121,52 @@ export function sliceMultiLineByDistance(
   kmA: number,
   kmB: number,
 ): MultiLineString {
-  if (kmA >= kmB) {
-    return { type: "MultiLineString", coordinates: [] };
-  }
+  return sliceMultiLineByDistanceBatch(geometry, [{ kmA, kmB }])[0];
+}
 
-  const resultCoords: Position[][] = [];
+/**
+ * Slice a MultiLineString at many [kmA, kmB] windows at once.
+ *
+ * Each sub-line's per-segment haversine distances are computed exactly once
+ * and reused for every window, instead of being recomputed from scratch per
+ * window (as a naive loop calling `sliceMultiLineByDistance` per row would
+ * do). This matters for CSV planning imports: building N rows against a
+ * track with M points used to cost O(N*M) haversine calls; this costs O(M).
+ */
+export function sliceMultiLineByDistanceBatch(
+  geometry: MultiLineString,
+  windows: ReadonlyArray<{ kmA: number; kmB: number }>,
+): MultiLineString[] {
   let cumulativeKm = 0;
+  const lines = geometry.coordinates.map((coords) => {
+    const segLens = segmentDistances(coords);
+    const lineLengthKm = segLens.reduce((a, b) => a + b, 0);
+    const startKm = cumulativeKm;
+    cumulativeKm += lineLengthKm;
+    return { coords, segLens, startKm, lineLengthKm };
+  });
 
-  for (const lineCoords of geometry.coordinates) {
-    const lineLengthKm = sumSegmentDistances(lineCoords);
-    const subLineStartKm = cumulativeKm;
-    const subLineEndKm = cumulativeKm + lineLengthKm;
-    cumulativeKm = subLineEndKm;
-
-    // Skip sub-lines entirely outside the window
-    const overlaps = subLineEndKm >= kmA && subLineStartKm <= kmB;
-    if (!overlaps) continue;
-
-    // Convert global window to local offsets within this sub-line
-    const localLo = Math.max(0, kmA - subLineStartKm);
-    const localHi = Math.min(lineLengthKm, kmB - subLineStartKm);
-
-    const clipped = sliceLineByDistance(lineCoords, localLo, localHi);
-    if (clipped.length >= 2) {
-      resultCoords.push(clipped);
+  return windows.map(({ kmA, kmB }) => {
+    if (kmA >= kmB) {
+      return { type: "MultiLineString", coordinates: [] };
     }
-  }
 
-  return { type: "MultiLineString", coordinates: resultCoords };
+    const resultCoords: Position[][] = [];
+    for (const line of lines) {
+      const subLineStartKm = line.startKm;
+      const subLineEndKm = line.startKm + line.lineLengthKm;
+      if (!(subLineEndKm >= kmA && subLineStartKm <= kmB)) continue;
+
+      const localLo = Math.max(0, kmA - subLineStartKm);
+      const localHi = Math.min(line.lineLengthKm, kmB - subLineStartKm);
+
+      const clipped = sliceLineByDistance(line.coords, localLo, localHi, line.segLens);
+      if (clipped.length >= 2) {
+        resultCoords.push(clipped);
+      }
+    }
+    return { type: "MultiLineString", coordinates: resultCoords };
+  });
 }
 
 // ─── bboxOfMultiLineString ────────────────────────────────────────────────────
@@ -256,13 +274,16 @@ export function trimTrailingCoordinate(geometry: MultiLineString): MultiLineStri
 // ─── Private helpers ──────────────────────────────────────────────────────────
 
 function sumSegmentDistances(line: Position[]): number {
-  let total = 0;
+  return segmentDistances(line).reduce((a, b) => a + b, 0);
+}
+
+/** Per-segment haversine distance (length = line.length - 1). */
+function segmentDistances(line: Position[]): number[] {
+  const lens: number[] = [];
   for (let i = 1; i < line.length; i++) {
-    const a = line[i - 1];
-    const b = line[i];
-    total += haversineKm(a[0], a[1], b[0], b[1]);
+    lens.push(haversineKm(line[i - 1][0], line[i - 1][1], line[i][0], line[i][1]));
   }
-  return total;
+  return lens;
 }
 
 function hasStrictlyIncreasingDistances(
@@ -281,7 +302,12 @@ function hasStrictlyIncreasingDistances(
  * `sliceLineByDistance` — duplicated here to keep `src/matching/` free of
  * layer imports.
  */
-function sliceLineByDistance(line: Position[], loKm: number, hiKm: number): Position[] {
+function sliceLineByDistance(
+  line: Position[],
+  loKm: number,
+  hiKm: number,
+  segLens: number[] = segmentDistances(line),
+): Position[] {
   if (line.length < 2 || hiKm <= loKm) return [];
 
   const result: Position[] = [];
@@ -291,7 +317,7 @@ function sliceLineByDistance(line: Position[], loKm: number, hiKm: number): Posi
   for (let i = 0; i < line.length - 1; i++) {
     const a = line[i];
     const b = line[i + 1];
-    const segLen = haversineKm(a[0], a[1], b[0], b[1]);
+    const segLen = segLens[i];
     const segStart = cumulative;
     const segEnd = cumulative + segLen;
 
