@@ -59,6 +59,11 @@ export function computeDistanceLabelsAtDistances(
 ): DistanceLabel[] {
   const labels: DistanceLabel[] = [];
   const seenKeys = new Set<string>();
+  // Segment lengths computed once and shared by every label: recomputing them
+  // per label made a 200-row CSV on a 4000-point track freeze WME for ~4 s.
+  const segLens = geometry.coordinates.map((line) =>
+    line.slice(1).map((curr, i) => segmentDistanceKm(line[i], curr)),
+  );
 
   for (const km of distancesKm) {
     if (!Number.isFinite(km)) continue;
@@ -73,7 +78,7 @@ export function computeDistanceLabelsAtDistances(
     const positionKm = km - originKm;
     if (positionKm < 0) continue;
 
-    const label = computeDistanceLabelAtDistance(geometry, positionKm);
+    const label = computeDistanceLabelAtDistance(geometry, positionKm, segLens);
     if (label) labels.push({ ...label, labelKm: km });
   }
 
@@ -83,6 +88,7 @@ export function computeDistanceLabelsAtDistances(
 function computeDistanceLabelAtDistance(
   geometry: MultiLineString,
   targetKm: number,
+  segLens: number[][],
 ): DistanceLabel | null {
   let cumulativeKm = 0;
 
@@ -103,7 +109,7 @@ function computeDistanceLabelAtDistance(
     for (let i = 1; i < line.length; i++) {
       const prev = line[i - 1];
       const curr = line[i];
-      const segmentKm = segmentDistanceKm(prev, curr);
+      const segmentKm = segLens[subLineIndex][i - 1];
       const segmentStartKm = cumulativeKm;
       const segmentEndKm = cumulativeKm + segmentKm;
 
