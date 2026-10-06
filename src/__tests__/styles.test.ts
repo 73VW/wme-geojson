@@ -50,5 +50,7 @@ describe("injectStyles", () => {
     expect(BASE_CSS).toMatch(
       /\.wmegj-line-row\[clickable\]:hover \{[^}]*background: var\(--background_variant\);/,
     );
+    // The native inner tint is inset by the row padding: two greys on hover.
+    expect(BASE_CSS).toMatch(/\.wmegj-line-row \{[^}]*--ink_on_primary_hovered: transparent;/);
   });
 });

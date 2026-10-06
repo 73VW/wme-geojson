@@ -176,14 +176,21 @@ export const BASE_CSS = `
   .wmegj-panel-root wz-list.wmegj-line-list {
     padding: 0;
   }
+  /* The native hover/pressed tint stops at that padding: mute it and tint
+     the whole row instead. */
   .wmegj-line-row {
     padding: 0 16px;
+    --ink_on_primary_hovered: transparent;
+    --ink_on_primary_pressed: transparent;
   }
   .wmegj-line-row[clickable] {
     cursor: pointer;
   }
   .wmegj-line-row[clickable]:hover {
     background: var(--background_variant);
+  }
+  .wmegj-line-row[clickable]:active {
+    background: var(--hairline);
   }
   .wmegj-line-row--loading {
     opacity: 0.6;
