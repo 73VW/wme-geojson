@@ -251,7 +251,13 @@
         "backToMatching": "← Retour à la correspondance"
       },
       "kicker": "Ligne",
-      "reselectDetected": "Resélectionner les segments identifiés"
+      "reselectDetected": "Resélectionner les segments identifiés",
+      "hideLayers": {
+        "title": "Masquer les couches inutiles ?",
+        "message": "Pendant la correspondance, seules les routes sont utiles. Les autres couches WME visibles (lieux, imagerie satellite, commentaires…) seront masquées, puis réaffichées à la fermeture du panneau. Les calques des autres scripts ne sont pas touchés.",
+        "confirm": "Masquer",
+        "keep": "Garder"
+      }
     },
     "mtePopup": {
       "loading": "Chargement…",

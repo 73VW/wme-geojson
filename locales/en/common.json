@@ -251,7 +251,13 @@
         "backToMatching": "← Back to matching"
       },
       "kicker": "Line",
-      "reselectDetected": "Reselect the identified segments"
+      "reselectDetected": "Reselect the identified segments",
+      "hideLayers": {
+        "title": "Hide unneeded layers?",
+        "message": "Only roads matter while matching. The other visible WME layers (places, satellite imagery, comments…) will be hidden, then shown again when the panel closes. Layers from other scripts are left untouched.",
+        "confirm": "Hide",
+        "keep": "Keep"
+      }
     },
     "mtePopup": {
       "loading": "Loading…",

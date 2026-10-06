@@ -16,6 +16,7 @@ import type { WzButtonProps } from "../components/wz";
 import { parseSchedule } from "../../csv/parseSchedule";
 import { promptFinalFields } from "../promptFinalFields";
 import { alertDialog, confirmDialog } from "../components/wzDialog";
+import { setLayersVisible, visibleDistractingLayers } from "../../layers/matchingLayers";
 import { MatchingHeaderView } from "../views/MatchingHeaderView";
 import { PlanningCsvView } from "../views/PlanningCsvView";
 import { createRangeSlider } from "../views/RangeSliderView";
@@ -988,6 +989,30 @@ export class MatchingSubTab {
     this.setGuidedActiveTab("match");
     this.positionGuidedPanel();
     this.renderPhase(this.store.getState().phase);
+    void this.offerHideLayers();
+  }
+
+  /** Layers hidden for this matching session, restored when the panel closes. */
+  private hiddenLayers: ReturnType<typeof visibleDistractingLayers> = [];
+
+  private async offerHideLayers(): Promise<void> {
+    if (this.hiddenLayers.length > 0) return;
+    const layers = visibleDistractingLayers(this.wmeSDK);
+    if (layers.length === 0) return;
+    const hide = await confirmDialog({
+      title: i18next.t("panel.matching.hideLayers.title"),
+      message: i18next.t("panel.matching.hideLayers.message"),
+      confirmLabel: i18next.t("panel.matching.hideLayers.confirm"),
+      cancelLabel: i18next.t("panel.matching.hideLayers.keep"),
+    });
+    if (!hide || !this.matchingPanelOpen) return;
+    setLayersVisible(this.wmeSDK, layers, false);
+    this.hiddenLayers = layers;
+  }
+
+  private restoreLayers(): void {
+    setLayersVisible(this.wmeSDK, this.hiddenLayers, true);
+    this.hiddenLayers = [];
   }
 
   private positionGuidedPanel(): void {
@@ -1107,6 +1132,7 @@ export class MatchingSubTab {
     const wasDone = this.uiState.kind === "done";
     this.dispatch({ type: "CLOSE_DONE" });
     this.matchingPanelOpen = false;
+    this.restoreLayers();
     if (wasDone) {
       this.store.setPhase("csv-loaded");
     }
@@ -1119,6 +1145,7 @@ export class MatchingSubTab {
     this.frontierSelection = null;
     if (options.closePanel) {
       this.matchingPanelOpen = false;
+      this.restoreLayers();
     }
     this.trackLayer?.setHighlightedSlice(null);
     this.setGuidedLoading(false);
