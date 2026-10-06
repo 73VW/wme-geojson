@@ -37,16 +37,16 @@
 
 ## File Structure
 
-| File | Change |
-|---|---|
-| `src/ui/components/wz.ts` | add `wzIconButton(icon, title, onClick)` |
-| `src/ui/views/LineRowView.ts` | row as `wz-list-item`, `lineSubtitle()` |
-| `src/ui/views/LinesListView.ts` | source `wz-card`, collapsible loader, `wz-list` |
-| `src/ui/views/MatchingHeaderView.ts` | native panel header |
-| `src/ui/views/MatchingStepsView.ts` | steps as `wz-card` |
-| `src/ui/matchingPanelText.ts` | pending count in caption, complete-line status |
-| `src/ui/subtabs/MatchingSubTab.ts` | drop redundant rows, complete-line controls, panel header |
-| `src/ui/styles.ts` | CSS for the above, drop obsolete rules |
+| File                                 | Change                                                    |
+| ------------------------------------ | --------------------------------------------------------- |
+| `src/ui/components/wz.ts`            | add `wzIconButton(icon, title, onClick)`                  |
+| `src/ui/views/LineRowView.ts`        | row as `wz-list-item`, `lineSubtitle()`                   |
+| `src/ui/views/LinesListView.ts`      | source `wz-card`, collapsible loader, `wz-list`           |
+| `src/ui/views/MatchingHeaderView.ts` | native panel header                                       |
+| `src/ui/views/MatchingStepsView.ts`  | steps as `wz-card`                                        |
+| `src/ui/matchingPanelText.ts`        | pending count in caption, complete-line status            |
+| `src/ui/subtabs/MatchingSubTab.ts`   | drop redundant rows, complete-line controls, panel header |
+| `src/ui/styles.ts`                   | CSS for the above, drop obsolete rules                    |
 
 ---
 
@@ -55,6 +55,7 @@
 **Files:** Modify `src/ui/components/wz.ts`, rewrite `src/ui/views/LineRowView.ts`, `src/ui/styles.ts`; tests `src/__tests__/LineRowView.test.ts` (rewrite), `src/__tests__/wzFields.test.ts` (add one test).
 
 **Interfaces:**
+
 - Produces: `wzIconButton(icon: string, title: string, onClick: () => void): HTMLElement` — `<wz-button color="shadowed" size="sm">` with `<i class="w-icon {icon}">` when registered, else `<button type="button" class="wmegj-icon-only">` with the same `<i>`; both get `title` + `aria-label`; the click handler calls `event.stopPropagation()` then `onClick()`.
 - Produces: `lineSubtitle(entry: LineEntry, progress: LineProgress): string` (exported from `LineRowView.ts`): slowUp date (`formatSlowupDate`) and progress joined by `" · "`; progress text: done → `"✓ " + t("panel.lines.progressDone")`, in progress → `t("panel.summary.inProgress", { percent })`, not started → nothing. Empty string when both are absent.
 - `LineRowView` keeps its props; `root` is a `wz-list-item` with class `wmegj-line-row` (+ `wmegj-line-row--loading`).
@@ -64,19 +65,19 @@
 Add to `src/__tests__/wzFields.test.ts`:
 
 ```ts
-  it("icon buttons carry a title and don't let the click bubble", () => {
-    const onClick = vi.fn();
-    const parent = vi.fn();
-    const button = wzIconButton("w-icon-recenter", "Centrer", onClick);
-    const row = document.createElement("div");
-    row.addEventListener("click", parent);
-    row.appendChild(button);
-    button.click();
-    expect(onClick).toHaveBeenCalled();
-    expect(parent).not.toHaveBeenCalled();
-    expect(button.title).toBe("Centrer");
-    expect(button.querySelector("i.w-icon-recenter")).not.toBeNull();
-  });
+it("icon buttons carry a title and don't let the click bubble", () => {
+  const onClick = vi.fn();
+  const parent = vi.fn();
+  const button = wzIconButton("w-icon-recenter", "Centrer", onClick);
+  const row = document.createElement("div");
+  row.addEventListener("click", parent);
+  row.appendChild(button);
+  button.click();
+  expect(onClick).toHaveBeenCalled();
+  expect(parent).not.toHaveBeenCalled();
+  expect(button.title).toBe("Centrer");
+  expect(button.querySelector("i.w-icon-recenter")).not.toBeNull();
+});
 ```
 
 (import `wzIconButton` with the other helpers).
@@ -96,7 +97,11 @@ beforeAll(initFrench);
 function entry(overrides: Partial<LineEntry> = {}): LineEntry {
   return {
     id: "l1",
-    track: { trackId: "l1", geometry: { type: "MultiLineString", coordinates: [] }, rawProperties: {} },
+    track: {
+      trackId: "l1",
+      geometry: { type: "MultiLineString", coordinates: [] },
+      rawProperties: {},
+    },
     lengthKm: 30.85,
     displayName: "SS7+11 Les Cols",
     color: "#ff00aa",
@@ -135,7 +140,9 @@ describe("LineRowView", () => {
     expect(row.root.hasAttribute("clickable")).toBe(true);
     expect(row.root.getAttribute("subtitle")).toBe("25.10.2026 · ✓ Terminé");
     expect(row.root.querySelector('[slot="item-key"]')?.textContent).toContain("slowUp Valais");
-    expect(row.root.querySelector<HTMLElement>(".wmegj-line-pill")?.style.backgroundColor).not.toBe("");
+    expect(row.root.querySelector<HTMLElement>(".wmegj-line-pill")?.style.backgroundColor).not.toBe(
+      "",
+    );
   });
 
   it("selects on click, but the recenter action does not select", () => {
@@ -281,24 +288,24 @@ export class LineRowView {
 `styles.ts`: replace the `.wmegj-line-row*`, `.wmegj-line-text`, `.wmegj-line-caption`, `.wmegj-line-progress*` rules from batch B by:
 
 ```css
-  .wmegj-line-row--loading {
-    opacity: 0.6;
-  }
-  .wmegj-line-key {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
-  }
-  .wmegj-line-pill {
-    flex: 0 0 auto;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-  }
-  .wmegj-line-name {
-    overflow-wrap: anywhere;
-  }
+.wmegj-line-row--loading {
+  opacity: 0.6;
+}
+.wmegj-line-key {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.wmegj-line-pill {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.wmegj-line-name {
+  overflow-wrap: anywhere;
+}
 ```
 
 Keep `.wmegj-line-warning`, `.wmegj-spinner`, `@keyframes wmegj-spin`. `.wmegj-line-caption` is still used by the source card until Task 2 — keep it if `grep -rn "wmegj-line-caption" src` still finds a user.
@@ -320,33 +327,33 @@ Source icon: slowups/url → `w-icon-link`; file → `w-icon-script`.
 - [ ] **Step 1: Tests first** — append to `src/__tests__/LinesListView.test.ts`:
 
 ```ts
-  it("folds the loader away once a source is loaded, and brings it back on demand", () => {
-    const view = new LinesListView(props());
-    const loader = () => view.root.querySelector<HTMLElement>(".wmegj-loader")!;
-    const change = () => view.root.querySelector<HTMLElement>(".wmegj-change-source")!;
-    expect(loader().hidden).toBe(false);
-    expect(change().hidden).toBe(true);
+it("folds the loader away once a source is loaded, and brings it back on demand", () => {
+  const view = new LinesListView(props());
+  const loader = () => view.root.querySelector<HTMLElement>(".wmegj-loader")!;
+  const change = () => view.root.querySelector<HTMLElement>(".wmegj-change-source")!;
+  expect(loader().hidden).toBe(false);
+  expect(change().hidden).toBe(true);
 
-    view.setSource({ kind: "slowups" });
-    expect(loader().hidden).toBe(true);
-    expect(change().hidden).toBe(false);
+  view.setSource({ kind: "slowups" });
+  expect(loader().hidden).toBe(true);
+  expect(change().hidden).toBe(false);
 
-    change().click();
-    expect(loader().hidden).toBe(false);
-    expect(change().hidden).toBe(true);
+  change().click();
+  expect(loader().hidden).toBe(false);
+  expect(change().hidden).toBe(true);
 
-    view.setSource(null);
-    expect(loader().hidden).toBe(false);
-  });
+  view.setSource(null);
+  expect(loader().hidden).toBe(false);
+});
 
-  it("shows the source as a WME card and the lines in a WME list", () => {
-    const view = new LinesListView(props());
-    view.setSource({ kind: "file", name: "rallye.kmz" });
-    view.setEntries([entry("a")], notStarted);
-    expect(view.root.querySelector(".wmegj-source-card")?.tagName).toBe("WZ-CARD");
-    expect(view.root.querySelector(".wmegj-line-list")?.tagName).toBe("WZ-LIST");
-    expect(view.root.querySelector(".wmegj-source-card i.w-icon-script")).not.toBeNull();
-  });
+it("shows the source as a WME card and the lines in a WME list", () => {
+  const view = new LinesListView(props());
+  view.setSource({ kind: "file", name: "rallye.kmz" });
+  view.setEntries([entry("a")], notStarted);
+  expect(view.root.querySelector(".wmegj-source-card")?.tagName).toBe("WZ-CARD");
+  expect(view.root.querySelector(".wmegj-line-list")?.tagName).toBe("WZ-LIST");
+  expect(view.root.querySelector(".wmegj-source-card i.w-icon-script")).not.toBeNull();
+});
 ```
 
 The existing tests stay; where one fails only because of a DOM detail changed by this task (not a behaviour), adapt the selector and say so in the report.
@@ -365,25 +372,25 @@ Locales — `panel.lines`: FR `"sourceTitle": "Source"`, `"linesTitle": "Lignes"
 CSS (append; replace the batch B `.wmegj-source-card` rules):
 
 ```css
-  .wmegj-card-header {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 8px;
-  }
-  .wmegj-card-actions {
-    display: flex;
-    gap: 4px;
-  }
-  .wmegj-source-name {
-    overflow-wrap: anywhere;
-  }
-  .wmegj-source-card {
-    display: block;
-  }
-  .wmegj-change-source {
-    align-self: flex-start;
-  }
+.wmegj-card-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+.wmegj-card-actions {
+  display: flex;
+  gap: 4px;
+}
+.wmegj-source-name {
+  overflow-wrap: anywhere;
+}
+.wmegj-source-card {
+  display: block;
+}
+.wmegj-change-source {
+  align-self: flex-start;
+}
 ```
 
 Run tests → PASS; full suite; tsc; eslint; commit `feat(ui): Lignes tab with a WME source card and list, loader folded once loaded`.
@@ -397,29 +404,30 @@ Run tests → PASS; full suite; tsc; eslint; commit `feat(ui): Lignes tab with a
 **Interfaces:** unchanged public APIs (`MatchingHeaderView({ onBack })`, `setTitle`, `setSummary`; `MatchingStepsView`, `nextStep`, `StepsState`). Kept classes: `.wmegj-back`, `.wmegj-header-summary`, `.wmegj-step`, `.is-next`, `.is-done`.
 
 Design:
+
 - **Header** like WME's "ÉDITER UN ÉVÉNEMENT": a row `[back icon button][column]`; the back button is `wzIconButton("w-icon-arrow-left", t("panel.matching.back"), onBack)` with class `wmegj-back`; the column holds an UPPERCASE kicker `p.wmegj-header-kicker` = `t("panel.matching.kicker")` ("LIGNE"), the title (`h3.wmegj-header-title`) and the summary caption.
 - **Steps**: each step root is `<wz-card size="sm" variant="elevated" elevation="0">` with class `wmegj-step` (and `is-next` / `is-done`); the next step gets `elevation="1"`. The header is a `div.wmegj-card-header` (same grid as Task 2) `[badge][wz-subhead5 title]`.
 
 - [ ] **Step 1: Tests first** — in `MatchingHeaderView.test.ts` add:
 
 ```ts
-  it("looks like a WME panel header: back icon, kicker, title", () => {
-    const header = new MatchingHeaderView({ onBack: vi.fn() });
-    header.setTitle("SS7+11 Les Cols");
-    expect(header.root.querySelector(".wmegj-back i.w-icon-arrow-left")).not.toBeNull();
-    expect(header.root.querySelector(".wmegj-header-kicker")?.textContent).toBe("Ligne");
-  });
+it("looks like a WME panel header: back icon, kicker, title", () => {
+  const header = new MatchingHeaderView({ onBack: vi.fn() });
+  header.setTitle("SS7+11 Les Cols");
+  expect(header.root.querySelector(".wmegj-back i.w-icon-arrow-left")).not.toBeNull();
+  expect(header.root.querySelector(".wmegj-header-kicker")?.textContent).toBe("Ligne");
+});
 ```
 
 (the kicker text is "Ligne"; CSS uppercases it). In `MatchingStepsView.test.ts` add:
 
 ```ts
-  it("renders the steps as WME cards, the next one raised", () => {
-    const { steps } = setup({});
-    expect(steps.every((step) => step.tagName === "WZ-CARD")).toBe(true);
-    expect(steps[0].getAttribute("elevation")).toBe("1");
-    expect(steps[1].getAttribute("elevation")).toBe("0");
-  });
+it("renders the steps as WME cards, the next one raised", () => {
+  const { steps } = setup({});
+  expect(steps.every((step) => step.tagName === "WZ-CARD")).toBe(true);
+  expect(steps[0].getAttribute("elevation")).toBe("1");
+  expect(steps[1].getAttribute("elevation")).toBe("0");
+});
 ```
 
 Run → FAIL.
@@ -435,6 +443,7 @@ Run tests → PASS; full suite; tsc; eslint; commit `feat(ui): Matching sidebar 
 **Files:** Modify `src/ui/matchingPanelText.ts`, `src/ui/subtabs/MatchingSubTab.ts`, `src/ui/styles.ts`, locales; test `src/__tests__/matchingPanelText.test.ts`.
 
 **Interfaces:**
+
 - `stepNavState(...)` gains a trailing optional parameter `pendingCount: number | null = null`; for an unvalidated current step the caption becomes `"{window} · " + t("panel.matching.nav.found", { count: pendingCount })` when `pendingCount !== null`, else the existing `"{window} · à valider"`.
 - New `isLineComplete(source: Source | null): boolean` re-export from `isMatchingComplete` is not needed — use `isMatchingComplete` from `src/domain/isMatchingComplete.ts` directly.
 - New pure helper `panelStatusKey(run: MatchingUiState["kind"], complete: boolean): PanelStatusKey` in `matchingPanelText.ts`: `"done"` when `complete && (run === "idle" || run === "done")`, else `statusKeyFor({ kind: run } as MatchingUiState)` (import `statusKeyFor` and `PanelStatusKey` from `./matchingUiState`).
@@ -458,10 +467,23 @@ describe("frontier caption", () => {
   it("carries the pending match count", () => {
     const pendingSource: Source = {
       ...source,
-      lines: [{ ...source.lines[0], subLines: [sub(0, true), sub(1, false)], pendingTail: [{ kmA: 4, kmB: 6 }] }],
+      lines: [
+        {
+          ...source.lines[0],
+          subLines: [sub(0, true), sub(1, false)],
+          pendingTail: [{ kmA: 4, kmB: 6 }],
+        },
+      ],
     };
     const frontier = { lineIndex: 0, subLineIndex: 1 };
-    const nav = stepNavState(pendingSource, frontier, [{ lineIndex: 0, subLineIndex: 0 }, frontier], true, false, 7);
+    const nav = stepNavState(
+      pendingSource,
+      frontier,
+      [{ lineIndex: 0, subLineIndex: 0 }, frontier],
+      true,
+      false,
+      7,
+    );
     expect(nav.caption).toBe("2.00 → 4.00 km · 7 segment(s) trouvé(s)");
   });
 });

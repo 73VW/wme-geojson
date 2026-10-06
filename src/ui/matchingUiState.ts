@@ -96,6 +96,8 @@ export interface MatchingControlsView {
   validate: ButtonView;
   skip: ButtonView;
   rematch: ButtonView;
+  /** Put the detected segments back into the selection (e.g. after a stray click). */
+  reselect: ButtonView;
   pause: ButtonView;
   resume: ButtonView;
   retry: ButtonView;
@@ -113,6 +115,7 @@ const ALL_HIDDEN: MatchingControlsView = {
   validate: HIDDEN,
   skip: HIDDEN,
   rematch: HIDDEN,
+  reselect: HIDDEN,
   pause: HIDDEN,
   resume: HIDDEN,
   retry: HIDDEN,
@@ -134,6 +137,7 @@ export function controlsFor(state: MatchingUiState, hasSource: boolean): Matchin
         validate: SHOWN_DISABLED,
         skip: SHOWN_DISABLED,
         rematch: SHOWN_DISABLED,
+        reselect: SHOWN_DISABLED,
         restart: SHOWN_DISABLED,
       };
     case "waiting":
@@ -142,6 +146,7 @@ export function controlsFor(state: MatchingUiState, hasSource: boolean): Matchin
         validate: SHOWN,
         skip: SHOWN,
         rematch: SHOWN,
+        reselect: SHOWN,
         restart: SHOWN,
       };
     case "bursting":

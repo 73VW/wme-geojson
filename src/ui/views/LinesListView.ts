@@ -63,6 +63,7 @@ export class LinesListView {
   private readonly sourceSection: HTMLElement;
   private readonly linesSection: HTMLElement;
   private readonly loader: HTMLElement;
+  private readonly cancelChangeBtn: HTMLElement;
   private readonly changeBtn: HTMLElement;
   private readonly listEl: HTMLElement;
   private hasSource = false;
@@ -161,6 +162,19 @@ export class LinesListView {
     });
     this.changeBtn.classList.add("wmegj-change-source");
 
+    // Back out of "Changer de source" as if nothing happened.
+    this.cancelChangeBtn = wzButton({
+      text: i18next.t("panel.lines.cancelChange"),
+      variant: "text",
+      size: "sm",
+      onClick: () => {
+        this.setUrl("");
+        this.clearError();
+        this.setLoaderOpen(false);
+      },
+    });
+    this.cancelChangeBtn.classList.add("wmegj-cancel-change");
+
     this.loader = document.createElement("div");
     this.loader.className = "wmegj-section wmegj-loader";
     this.loader.append(slowupsBtn, other);
@@ -176,6 +190,7 @@ export class LinesListView {
       this.sourceSection,
       this.changeBtn,
       this.loader,
+      this.cancelChangeBtn,
       this.errorEl,
       this.linesSection,
     );
@@ -184,6 +199,7 @@ export class LinesListView {
   private setLoaderOpen(open: boolean): void {
     this.loader.hidden = !open;
     this.changeBtn.hidden = open || !this.hasSource;
+    this.cancelChangeBtn.hidden = !open || !this.hasSource;
   }
 
   /** Pre-fill the URL field (e.g. from the query param). */

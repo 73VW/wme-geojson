@@ -25,7 +25,15 @@ const SUBLINE_PALETTE = [
 ] as const;
 
 const SLICE_STROKE_COLOR = "#00d9ff";
-const SLICE_STROKE_WIDTH = 7;
+/**
+ * Width of the highlighted sub-line: thick enough to find it zoomed out, thin
+ * enough not to hide the segments underneath once zoomed in to match them.
+ */
+export function sliceStrokeWidth(zoomLevel: number): number {
+  if (zoomLevel >= 17) return 3;
+  if (zoomLevel >= 16) return 5;
+  return 7;
+}
 const SLICE_STROKE_OPACITY = 0.75;
 
 const LABEL_FONT_SIZE = "11px";
@@ -115,6 +123,7 @@ export class TrackLayer {
           const km = feature?.properties.km;
           return typeof km === "number" ? formatLabelKm(km) : "";
         },
+        getSliceWidth: ({ zoomLevel }) => sliceStrokeWidth(zoomLevel),
         getLineColor: ({ feature }) => {
           const lineColor = feature?.properties.lineColor;
           return typeof lineColor === "string" && lineColor !== "" ? lineColor : TRACK_STROKE_COLOR;
@@ -394,7 +403,7 @@ export class TrackLayer {
         predicate: (props: { kind?: string | number | null }) => props.kind === SLICE_KIND,
         style: {
           strokeColor: SLICE_STROKE_COLOR,
-          strokeWidth: SLICE_STROKE_WIDTH,
+          strokeWidth: "${getSliceWidth}",
           strokeOpacity: SLICE_STROKE_OPACITY,
           strokeLinecap: "round" as const,
         },

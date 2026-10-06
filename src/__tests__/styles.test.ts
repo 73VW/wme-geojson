@@ -42,4 +42,13 @@ describe("injectStyles", () => {
   it("removes the internal margin of WME cards", () => {
     expect(BASE_CSS).toMatch(/\.wmegj-panel-root wz-card \{[^}]*--wz-card-margin: 0;/);
   });
+
+  it("makes line rows clickable over the full list width", () => {
+    // wz-list pads its rows by 16px: the hover stopped short and the cursor stayed an arrow.
+    expect(BASE_CSS).toMatch(/wz-list\.wmegj-line-list \{[^}]*padding: 0;/);
+    expect(BASE_CSS).toMatch(/\.wmegj-line-row\[clickable\] \{[^}]*cursor: pointer;/);
+    expect(BASE_CSS).toMatch(
+      /\.wmegj-line-row\[clickable\]:hover \{[^}]*background: var\(--background_variant\);/,
+    );
+  });
 });

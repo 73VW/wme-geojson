@@ -31,29 +31,31 @@
 
 ## File Structure
 
-| File | Responsibility |
-|---|---|
-| `src/ui/styles.ts` (new) | Shared CSS strings + `injectStyles(doc)` |
-| `src/ui/components/wz.ts` (modify) | Add field helpers: `wzTextarea`, `wzSelect`, `wzCheckbox`, `wzChipSelect`, `wzLabel`, `dateTimeInput`, `readValue`, `isChecked`; `maxLength` on `wzTextInput`; `"text"` button variant |
-| `src/ui/components/wzDialog.ts` (new) | `wzDialog`, `confirmDialog`, `alertDialog` |
-| `src/ui/modal.ts` (delete) | replaced by `confirmDialog` |
-| `src/ui/promptMteInfo.ts` (rewrite) | MTE info dialog incl. category + lock level |
-| `src/mte/mteFormFiller.ts` (modify) | `MteEventOptions`, `lockLevel`, `categoryOptions`, `lockLevelOptions` |
-| `src/ui/promptFinalFields.ts` (rewrite) | final fields on `wzDialog` |
-| `src/ui/components/promptClosureWindow.ts` (rewrite UI part) | closure windows on `wzDialog` |
-| `src/ui/MtePreparePopup.ts` (modify) | WME-like styling of the detached window |
-| `src/ui/subtabs/MatchingSubTab.ts` (modify) | use new dialogs, no `alert()`, MTE options flow |
-| `src/ui/MatchPanel.ts`, `main.user.ts`, `header.js`, `header-dev.template.js`, `README.md`, `locales/*/common.json` | rename |
+| File                                                                                                                | Responsibility                                                                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/ui/styles.ts` (new)                                                                                            | Shared CSS strings + `injectStyles(doc)`                                                                                                                                               |
+| `src/ui/components/wz.ts` (modify)                                                                                  | Add field helpers: `wzTextarea`, `wzSelect`, `wzCheckbox`, `wzChipSelect`, `wzLabel`, `dateTimeInput`, `readValue`, `isChecked`; `maxLength` on `wzTextInput`; `"text"` button variant |
+| `src/ui/components/wzDialog.ts` (new)                                                                               | `wzDialog`, `confirmDialog`, `alertDialog`                                                                                                                                             |
+| `src/ui/modal.ts` (delete)                                                                                          | replaced by `confirmDialog`                                                                                                                                                            |
+| `src/ui/promptMteInfo.ts` (rewrite)                                                                                 | MTE info dialog incl. category + lock level                                                                                                                                            |
+| `src/mte/mteFormFiller.ts` (modify)                                                                                 | `MteEventOptions`, `lockLevel`, `categoryOptions`, `lockLevelOptions`                                                                                                                  |
+| `src/ui/promptFinalFields.ts` (rewrite)                                                                             | final fields on `wzDialog`                                                                                                                                                             |
+| `src/ui/components/promptClosureWindow.ts` (rewrite UI part)                                                        | closure windows on `wzDialog`                                                                                                                                                          |
+| `src/ui/MtePreparePopup.ts` (modify)                                                                                | WME-like styling of the detached window                                                                                                                                                |
+| `src/ui/subtabs/MatchingSubTab.ts` (modify)                                                                         | use new dialogs, no `alert()`, MTE options flow                                                                                                                                        |
+| `src/ui/MatchPanel.ts`, `main.user.ts`, `header.js`, `header-dev.template.js`, `README.md`, `locales/*/common.json` | rename                                                                                                                                                                                 |
 
 ---
 
 ### Task 1: Shared stylesheet
 
 **Files:**
+
 - Create: `src/ui/styles.ts`
 - Test: `src/__tests__/styles.test.ts`
 
 **Interfaces:**
+
 - Produces: `STYLE_ELEMENT_ID: string`, `BASE_CSS: string`, `TOKEN_FALLBACKS_CSS: string`, `injectStyles(doc: Document): void` (idempotent).
 
 - [ ] **Step 1: Write the failing test**
@@ -256,10 +258,12 @@ git commit -m "feat(ui): shared stylesheet on WME design tokens"
 ### Task 2: `wz-*` field helpers
 
 **Files:**
+
 - Modify: `src/ui/components/wz.ts`
 - Test: `src/__tests__/wzFields.test.ts`
 
 **Interfaces:**
+
 - Consumes: existing `wzButton`, `wzTextInput`, `warnMissingTag` in `wz.ts`.
 - Produces (all exported from `src/ui/components/wz.ts`):
   - `WzButtonProps.variant` gains `"text"` (maps to `color="text"`).
@@ -366,13 +370,13 @@ a) `WzButtonProps.variant`: change to `"primary" | "secondary" | "danger" | "tex
 b) `WzTextInputProps`: add `maxLength?: number;`. In the fallback branch after `input.disabled = …` add:
 
 ```ts
-    if (props.maxLength !== undefined) input.maxLength = props.maxLength;
+if (props.maxLength !== undefined) input.maxLength = props.maxLength;
 ```
 
 In the registered branch after `if (props.disabled) el.setAttribute("disabled", "");` add:
 
 ```ts
-  if (props.maxLength !== undefined) el.setAttribute("maxlength", String(props.maxLength));
+if (props.maxLength !== undefined) el.setAttribute("maxlength", String(props.maxLength));
 ```
 
 c) Append the new helpers at the end of the file:
@@ -573,10 +577,12 @@ git commit -m "feat(ui): wz field helpers with plain-HTML fallbacks"
 ### Task 3: Native dialog helper
 
 **Files:**
+
 - Create: `src/ui/components/wzDialog.ts`
 - Test: `src/__tests__/wzDialog.test.ts`
 
 **Interfaces:**
+
 - Consumes: `wzButton` (Task 2 variant set), `injectStyles` (Task 1).
 - Produces:
   - `interface WzDialogOptions { title: string; body?: (Node | string)[]; primaryLabel: string; cancelLabel?: string; onPrimary?: () => string | null; focus?: HTMLElement }`
@@ -904,11 +910,13 @@ git commit -m "feat(ui): native wz-dialog helper with confirm and alert variants
 ### Task 4: Replace `confirmModal` and every `alert()`
 
 **Files:**
+
 - Modify: `src/ui/subtabs/MatchingSubTab.ts` (imports; `confirmModal` at ~1532, ~1946, ~2330; `alert` at ~2135, ~2147, ~2224, ~2281)
 - Modify: `src/ui/MtePreparePopup.ts:69`
 - Delete: `src/ui/modal.ts`
 
 **Interfaces:**
+
 - Consumes: `confirmDialog`, `alertDialog` (Task 3).
 
 - [ ] **Step 1: Swap imports**
@@ -924,12 +932,12 @@ import { alertDialog, confirmDialog } from "../components/wzDialog";
 Restart (~1532):
 
 ```ts
-    confirmDialog({
-      title: i18next.t("panel.dialogs.restartTitle"),
-      message: i18next.t("panel.matching.restartConfirm"),
-      confirmLabel: i18next.t("panel.matching.restartFromScratch"),
-      cancelLabel: i18next.t("panel.finalFields.cancel"),
-    })
+confirmDialog({
+  title: i18next.t("panel.dialogs.restartTitle"),
+  message: i18next.t("panel.matching.restartConfirm"),
+  confirmLabel: i18next.t("panel.matching.restartFromScratch"),
+  cancelLabel: i18next.t("panel.finalFields.cancel"),
+});
 ```
 
 MTE already linked (~1946): same shape with `title: i18next.t("panel.dialogs.mteLinkedTitle")`, keeping its existing `message` / labels.
@@ -962,6 +970,7 @@ git commit -m "refactor(ui): native dialogs instead of confirmModal and alert()"
 ### Task 5: MTE info dialog with category and lock level
 
 **Files:**
+
 - Modify: `src/mte/mteFormFiller.ts`
 - Rewrite: `src/ui/promptMteInfo.ts`
 - Modify: `src/ui/subtabs/MatchingSubTab.ts` (`openMtePopup`, ~1923-1985)
@@ -969,6 +978,7 @@ git commit -m "refactor(ui): native dialogs instead of confirmModal and alert()"
 - Test: `src/__tests__/mteFormFiller.test.ts`, `src/__tests__/promptMteInfo.test.ts`
 
 **Interfaces:**
+
 - Consumes: `wzDialog` (Task 3); `wzTextInput`, `wzTextarea`, `wzSelect`, `wzChipSelect`, `dateTimeInput`, `readValue` (Task 2).
 - Produces:
   - `type LockLevel = 1 | 2 | 3 | 4`
@@ -1107,14 +1117,14 @@ In `MteFormData` change `category: MajorTrafficEventCategory | null;` to `catego
 In `fillMteForm`, replace the `if (data.category) { … }` block with:
 
 ```ts
-  const sel = inForm("wz-select.category") as HTMLElement & { value: string };
-  sel.value = data.category;
-  sel.dispatchEvent(new CustomEvent("change", { bubbles: true, composed: true }));
-  await sleep(150);
+const sel = inForm("wz-select.category") as HTMLElement & { value: string };
+sel.value = data.category;
+sel.dispatchEvent(new CustomEvent("change", { bubbles: true, composed: true }));
+await sleep(150);
 
-  // Lock chips are wz-checkable-chip#lockRank-0..3 (level 1..4).
-  inForm(`wz-checkable-chip#lockRank-${data.lockLevel - 1}`)?.click();
-  await sleep(150);
+// Lock chips are wz-checkable-chip#lockRank-0..3 (level 1..4).
+inForm(`wz-checkable-chip#lockRank-${data.lockLevel - 1}`)?.click();
+await sleep(150);
 ```
 
 `slowupFormData` gains a third parameter `options: MteEventOptions` and returns `category: options.category, lockLevel: options.lockLevel` instead of `category: "SPORTING_EVENT"`. `manualFormData` gains the same parameter and returns `category: options.category, lockLevel: options.lockLevel` instead of `category: null`. Update both doc comments ("catégorie choisie dans la fenêtre Préparer le MTE").
@@ -1251,53 +1261,53 @@ export async function promptMteInfo(defaults: {
 Replace the body from `const refid = …` to the end of the `try` block with (the linked-MTE confirmation now comes first, so the user isn't asked for details they then throw away):
 
 ```ts
-    const refid = entry.slowupDetails?.refid;
-    const slowupPolygon = inflatedTrackPolygon(entry.track.geometry, 500);
-    const mteKey = mteKeyOf(entry);
+const refid = entry.slowupDetails?.refid;
+const slowupPolygon = inflatedTrackPolygon(entry.track.geometry, 500);
+const mteKey = mteKeyOf(entry);
 
-    const stored = mteStore.get(mteKey);
-    if (
-      stored &&
-      !(await confirmDialog({
-        title: i18next.t("panel.dialogs.mteLinkedTitle"),
-        message: i18next.t("panel.matching.mteAlreadyLinked", { id: stored }),
-        confirmLabel: i18next.t("panel.matching.mteCreateAnyway"),
-        cancelLabel: i18next.t("panel.finalFields.cancel"),
-      }))
-    ) {
-      return;
-    }
+const stored = mteStore.get(mteKey);
+if (
+  stored &&
+  !(await confirmDialog({
+    title: i18next.t("panel.dialogs.mteLinkedTitle"),
+    message: i18next.t("panel.matching.mteAlreadyLinked", { id: stored }),
+    confirmLabel: i18next.t("panel.matching.mteCreateAnyway"),
+    cancelLabel: i18next.t("panel.finalFields.cancel"),
+  }))
+) {
+  return;
+}
 
-    const info = await promptMteInfo({
-      title: entry.displayName,
-      userRank: this.wmeSDK.State.getUserInfo()?.rank ?? 0,
-      askDetails: !refid,
-    });
-    if (!info) return;
+const info = await promptMteInfo({
+  title: entry.displayName,
+  userRank: this.wmeSDK.State.getUserInfo()?.rank ?? 0,
+  askDetails: !refid,
+});
+if (!info) return;
 
-    let source: MtePreparePopupDeps["source"];
-    if (refid) source = { refid };
-    else if (info.manual) source = { manual: info.manual };
-    else return;
+let source: MtePreparePopupDeps["source"];
+if (refid) source = { refid };
+else if (info.manual) source = { manual: info.manual };
+else return;
 
-    // Remplit le formulaire WME ; l'ID est stocké quand l'utilisateur enregistre.
-    try {
-      const geometry = slowupPolygon?.geometry ?? null;
-      const data =
-        "refid" in source
-          ? slowupFormData(await fetchSlowupFullDetails(source.refid), geometry, info.options)
-          : manualFormData(source.manual, geometry, info.options);
-      const draftId = await fillMteForm(this.wmeSDK, data);
-      watchMteSaved(this.wmeSDK, draftId, (id) => {
-        logger.info(`MTE enregistré : ${draftId} → ${id}`);
-        mteStore.set(mteKey, id);
-        this.updateLinkedMte(this.registry.getSelected());
-      });
-      return;
-    } catch (err) {
-      // Transition : on garde le popup copier-coller en secours.
-      logger.warn("Remplissage du formulaire MTE impossible, popup de secours", err);
-    }
+// Remplit le formulaire WME ; l'ID est stocké quand l'utilisateur enregistre.
+try {
+  const geometry = slowupPolygon?.geometry ?? null;
+  const data =
+    "refid" in source
+      ? slowupFormData(await fetchSlowupFullDetails(source.refid), geometry, info.options)
+      : manualFormData(source.manual, geometry, info.options);
+  const draftId = await fillMteForm(this.wmeSDK, data);
+  watchMteSaved(this.wmeSDK, draftId, (id) => {
+    logger.info(`MTE enregistré : ${draftId} → ${id}`);
+    mteStore.set(mteKey, id);
+    this.updateLinkedMte(this.registry.getSelected());
+  });
+  return;
+} catch (err) {
+  // Transition : on garde le popup copier-coller en secours.
+  logger.warn("Remplissage du formulaire MTE impossible, popup de secours", err);
+}
 ```
 
 (Task 4 already changed this `confirmModal` to `confirmDialog`; this step moves it above the prompt.) The `openMtePreparePopup({...})` call after the `catch` is unchanged.
@@ -1343,10 +1353,12 @@ git commit -m "feat(mte): event category and lock level in the Prepare MTE dialo
 ### Task 6: Final fields on the native dialog
 
 **Files:**
+
 - Rewrite: `src/ui/promptFinalFields.ts`
 - Test: `src/__tests__/promptFinalFields.test.ts` (new; `promptFinalFieldsDefault.test.ts` stays)
 
 **Interfaces:**
+
 - Consumes: `wzDialog` (Task 3); `wzTextInput`, `wzCheckbox`, `readValue`, `isChecked` (Task 2).
 - Produces: unchanged public API — `resolveDefaultMteId`, `PromptFinalFieldsOptions`, `promptFinalFields(options): Promise<FinalFields | null>`. The `el` / `labeledInput` exports are removed (Task 5 removed their last importer).
 
@@ -1474,10 +1486,12 @@ git commit -m "refactor(ui): final fields on the native WME dialog"
 ### Task 7: Closure window on the native dialog
 
 **Files:**
+
 - Modify: `src/ui/components/promptClosureWindow.ts` (keep the types and `closureWindowDefaults`; rewrite `promptClosureWindow`, drop the local `el`)
 - Test: `src/__tests__/promptClosureWindow.test.ts` (new)
 
 **Interfaces:**
+
 - Consumes: `wzDialog` (Task 3); `dateTimeInput`, `wzButton`, `wzLabel` (Task 2).
 - Produces: unchanged `promptClosureWindow(defaults, mode): Promise<ClosureWindow[] | null>`.
 
@@ -1517,7 +1531,9 @@ describe("promptClosureWindow", () => {
 
   it("adds a line on the last line's date and never removes the only line", () => {
     void promptClosureWindow(defaults, "apply");
-    const removeButtons = () => [...document.querySelectorAll<HTMLButtonElement>(".wmegj-icon-only")];
+    const removeButtons = () => [
+      ...document.querySelectorAll<HTMLButtonElement>(".wmegj-icon-only"),
+    ];
     expect(removeButtons()[0].disabled).toBe(true);
     document.querySelector<HTMLButtonElement>(".wmegj-button--text")!.click();
     expect(dates()).toHaveLength(4);
@@ -1657,9 +1673,11 @@ git commit -m "refactor(ui): closure window on the native WME dialog"
 ### Task 8: "Préparer MTE" helper window styling
 
 **Files:**
+
 - Modify: `src/ui/MtePreparePopup.ts` (`injectBaseStyles`, `copyButton`, `candidateRow`)
 
 **Interfaces:**
+
 - Consumes: `TOKEN_FALLBACKS_CSS` (Task 1).
 
 - [ ] **Step 1: Replace `injectBaseStyles`**
@@ -1758,6 +1776,7 @@ git commit -m "style(mte): WME look for the Prepare MTE helper window"
 ### Task 9: Rename to "WME Event Closures"
 
 **Files:**
+
 - Modify: `header.js`, `header-dev.template.js`, `main.user.ts:24`, `src/ui/MatchPanel.ts:61`, `locales/en/common.json` + `locales/fr/common.json` (`title`), `README.md` (title + install note)
 
 - [ ] **Step 1: Apply the rename**
@@ -1808,13 +1827,13 @@ Reload the WME tab (the dev userscript `@require`s `.out/main.user.js`). Check t
 
 For each, take a screenshot and compare with WME's save dialog (title, body, red "Annuler" left, blue primary right, no ×):
 
-| Dialog | How to open |
-|---|---|
+| Dialog                   | How to open                                                                                     |
+| ------------------------ | ----------------------------------------------------------------------------------------------- |
 | Préparer le MTE (manual) | Matching tab of a non-slowUp line → "Préparer MTE" (confirm "MTE déjà associé" first if linked) |
-| MTE déjà associé | same, on a line with a linked MTE |
-| Fenêtre de fermeture | "Appliquer les fermetures dans WME" without planning CSV |
-| Champs finaux (apply) | continue the previous dialog with "Appliquer" — then **Annuler** (do not apply) |
-| Recommencer à zéro ? | matching panel → "Recommencer à zéro" → **Annuler** |
+| MTE déjà associé         | same, on a line with a linked MTE                                                               |
+| Fenêtre de fermeture     | "Appliquer les fermetures dans WME" without planning CSV                                        |
+| Champs finaux (apply)    | continue the previous dialog with "Appliquer" — then **Annuler** (do not apply)                 |
+| Recommencer à zéro ?     | matching panel → "Recommencer à zéro" → **Annuler**                                             |
 
 For each dialog also check: Esc cancels; Enter in a text field submits; typing letters in a field does not trigger WME shortcuts; the category `wz-select` opens; lock chips above the editor's rank are disabled; the dialog does not overflow horizontally.
 

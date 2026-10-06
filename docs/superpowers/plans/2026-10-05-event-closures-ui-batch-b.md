@@ -34,33 +34,35 @@
 
 ## File Structure
 
-| File | Responsibility |
-|---|---|
-| `src/domain/lineProgress.ts` (new) | `lineProgress(source)` → not started / % validated / done |
-| `src/__tests__/helpers/i18nFr.ts` (new) | init i18next with the real FR bundle for view tests |
-| `src/lines/displayName.ts` (modify) | export `formatSlowupDate` |
-| `src/lines/slowupClient.ts` (modify) | export `SLOWUPS_GEOJSON_URL` |
-| `src/ui/views/LineRowView.ts` (rewrite) | one line row: colour dot, name, date, progress, recenter |
-| `src/ui/views/LinesListView.ts` (rewrite) | slowUps button, other source (URL + file), source card, list |
-| `src/ui/subtabs/LinesSubTab.ts` (modify) | source state, progress lookup, refresh |
-| `src/ui/MatchPanel.ts` (modify) | wiring: progress, refresh on show, back to Lignes, drop shell CSS |
-| `src/bootstrap/loadAndAttachTrack.ts` (modify) | `notifyUrlLoaded(url)` |
-| `src/ui/views/MatchingHeaderView.ts` (rewrite) | "← Lignes", line name, "km · status" |
-| `src/ui/views/PlanningCsvView.ts` (new) | planning CSV file input / loaded chip / error |
-| `src/ui/views/RangeSliderView.ts` (new) | two-handle distance slider on one track |
-| `src/ui/views/MatchingStepsView.ts` (new) | three numbered steps, one primary action |
-| `src/ui/subtabs/MatchingSubTab.ts` (modify) | use the four views, drop old rows/badge/CSS |
-| `src/ui/styles.ts` (modify) | CSS for all of the above |
+| File                                           | Responsibility                                                    |
+| ---------------------------------------------- | ----------------------------------------------------------------- |
+| `src/domain/lineProgress.ts` (new)             | `lineProgress(source)` → not started / % validated / done         |
+| `src/__tests__/helpers/i18nFr.ts` (new)        | init i18next with the real FR bundle for view tests               |
+| `src/lines/displayName.ts` (modify)            | export `formatSlowupDate`                                         |
+| `src/lines/slowupClient.ts` (modify)           | export `SLOWUPS_GEOJSON_URL`                                      |
+| `src/ui/views/LineRowView.ts` (rewrite)        | one line row: colour dot, name, date, progress, recenter          |
+| `src/ui/views/LinesListView.ts` (rewrite)      | slowUps button, other source (URL + file), source card, list      |
+| `src/ui/subtabs/LinesSubTab.ts` (modify)       | source state, progress lookup, refresh                            |
+| `src/ui/MatchPanel.ts` (modify)                | wiring: progress, refresh on show, back to Lignes, drop shell CSS |
+| `src/bootstrap/loadAndAttachTrack.ts` (modify) | `notifyUrlLoaded(url)`                                            |
+| `src/ui/views/MatchingHeaderView.ts` (rewrite) | "← Lignes", line name, "km · status"                              |
+| `src/ui/views/PlanningCsvView.ts` (new)        | planning CSV file input / loaded chip / error                     |
+| `src/ui/views/RangeSliderView.ts` (new)        | two-handle distance slider on one track                           |
+| `src/ui/views/MatchingStepsView.ts` (new)      | three numbered steps, one primary action                          |
+| `src/ui/subtabs/MatchingSubTab.ts` (modify)    | use the four views, drop old rows/badge/CSS                       |
+| `src/ui/styles.ts` (modify)                    | CSS for all of the above                                          |
 
 ---
 
 ### Task 1: Line progress + test helper
 
 **Files:**
+
 - Create: `src/domain/lineProgress.ts`, `src/__tests__/helpers/i18nFr.ts`
 - Test: `src/__tests__/lineProgress.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `type LineProgress = { kind: "notStarted" } | { kind: "inProgress"; percent: number } | { kind: "done" }`
   - `lineProgress(source: Source | null): LineProgress`
@@ -215,11 +217,13 @@ git commit -m "feat(domain): line matching progress from the persisted source"
 ### Task 2: Line row
 
 **Files:**
+
 - Rewrite: `src/ui/views/LineRowView.ts`
 - Modify: `src/lines/displayName.ts` (export `formatSlowupDate`), `src/ui/styles.ts`, both locales
 - Test: `src/__tests__/LineRowView.test.ts`
 
 **Interfaces:**
+
 - Consumes: `LineProgress` (Task 1), `initFrench` (Task 1).
 - Produces: `new LineRowView({ entry: LineEntry; progress: LineProgress; onSelect(id: string): void; onCenter(id: string): void })` with `root: HTMLElement`.
 
@@ -273,7 +277,12 @@ describe("LineRowView", () => {
   });
 
   it("shows progress only once the line has been started", () => {
-    const none = new LineRowView({ entry: entry(), progress: notStarted, onSelect: vi.fn(), onCenter: vi.fn() });
+    const none = new LineRowView({
+      entry: entry(),
+      progress: notStarted,
+      onSelect: vi.fn(),
+      onCenter: vi.fn(),
+    });
     expect(none.root.querySelector(".wmegj-line-progress")).toBeNull();
 
     const half = new LineRowView({
@@ -284,7 +293,12 @@ describe("LineRowView", () => {
     });
     expect(half.root.querySelector(".wmegj-line-progress")?.textContent).toBe("45 %");
 
-    const done = new LineRowView({ entry: entry(), progress: { kind: "done" }, onSelect: vi.fn(), onCenter: vi.fn() });
+    const done = new LineRowView({
+      entry: entry(),
+      progress: { kind: "done" },
+      onSelect: vi.fn(),
+      onCenter: vi.fn(),
+    });
     const doneEl = done.root.querySelector(".wmegj-line-progress");
     expect(doneEl?.textContent).toContain("Terminé");
     expect(doneEl?.classList.contains("is-done")).toBe(true);
@@ -433,76 +447,76 @@ c) Locales — `panel.lines`: FR `"progressDone": "Terminé"`, `"progressPercent
 d) Append to `BASE_CSS` in `src/ui/styles.ts`:
 
 ```css
-  .wmegj-line-list {
-    display: flex;
-    flex-direction: column;
+.wmegj-line-list {
+  display: flex;
+  flex-direction: column;
+}
+.wmegj-line-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 4px 4px 4px 8px;
+  border-bottom: 1px solid var(--separator_default);
+  cursor: pointer;
+}
+.wmegj-line-row:hover {
+  background: var(--background_variant);
+}
+.wmegj-line-row--loading {
+  opacity: 0.6;
+  cursor: default;
+}
+.wmegj-line-row--loading:hover {
+  background: transparent;
+}
+.wmegj-line-pill {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.wmegj-line-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.wmegj-line-name {
+  font-size: 14px;
+  color: var(--content_default);
+  overflow-wrap: anywhere;
+}
+.wmegj-line-caption {
+  font-size: 12px;
+  color: var(--content_p3);
+}
+.wmegj-line-progress {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--content_p2);
+}
+.wmegj-line-progress.is-done {
+  color: var(--safe_variant);
+}
+.wmegj-line-warning {
+  flex: 0 0 auto;
+  color: var(--cautious_variant);
+}
+.wmegj-spinner {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--hairline);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: wmegj-spin 0.7s linear infinite;
+}
+@keyframes wmegj-spin {
+  to {
+    transform: rotate(360deg);
   }
-  .wmegj-line-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-height: 48px;
-    padding: 4px 4px 4px 8px;
-    border-bottom: 1px solid var(--separator_default);
-    cursor: pointer;
-  }
-  .wmegj-line-row:hover {
-    background: var(--background_variant);
-  }
-  .wmegj-line-row--loading {
-    opacity: 0.6;
-    cursor: default;
-  }
-  .wmegj-line-row--loading:hover {
-    background: transparent;
-  }
-  .wmegj-line-pill {
-    flex: 0 0 auto;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-  }
-  .wmegj-line-text {
-    flex: 1 1 auto;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-  }
-  .wmegj-line-name {
-    font-size: 14px;
-    color: var(--content_default);
-    overflow-wrap: anywhere;
-  }
-  .wmegj-line-caption {
-    font-size: 12px;
-    color: var(--content_p3);
-  }
-  .wmegj-line-progress {
-    flex: 0 0 auto;
-    font-size: 12px;
-    color: var(--content_p2);
-  }
-  .wmegj-line-progress.is-done {
-    color: var(--safe_variant);
-  }
-  .wmegj-line-warning {
-    flex: 0 0 auto;
-    color: var(--cautious_variant);
-  }
-  .wmegj-spinner {
-    flex: 0 0 auto;
-    width: 14px;
-    height: 14px;
-    border: 2px solid var(--hairline);
-    border-top-color: var(--primary);
-    border-radius: 50%;
-    animation: wmegj-spin 0.7s linear infinite;
-  }
-  @keyframes wmegj-spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
+}
 ```
 
 - [ ] **Step 4: Run tests**
@@ -522,11 +536,13 @@ git commit -m "feat(ui): WME-style line rows with slowUp date and progress"
 ### Task 3: Lignes list view
 
 **Files:**
+
 - Rewrite: `src/ui/views/LinesListView.ts`
 - Modify: `src/lines/slowupClient.ts`, `src/ui/styles.ts`, both locales
 - Test: `src/__tests__/LinesListView.test.ts`
 
 **Interfaces:**
+
 - Consumes: `LineRowView`, `LineProgress`, `wzButton`, `wzTextInput`, `wzLabel`, `fileInput`, `readValue`, `initFrench`.
 - Produces:
   - `export const SLOWUPS_GEOJSON_URL = "https://schweizmobil.ch/api/4/slowups.geojson"` (in `slowupClient.ts`)
@@ -564,7 +580,11 @@ function props(): LinesListProps {
 function entry(id: string): LineEntry {
   return {
     id,
-    track: { trackId: id, geometry: { type: "MultiLineString", coordinates: [] }, rawProperties: {} },
+    track: {
+      trackId: id,
+      geometry: { type: "MultiLineString", coordinates: [] },
+      rawProperties: {},
+    },
     lengthKm: 1,
     displayName: id,
     color: "#000000",
@@ -757,7 +777,11 @@ export class LinesListView {
     this.urlInputHost.addEventListener("keydown", (event) => {
       if (event.key === "Enter") loadTypedUrl();
     });
-    const loadBtn = iconButton("w-icon-arrow-right", i18next.t("panel.lines.urlLoad"), "wmegj-url-load");
+    const loadBtn = iconButton(
+      "w-icon-arrow-right",
+      i18next.t("panel.lines.urlLoad"),
+      "wmegj-url-load",
+    );
     loadBtn.addEventListener("click", loadTypedUrl);
     const urlRow = document.createElement("div");
     urlRow.className = "wmegj-row";
@@ -789,9 +813,17 @@ export class LinesListView {
     this.cardCountEl = document.createElement("span");
     this.cardCountEl.className = "wmegj-line-caption";
     cardText.append(this.cardNameEl, this.cardCountEl);
-    const centerAll = iconButton("w-icon-recenter", i18next.t("panel.lines.centerAll"), "wmegj-source-center");
+    const centerAll = iconButton(
+      "w-icon-recenter",
+      i18next.t("panel.lines.centerAll"),
+      "wmegj-source-center",
+    );
     centerAll.addEventListener("click", () => props.onCenterAll());
-    const clear = iconButton("w-icon-x", i18next.t("panel.lines.clearSource"), "wmegj-source-clear");
+    const clear = iconButton(
+      "w-icon-x",
+      i18next.t("panel.lines.clearSource"),
+      "wmegj-source-clear",
+    );
     clear.addEventListener("click", () => props.onClearSource());
     this.cardEl.append(cardText, centerAll, clear);
 
@@ -851,6 +883,7 @@ export class LinesListView {
 Note: in the plain-HTML fallback `wzTextInput` returns a wrapper `<div>` holding the `<input>`; `keydown` from the input bubbles to the wrapper, and `readValue` reads the nested input — that is what the test exercises. The test's `input` event is irrelevant to `readValue` (it reads the live value) but documents user typing.
 
 c) Locales — `panel.lines`:
+
 - FR: `"loadSlowups": "Charger les slowUps"`, `"otherSource": "Autre source"`, `"chooseFile": "Choisir un fichier"`, `"fileFormats": "GeoJSON, GPX, KML ou KMZ"`, `"slowupsSource": "slowUps"`, `"lineCount_one": "{{count}} ligne"`, `"lineCount_other": "{{count}} lignes"`, `"clearSource": "Retirer cette source"`, `"centerAll": "Centrer sur toutes les lignes"`.
 - EN: `"loadSlowups": "Load the slowUps"`, `"otherSource": "Other source"`, `"chooseFile": "Choose a file"`, `"fileFormats": "GeoJSON, GPX, KML or KMZ"`, `"slowupsSource": "slowUps"`, `"lineCount_one": "{{count}} line"`, `"lineCount_other": "{{count}} lines"`, `"clearSource": "Remove this source"`, `"centerAll": "Center on all lines"`.
 - Delete from both: `panel.lines.urlLabel`, `panel.lines.urlClear`, `panel.lines.sourceFeature`, `panel.lines.sourceCollection` (no longer referenced; check with `grep -rn "lines.urlLabel\|lines.urlClear\|lines.source" src`).
@@ -858,51 +891,51 @@ c) Locales — `panel.lines`:
 d) Append to `BASE_CSS`:
 
 ```css
-  .wmegj-lines {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    min-width: 0;
-  }
-  .wmegj-block-button {
-    align-self: stretch;
-  }
-  .wmegj-section {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    min-width: 0;
-  }
-  .wmegj-caption {
-    margin: 0;
-    font-size: 12px;
-    color: var(--content_p3);
-  }
-  .wmegj-load-error {
-    margin: 0;
-    font-size: 12px;
-    color: var(--alarming_variant);
-  }
-  .wmegj-load-error:empty {
-    display: none;
-  }
-  .wmegj-source-card {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 8px 4px 8px 12px;
-    border-radius: 8px;
-    background: var(--surface_default);
-  }
-  .wmegj-source-card[hidden] {
-    display: none;
-  }
-  .wmegj-source-name {
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--content_default);
-    overflow-wrap: anywhere;
-  }
+.wmegj-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.wmegj-block-button {
+  align-self: stretch;
+}
+.wmegj-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.wmegj-caption {
+  margin: 0;
+  font-size: 12px;
+  color: var(--content_p3);
+}
+.wmegj-load-error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--alarming_variant);
+}
+.wmegj-load-error:empty {
+  display: none;
+}
+.wmegj-source-card {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px 8px 12px;
+  border-radius: 8px;
+  background: var(--surface_default);
+}
+.wmegj-source-card[hidden] {
+  display: none;
+}
+.wmegj-source-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--content_default);
+  overflow-wrap: anywhere;
+}
 ```
 
 - [ ] **Step 4: Run tests**
@@ -922,10 +955,12 @@ git commit -m "feat(ui): Lignes view with one-click slowUps and a single source 
 ### Task 4: Wire the Lignes sub-tab
 
 **Files:**
+
 - Modify: `src/ui/subtabs/LinesSubTab.ts`, `src/ui/MatchPanel.ts`, `src/bootstrap/loadAndAttachTrack.ts:94`
 - Test: `src/__tests__/LinesSubTab.test.ts`
 
 **Interfaces:**
+
 - Consumes: `LinesListView`/`LoadedSource` (Task 3), `lineProgress` (Task 1), `SLOWUPS_GEOJSON_URL`, `SourcePersistence` (existing, `load(id): Source | null`).
 - Produces:
   - `LinesSubTabDeps.loadProgress: (id: string) => LineProgress` (new required dep)
@@ -956,57 +991,57 @@ b) every place that builds `new LinesSubTab({...})` must pass `loadProgress: () 
 c) append this block inside `describe("LinesSubTab", …)`:
 
 ```ts
-  it("names the source after a load and clears the matching kind of source", () => {
-    const registry = new LineRegistry();
-    const loadProgress = vi.fn(() => ({ kind: "inProgress", percent: 40 }) as const);
-    const subTab = new LinesSubTab({
-      registry,
-      loadFn: vi.fn(),
-      loadFileFn: vi.fn(),
-      onLineSelected: vi.fn(),
-      onCenterAll: vi.fn(),
-      onCenterLine: vi.fn(),
-      loadProgress,
-    });
-    const view = latestView();
-
-    subTab.setUrlLoaded("https://schweizmobil.ch/api/4/slowups.geojson");
-    expect(view.setSource).toHaveBeenLastCalledWith({ kind: "slowups" });
-    subTab.setUrlLoaded("https://example.org/a.geojson");
-    expect(view.setSource).toHaveBeenLastCalledWith({
-      kind: "url",
-      url: "https://example.org/a.geojson",
-    });
-    subTab.setLoadedFile("rallye.kmz");
-    expect(view.setSource).toHaveBeenLastCalledWith({ kind: "file", name: "rallye.kmz" });
-
-    registry.setEntries([makeEntry("line-1")]);
-    const progressOf = view.setEntries.mock.calls.at(-1)?.[1] as (id: string) => unknown;
-    expect(progressOf("line-1")).toEqual({ kind: "inProgress", percent: 40 });
-    expect(loadProgress).toHaveBeenCalledWith("line-1");
-
-    (view as unknown as { props: { onClearSource: () => void } }).props.onClearSource();
-    expect(registry.getAll()).toEqual([]);
-    expect(view.setSource).toHaveBeenLastCalledWith(null);
+it("names the source after a load and clears the matching kind of source", () => {
+  const registry = new LineRegistry();
+  const loadProgress = vi.fn(() => ({ kind: "inProgress", percent: 40 }) as const);
+  const subTab = new LinesSubTab({
+    registry,
+    loadFn: vi.fn(),
+    loadFileFn: vi.fn(),
+    onLineSelected: vi.fn(),
+    onCenterAll: vi.fn(),
+    onCenterLine: vi.fn(),
+    loadProgress,
   });
+  const view = latestView();
 
-  it("re-reads progress on refresh", () => {
-    const registry = new LineRegistry();
-    registry.setEntries([makeEntry("line-1")]);
-    const subTab = new LinesSubTab({
-      registry,
-      loadFn: vi.fn(),
-      loadFileFn: vi.fn(),
-      onLineSelected: vi.fn(),
-      onCenterAll: vi.fn(),
-      onCenterLine: vi.fn(),
-      loadProgress: () => ({ kind: "notStarted" }),
-    });
-    const view = latestView();
-    const calls = view.setEntries.mock.calls.length;
-    subTab.refresh();
-    expect(view.setEntries.mock.calls.length).toBe(calls + 1);
+  subTab.setUrlLoaded("https://schweizmobil.ch/api/4/slowups.geojson");
+  expect(view.setSource).toHaveBeenLastCalledWith({ kind: "slowups" });
+  subTab.setUrlLoaded("https://example.org/a.geojson");
+  expect(view.setSource).toHaveBeenLastCalledWith({
+    kind: "url",
+    url: "https://example.org/a.geojson",
   });
+  subTab.setLoadedFile("rallye.kmz");
+  expect(view.setSource).toHaveBeenLastCalledWith({ kind: "file", name: "rallye.kmz" });
+
+  registry.setEntries([makeEntry("line-1")]);
+  const progressOf = view.setEntries.mock.calls.at(-1)?.[1] as (id: string) => unknown;
+  expect(progressOf("line-1")).toEqual({ kind: "inProgress", percent: 40 });
+  expect(loadProgress).toHaveBeenCalledWith("line-1");
+
+  (view as unknown as { props: { onClearSource: () => void } }).props.onClearSource();
+  expect(registry.getAll()).toEqual([]);
+  expect(view.setSource).toHaveBeenLastCalledWith(null);
+});
+
+it("re-reads progress on refresh", () => {
+  const registry = new LineRegistry();
+  registry.setEntries([makeEntry("line-1")]);
+  const subTab = new LinesSubTab({
+    registry,
+    loadFn: vi.fn(),
+    loadFileFn: vi.fn(),
+    onLineSelected: vi.fn(),
+    onCenterAll: vi.fn(),
+    onCenterLine: vi.fn(),
+    loadProgress: () => ({ kind: "notStarted" }),
+  });
+  const view = latestView();
+  const calls = view.setEntries.mock.calls.length;
+  subTab.refresh();
+  expect(view.setEntries.mock.calls.length).toBe(calls + 1);
+});
 ```
 
 This test file runs in the default node environment; `clearUploadedFile` touches `localStorage`. Add `// @vitest-environment happy-dom` as the file's first line if the "clears" assertion fails with `localStorage is not defined`.
@@ -1022,8 +1057,8 @@ Expected: FAIL — `setSource` never called, `refresh` is not a function.
 - `LinesSubTabDeps` gains:
 
 ```ts
-  /** Matching progress of a line, read from its persisted session. */
-  loadProgress: (id: string) => LineProgress;
+/** Matching progress of a line, read from its persisted session. */
+loadProgress: (id: string) => LineProgress;
 ```
 
 - Add a field `private source: LoadedSource | null = null;` and a render helper, and route every `this.view.setEntries(sortSlowupEntries(...))` call through it:
@@ -1039,18 +1074,19 @@ Expected: FAIL — `setSource` never called, `refresh` is not a function.
   }
 ```
 
-  In the constructor: replace the three `this.view.setEntries(sortSlowupEntries(…))` calls with `this.renderEntries();` (the `onLinesChanged` handler keeps its `void this.fetchSlowupDetailsForLines(entries)`).
+In the constructor: replace the three `this.view.setEntries(sortSlowupEntries(…))` calls with `this.renderEntries();` (the `onLinesChanged` handler keeps its `void this.fetchSlowupDetailsForLines(entries)`).
+
 - View props in the constructor become:
 
 ```ts
-    this.view = new LinesListView({
-      onLoadUrl: (url) => void this.handleLoad(url),
-      onLoadFile: (file) => void this.deps.loadFileFn(file),
-      onClearSource: () => this.handleClearSource(),
-      onSelect: (id) => this.handleSelect(id),
-      onCenterAll: deps.onCenterAll,
-      onCenterLine: deps.onCenterLine,
-    });
+this.view = new LinesListView({
+  onLoadUrl: (url) => void this.handleLoad(url),
+  onLoadFile: (file) => void this.deps.loadFileFn(file),
+  onClearSource: () => this.handleClearSource(),
+  onSelect: (id) => this.handleSelect(id),
+  onCenterAll: deps.onCenterAll,
+  onCenterLine: deps.onCenterLine,
+});
 ```
 
 - Replace `setLoadedFile`, `setUrlLoaded`, `handleClearFile`, `handleClearUrl` with:
@@ -1096,16 +1132,17 @@ Expected: FAIL — `setSource` never called, `refresh` is not a function.
       loadProgress: (id) => lineProgress(progressReader.load(id)),
 ```
 
-  with `const progressReader = new SourcePersistence();` declared just before `this.linesSubTab = new LinesSubTab({`.
-  - in the `IntersectionObserver` callback, refresh the rows when the Lignes tab comes into view:
+with `const progressReader = new SourcePersistence();` declared just before `this.linesSubTab = new LinesSubTab({`.
+
+- in the `IntersectionObserver` callback, refresh the rows when the Lignes tab comes into view:
 
 ```ts
-      const observer = new IntersectionObserver((records) => {
-        const becameVisible = !this.linesTabVisible && records.some((r) => r.isIntersecting);
-        this.linesTabVisible = records.some((record) => record.isIntersecting);
-        if (becameVisible) this.linesSubTab?.refresh();
-        this.refreshPreview();
-      });
+const observer = new IntersectionObserver((records) => {
+  const becameVisible = !this.linesTabVisible && records.some((r) => r.isIntersecting);
+  this.linesTabVisible = records.some((record) => record.isIntersecting);
+  if (becameVisible) this.linesSubTab?.refresh();
+  this.refreshPreview();
+});
 ```
 
 - [ ] **Step 5: Run tests and type-check**
@@ -1125,11 +1162,13 @@ git commit -m "feat(ui): Lignes tab tracks its source and shows per-line progres
 ### Task 5: Matching header
 
 **Files:**
+
 - Rewrite: `src/ui/views/MatchingHeaderView.ts`
 - Modify: `src/ui/subtabs/MatchingSubTab.ts` (constructor, `buildDOM`, store subscription, `setController`, `updateBadge`, track length row), `src/ui/MatchPanel.ts`, `src/ui/styles.ts`, both locales
 - Test: `src/__tests__/MatchingHeaderView.test.ts`
 
 **Interfaces:**
+
 - Consumes: `LineProgress`, `lineProgress` (Task 1).
 - Produces:
   - `new MatchingHeaderView({ onBack(): void })` with `root`, `setTitle(name: string)`, `setSummary(km: number | null, progress: LineProgress)`
@@ -1236,39 +1275,40 @@ export class MatchingHeaderView {
 ```
 
 Locales:
+
 - FR: `panel.matching.back` = `"Lignes"`; `panel.summary` = `{ "notStarted": "Pas commencé", "inProgress": "{{percent}} % validé", "done": "Correspondance terminée" }`.
 - EN: `panel.matching.back` = `"Lines"`; `panel.summary` = `{ "notStarted": "Not started", "inProgress": "{{percent}}% validated", "done": "Matching done" }`.
 
 CSS (append to `BASE_CSS`):
 
 ```css
-  .wmegj-header {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
-    margin-bottom: 12px;
-  }
-  .wmegj-back {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 0;
-    border: none;
-    background: none;
-    color: var(--primary);
-    font: inherit;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-  }
-  .wmegj-header-title {
-    margin: 0;
-    font-size: 16px;
-    font-weight: 500;
-    color: var(--content_default);
-    overflow-wrap: anywhere;
-  }
+.wmegj-header {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin-bottom: 12px;
+}
+.wmegj-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+  border: none;
+  background: none;
+  color: var(--primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.wmegj-header-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--content_default);
+  overflow-wrap: anywhere;
+}
 ```
 
 - [ ] **Step 4: Wire it into `MatchingSubTab` and `MatchPanel`**
@@ -1290,24 +1330,25 @@ In `src/ui/subtabs/MatchingSubTab.ts`:
   }
 ```
 
-  Store subscription becomes:
+Store subscription becomes:
 
 ```ts
-    this.unsubscribeStore = this.store.subscribe((state) => {
-      this.renderPhase(state.phase);
-      this.renderHeaderSummary();
-    });
+this.unsubscribeStore = this.store.subscribe((state) => {
+  this.renderPhase(state.phase);
+  this.renderHeaderSummary();
+});
 ```
 
-  `sourceStore.onChange` handler gains `this.renderHeaderSummary();`.
+`sourceStore.onChange` handler gains `this.renderHeaderSummary();`.
+
 - `setController`: delete the `unsubscribeState` subscription and the `this.updateBadge(c.state)` call (the walk state "En attente" disagreed with the matching state — spec §3). Delete `updateBadge()` and, if now unused, the `unsubscribeState` field and its `unmount` lines, and the `WalkState` import. Run `npx tsc --noEmit -p .` to find leftovers.
 
 In `src/ui/MatchPanel.ts`, the construction becomes:
 
 ```ts
-    this.matchingSubTab = new MatchingSubTab(this.wmeSDK, this.store, this.registry, () =>
-      this.tabs?.setActiveTab(0),
-    );
+this.matchingSubTab = new MatchingSubTab(this.wmeSDK, this.store, this.registry, () =>
+  this.tabs?.setActiveTab(0),
+);
 ```
 
 Delete the now-unused `panel.status.*` and `panel.trackLength` keys from both locales after checking `grep -rn "panel.status\.\|panel.trackLength" src` returns nothing.
@@ -1329,11 +1370,13 @@ git commit -m "feat(ui): Matching header with back link and one progress summary
 ### Task 6: Planning CSV block
 
 **Files:**
+
 - Create: `src/ui/views/PlanningCsvView.ts`
 - Modify: `src/ui/subtabs/MatchingSubTab.ts` (`buildCsvUploadRow` and the `*Csv*` helpers), `src/ui/styles.ts`, both locales
 - Test: `src/__tests__/PlanningCsvView.test.ts`
 
 **Interfaces:**
+
 - Consumes: `fileInput`, `wzLabel`.
 - Produces: `new PlanningCsvView({ onFile(file: File): void; onRemove(): void })` with `root`, `setLoaded(loaded: boolean)`, `setLoading(loading: boolean)`, `showError(message: string)`, `clearError()`, `errorText(): string`.
 
@@ -1479,29 +1522,29 @@ Locales — `panel.csvInput`: FR `"title": "Planning (optionnel)"`, `"loaded": "
 CSS (append to `BASE_CSS`):
 
 ```css
-  .wmegj-panel-root [hidden],
-  .wmegj-dialog-body [hidden] {
-    display: none !important;
-  }
-  .wmegj-chip {
-    display: inline-flex;
-    align-self: flex-start;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 4px 4px 12px;
-    border-radius: 100px;
-    background: var(--surface_default);
-    color: var(--content_p1);
-    font-size: 13px;
-  }
-  .wmegj-chip-remove {
-    display: inline-flex;
-    border: none;
-    background: none;
-    color: var(--content_p2);
-    cursor: pointer;
-    padding: 2px;
-  }
+.wmegj-panel-root [hidden],
+.wmegj-dialog-body [hidden] {
+  display: none !important;
+}
+.wmegj-chip {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 4px 4px 12px;
+  border-radius: 100px;
+  background: var(--surface_default);
+  color: var(--content_p1);
+  font-size: 13px;
+}
+.wmegj-chip-remove {
+  display: inline-flex;
+  border: none;
+  background: none;
+  color: var(--content_p2);
+  cursor: pointer;
+  padding: 2px;
+}
 ```
 
 - [ ] **Step 4: Wire it into `MatchingSubTab`**
@@ -1563,11 +1606,13 @@ git commit -m "feat(ui): planning CSV as WME file input, then a removable chip"
 ### Task 7: Two-handle distance slider
 
 **Files:**
+
 - Create: `src/ui/views/RangeSliderView.ts`
 - Modify: `src/ui/subtabs/MatchingSubTab.ts` (`buildRangeSlider`), `src/ui/styles.ts`
 - Test: `src/__tests__/RangeSliderView.test.ts`
 
 **Interfaces:**
+
 - Produces: `createRangeSlider(props: { totalKm: number; originKm: number; onChange(lo: number, hi: number): void }): HTMLElement` — `lo`/`hi` in display-geometry km (without `originKm`), `lo ≤ hi` always.
 
 - [ ] **Step 1: Write the failing test**
@@ -1714,60 +1759,60 @@ export function createRangeSlider(props: {
 CSS (append to `BASE_CSS`):
 
 ```css
-  .wmegj-range {
-    position: relative;
-    height: 24px;
-  }
-  .wmegj-range-track,
-  .wmegj-range-fill {
-    position: absolute;
-    top: 50%;
-    height: 4px;
-    margin-top: -2px;
-    border-radius: 2px;
-  }
-  .wmegj-range-track {
-    left: 0;
-    right: 0;
-    background: var(--hairline);
-  }
-  .wmegj-range-fill {
-    background: var(--primary);
-  }
-  .wmegj-range input[type="range"] {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 24px;
-    margin: 0;
-    background: none;
-    pointer-events: none;
-    -webkit-appearance: none;
-    appearance: none;
-  }
-  .wmegj-range input[type="range"]::-webkit-slider-runnable-track {
-    background: none;
-  }
-  .wmegj-range input[type="range"]::-webkit-slider-thumb {
-    pointer-events: auto;
-    -webkit-appearance: none;
-    width: 16px;
-    height: 16px;
-    border: 2px solid var(--background_default);
-    border-radius: 50%;
-    background: var(--primary);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-    cursor: pointer;
-  }
-  .wmegj-range input[type="range"]::-moz-range-thumb {
-    pointer-events: auto;
-    width: 12px;
-    height: 12px;
-    border: 2px solid var(--background_default);
-    border-radius: 50%;
-    background: var(--primary);
-    cursor: pointer;
-  }
+.wmegj-range {
+  position: relative;
+  height: 24px;
+}
+.wmegj-range-track,
+.wmegj-range-fill {
+  position: absolute;
+  top: 50%;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 2px;
+}
+.wmegj-range-track {
+  left: 0;
+  right: 0;
+  background: var(--hairline);
+}
+.wmegj-range-fill {
+  background: var(--primary);
+}
+.wmegj-range input[type="range"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 24px;
+  margin: 0;
+  background: none;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.wmegj-range input[type="range"]::-webkit-slider-runnable-track {
+  background: none;
+}
+.wmegj-range input[type="range"]::-webkit-slider-thumb {
+  pointer-events: auto;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--background_default);
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+}
+.wmegj-range input[type="range"]::-moz-range-thumb {
+  pointer-events: auto;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--background_default);
+  border-radius: 50%;
+  background: var(--primary);
+  cursor: pointer;
+}
 ```
 
 - [ ] **Step 4: Use it in `MatchingSubTab.buildRangeSlider`**
@@ -1775,24 +1820,24 @@ CSS (append to `BASE_CSS`):
 Replace everything after the `originKm` computation (heading, label, both inputs, `apply`, listeners, appends) with:
 
 ```ts
-    let pendingFrame = 0;
-    let pendingLo = 0;
-    let pendingHi = totalKm;
-    const layer = this.trackLayer;
-    return createRangeSlider({
-      totalKm,
-      originKm,
-      onChange: (lo, hi) => {
-        pendingLo = lo;
-        pendingHi = hi;
-        // Redraw at most once per frame while dragging.
-        if (pendingFrame !== 0) return;
-        pendingFrame = requestAnimationFrame(() => {
-          pendingFrame = 0;
-          layer.setVisibleRange(pendingLo, pendingHi);
-        });
-      },
+let pendingFrame = 0;
+let pendingLo = 0;
+let pendingHi = totalKm;
+const layer = this.trackLayer;
+return createRangeSlider({
+  totalKm,
+  originKm,
+  onChange: (lo, hi) => {
+    pendingLo = lo;
+    pendingHi = hi;
+    // Redraw at most once per frame while dragging.
+    if (pendingFrame !== 0) return;
+    pendingFrame = requestAnimationFrame(() => {
+      pendingFrame = 0;
+      layer.setVisibleRange(pendingLo, pendingHi);
     });
+  },
+});
 ```
 
 The early-return branches (`!this.trackLayer`, `totalKm <= 0`) keep returning the empty `section`; give that section `className = "wmegj-section"` and drop its `style.marginTop`. Import `createRangeSlider`.
@@ -1814,11 +1859,13 @@ git commit -m "feat(ui): two-handle distance slider on a single track"
 ### Task 8: Three numbered steps
 
 **Files:**
+
 - Create: `src/ui/views/MatchingStepsView.ts`
 - Modify: `src/ui/subtabs/MatchingSubTab.ts` (start row, resume banner, download row, linked MTE, closure buttons, `renderPhase`, `unmount`), `src/ui/styles.ts`, both locales
 - Test: `src/__tests__/MatchingStepsView.test.ts`
 
 **Interfaces:**
+
 - Consumes: `LineProgress`, `lineProgress`, `wzButton`.
 - Produces:
   - `type LinkedMte = { name: string | null } | null` — `null`: no MTE linked; `{ name: null }`: linked but not loaded in WME.
@@ -1905,7 +1952,11 @@ describe("MatchingStepsView", () => {
     for (const button of notDone.steps[2].querySelectorAll<HTMLButtonElement>("button")) {
       expect(button.disabled).toBe(true);
     }
-    const applying = setup({ matching: { kind: "done" }, linkedMte: { name: "x" }, applying: true });
+    const applying = setup({
+      matching: { kind: "done" },
+      linkedMte: { name: "x" },
+      applying: true,
+    });
     for (const button of applying.steps[2].querySelectorAll<HTMLButtonElement>("button")) {
       expect(button.disabled).toBe(true);
     }
@@ -2040,7 +2091,13 @@ export class MatchingStepsView {
     this.steps = [
       buildStep(1, i18next.t("panel.steps.matching"), this.matchingBtn),
       buildStep(2, i18next.t("panel.steps.mte"), this.mteBtn),
-      buildStep(3, i18next.t("panel.steps.closures"), this.applyBtn, this.csvBtn, this.applyStatusEl),
+      buildStep(
+        3,
+        i18next.t("panel.steps.closures"),
+        this.applyBtn,
+        this.csvBtn,
+        this.applyStatusEl,
+      ),
     ];
 
     this.root = document.createElement("div");
@@ -2093,73 +2150,74 @@ export class MatchingStepsView {
 ```
 
 Locales — add `panel.steps`:
+
 - FR: `{ "matching": "Correspondance", "mte": "MTE", "closures": "Fermetures", "open": "Ouvrir la correspondance", "resume": "Reprendre (ligne {{line}} / sous-ligne {{subLine}})", "review": "Revoir la correspondance", "prepareMte": "Préparer le MTE", "mteLinked": "Associé : {{name}}", "mteLinkedUnloaded": "MTE associé (ouvrez l'onglet Événements pour voir son nom)", "csvFallback": "CSV de secours" }`
 - EN: `{ "matching": "Matching", "mte": "MTE", "closures": "Closures", "open": "Open matching", "resume": "Resume (line {{line}} / sub-line {{subLine}})", "review": "Review matching", "prepareMte": "Prepare the MTE", "mteLinked": "Linked: {{name}}", "mteLinkedUnloaded": "MTE linked (open the Events tab to see its name)", "csvFallback": "Fallback CSV" }`
 
 CSS (append to `BASE_CSS`):
 
 ```css
-  .wmegj-steps {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .wmegj-step {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 6px;
-    padding: 12px;
-    border-radius: 8px;
-    background: var(--background_variant);
-  }
-  .wmegj-step.is-next {
-    background: var(--background_default);
-    box-shadow: inset 0 0 0 1px var(--hairline);
-  }
-  .wmegj-step-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .wmegj-step-badge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    background: var(--surface_variant);
-    color: var(--content_p1);
-    font-size: 12px;
-    font-weight: 500;
-  }
-  .wmegj-step.is-next .wmegj-step-badge {
-    background: var(--primary);
-    color: var(--always_white);
-  }
-  .wmegj-step.is-done .wmegj-step-badge {
-    background: var(--safe);
-    color: var(--always_white);
-  }
-  .wmegj-step-title {
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--content_default);
-  }
-  .wmegj-step .wmegj-caption:empty {
-    display: none;
-  }
-  .wmegj-steps wz-button,
-  .wmegj-steps .wmegj-button {
-    max-width: 100%;
-  }
-  .wmegj-apply-status {
-    white-space: pre-line;
-  }
-  .wmegj-apply-status:empty {
-    display: none;
-  }
+.wmegj-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wmegj-step {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--background_variant);
+}
+.wmegj-step.is-next {
+  background: var(--background_default);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+.wmegj-step-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wmegj-step-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--surface_variant);
+  color: var(--content_p1);
+  font-size: 12px;
+  font-weight: 500;
+}
+.wmegj-step.is-next .wmegj-step-badge {
+  background: var(--primary);
+  color: var(--always_white);
+}
+.wmegj-step.is-done .wmegj-step-badge {
+  background: var(--safe);
+  color: var(--always_white);
+}
+.wmegj-step-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--content_default);
+}
+.wmegj-step .wmegj-caption:empty {
+  display: none;
+}
+.wmegj-steps wz-button,
+.wmegj-steps .wmegj-button {
+  max-width: 100%;
+}
+.wmegj-apply-status {
+  white-space: pre-line;
+}
+.wmegj-apply-status:empty {
+  display: none;
+}
 ```
 
 - [ ] **Step 4: Wire it into `MatchingSubTab`**
@@ -2168,14 +2226,14 @@ CSS (append to `BASE_CSS`):
 - `buildDOM`: delete the `resumeBannerRow`, `startMatchingRow` and `downloadRow` build/append lines; after the range slider append:
 
 ```ts
-    this.stepsView = new MatchingStepsView({
-      onOpenMatching: () => this.openMatchingPanel(),
-      onPrepareMte: () => void this.openMtePopup(),
-      onApply: () => void this.onApplyClosuresClick(),
-      onDownloadCsv: () => this.onDownloadClosuresClick(),
-    });
-    this.applyClosuresStatusEl = this.stepsView.applyStatusEl;
-    body.appendChild(this.stepsView.root);
+this.stepsView = new MatchingStepsView({
+  onOpenMatching: () => this.openMatchingPanel(),
+  onPrepareMte: () => void this.openMtePopup(),
+  onApply: () => void this.onApplyClosuresClick(),
+  onDownloadCsv: () => this.onDownloadClosuresClick(),
+});
+this.applyClosuresStatusEl = this.stepsView.applyStatusEl;
+body.appendChild(this.stepsView.root);
 ```
 
 - Add:
@@ -2236,10 +2294,12 @@ git commit -m "feat(ui): Matching sidebar as three numbered steps with one prima
 ### Task 9: Drop the legacy sidebar CSS
 
 **Files:**
+
 - Modify: `src/ui/MatchPanel.ts` (`injectShellStyles`), `src/ui/subtabs/MatchingSubTab.ts` (`injectStyles`), `src/ui/styles.ts`
 - Test: `src/__tests__/styles.test.ts`
 
 **Interfaces:**
+
 - Consumes: `injectStyles`, `BASE_CSS`.
 
 - [ ] **Step 1: Write the failing test**
@@ -2247,9 +2307,9 @@ git commit -m "feat(ui): Matching sidebar as three numbered steps with one prima
 Append inside `describe("injectStyles", …)` in `src/__tests__/styles.test.ts`:
 
 ```ts
-  it("styles the sidebar panel root without horizontal overflow", () => {
-    expect(BASE_CSS).toMatch(/\.wmegj-panel-root \{[^}]*min-width: 0;[^}]*overflow-wrap: anywhere;/);
-  });
+it("styles the sidebar panel root without horizontal overflow", () => {
+  expect(BASE_CSS).toMatch(/\.wmegj-panel-root \{[^}]*min-width: 0;[^}]*overflow-wrap: anywhere;/);
+});
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
@@ -2262,77 +2322,77 @@ Expected: FAIL.
 a) Prepend to `BASE_CSS`:
 
 ```css
-  .wmegj-panel-root {
-    min-width: 0;
-    overflow-wrap: anywhere;
-    font-size: 14px;
-    color: var(--content_p1);
-  }
-  .wmegj-panel-root *,
-  .wmegj-panel-root *::before,
-  .wmegj-panel-root *::after {
-    box-sizing: border-box;
-  }
-  .wmegj-panel-root wz-button {
-    max-width: 100%;
-  }
+.wmegj-panel-root {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  color: var(--content_p1);
+}
+.wmegj-panel-root *,
+.wmegj-panel-root *::before,
+.wmegj-panel-root *::after {
+  box-sizing: border-box;
+}
+.wmegj-panel-root wz-button {
+  max-width: 100%;
+}
 ```
 
 b) `MatchPanel.ts`: delete `injectShellStyles` and its call; call `injectStyles(document)` in `mount()` instead (import from `./styles`). Keep only the fallback-tabs rule `.wmegj-subtab-toggle …` by moving it into `BASE_CSS` with token colours:
 
 ```css
-  .wmegj-subtab-toggle {
-    display: flex;
-    margin: 10px 0 12px;
-    border-bottom: 1px solid var(--separator_default);
-  }
-  .wmegj-subtab-toggle button {
-    flex: 1;
-    padding: 8px 6px;
-    border: none;
-    background: none;
-    color: var(--content_p2);
-    cursor: pointer;
-  }
-  .wmegj-subtab-toggle button.wmegj-subtab-active {
-    color: var(--primary);
-    box-shadow: inset 0 -2px 0 var(--primary);
-  }
+.wmegj-subtab-toggle {
+  display: flex;
+  margin: 10px 0 12px;
+  border-bottom: 1px solid var(--separator_default);
+}
+.wmegj-subtab-toggle button {
+  flex: 1;
+  padding: 8px 6px;
+  border: none;
+  background: none;
+  color: var(--content_p2);
+  cursor: pointer;
+}
+.wmegj-subtab-toggle button.wmegj-subtab-active {
+  color: var(--primary);
+  box-shadow: inset 0 -2px 0 var(--primary);
+}
 ```
 
 c) `MatchingSubTab.injectStyles`: delete the sidebar rules (`.wmegj-panel-root`, `.wmegj-panel-root *`, `.wmegj-panel-title`, `.wmegj-section`, `.wmegj-section p`, `.wmegj-input-group`, `.wmegj-input-label`, `.wmegj-text-input*`, `.wmegj-button*`, `.wmegj-button-stack`) and keep every `.wmegj-guided-*` rule (the floating panel is batch C). Keep the plain-HTML fallback button look by adding to `BASE_CSS`:
 
 ```css
-  .wmegj-button {
-    min-height: 32px;
-    padding: 0 16px;
-    border: none;
-    border-radius: 100px;
-    font: inherit;
-    font-weight: 500;
-    cursor: pointer;
-  }
-  .wmegj-button--primary {
-    background: var(--primary);
-    color: var(--always_white);
-  }
-  .wmegj-button--secondary,
-  .wmegj-button--danger {
-    background: var(--surface_default);
-    color: var(--primary);
-  }
-  .wmegj-button--danger {
-    color: var(--alarming_variant);
-  }
-  .wmegj-button--text {
-    padding: 0;
-    background: none;
-    color: var(--primary);
-  }
-  .wmegj-button:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
+.wmegj-button {
+  min-height: 32px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 100px;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.wmegj-button--primary {
+  background: var(--primary);
+  color: var(--always_white);
+}
+.wmegj-button--secondary,
+.wmegj-button--danger {
+  background: var(--surface_default);
+  color: var(--primary);
+}
+.wmegj-button--danger {
+  color: var(--alarming_variant);
+}
+.wmegj-button--text {
+  padding: 0;
+  background: none;
+  color: var(--primary);
+}
+.wmegj-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 ```
 
 d) Check: `grep -n "#[0-9a-fA-F]\{3,6\}" src/ui/MatchPanel.ts src/ui/views/*.ts` returns nothing (inline hex left in views/shell).
@@ -2363,6 +2423,7 @@ Expected: changed files lint clean, only the pre-existing type error, all tests 
 - [ ] **Step 2: Reload WME and check the Lignes tab**
 
 Reload the WME tab (dev userscript `@require`s `.out/main.user.js`), open Scripts → Event Closures. Take a screenshot first in each check (the tab only renders while visible). Check:
+
 - "Charger les slowUps" loads the slowUps: rows with title + date, sorted by date; the card reads "slowUps · n lignes".
 - A pasted URL + Enter loads it; the card shows its host.
 - "Choisir un fichier" is WME's file input; loading a KMZ from the repo works and the card shows the file name.

@@ -134,7 +134,7 @@ add non-destructive step navigation to the matching panel.
 
 #### Step navigation ("editor within the editor")
 
-A *step* is a sub-line, ordered (lineIndex, subLineIndex) across lines.
+A _step_ is a sub-line, ordered (lineIndex, subLineIndex) across lines.
 Reachable steps: every existing validated sub-line, plus the **frontier** (the
 first unvalidated sub-line, i.e. the current cursor). Never beyond the
 frontier.
@@ -169,7 +169,7 @@ step when done). Disabled while stepping/bursting/pausePending.
 Extend the existing pure reducer `src/ui/matchingUiState.ts` (not a new flag):
 
 - New state `{ kind: "reviewing"; step: StepRef; dirty: boolean; returnTo:
-  "waiting" | "done" }`.
+"waiting" | "done" }`.
 - Events: `NAVIGATE { step }` (from `waiting`/`done`/`reviewing`),
   `SELECTION_DIRTY`, `SELECTION_CLEAN` (save or cancel), `RETURN_TO_FRONTIER`
   (navigating › onto the frontier → back to `waiting`; when done →

@@ -191,6 +191,6 @@ describe("frontier caption", () => {
       false,
       7,
     );
-    expect(nav.caption).toBe("2,00 → 4,00 km · 7 segments trouvés");
+    expect(nav.caption).toBe("2,00 → 4,00 km · 7 segments identifiés");
   });
 });

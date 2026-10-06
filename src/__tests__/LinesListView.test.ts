@@ -145,4 +145,26 @@ describe("LinesListView", () => {
     expect(view.root.querySelector(".wmegj-line-list")?.tagName).toBe("WZ-LIST");
     expect(view.root.querySelector(".wmegj-source-card i.w-icon-route")).not.toBeNull();
   });
+
+  it("can cancel a source change and go back to how it was", () => {
+    const p = props();
+    const view = new LinesListView(p);
+    view.setSource({ kind: "slowups" });
+    const loader = () => view.root.querySelector<HTMLElement>(".wmegj-loader")!;
+    const change = () => view.root.querySelector<HTMLElement>(".wmegj-change-source")!;
+    const cancel = () => view.root.querySelector<HTMLElement>(".wmegj-cancel-change")!;
+    expect(cancel().hidden).toBe(true);
+    change().click();
+    expect(cancel().hidden).toBe(false);
+    const input = view.root.querySelector<HTMLInputElement>("input[type=url]")!;
+    input.value = "https://example.org/typed.geojson";
+    view.showError("HTTP 404");
+    cancel().click();
+    expect(loader().hidden).toBe(true);
+    expect(change().hidden).toBe(false);
+    expect(cancel().hidden).toBe(true);
+    expect(input.value).toBe("");
+    expect(view.root.querySelector(".wmegj-load-error")?.textContent).toBe("");
+    expect(p.onLoadUrl).not.toHaveBeenCalled();
+  });
 });

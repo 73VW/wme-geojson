@@ -138,10 +138,9 @@ describe("controlsFor", () => {
       expect(c[key]).toEqual({ visible: true, enabled: false });
     }
   });
-  it("has no destructive back / reselect / rerun controls any more", () => {
+  it("has no destructive back / rerun controls any more", () => {
     const keys = Object.keys(controlsFor({ kind: "waiting" }, true));
     expect(keys).not.toContain("back");
-    expect(keys).not.toContain("reselect");
     expect(keys).not.toContain("rerun");
     expect(keys).toContain("rematch");
   });
@@ -189,5 +188,19 @@ describe("statusKeyFor", () => {
     expect(statusKeyFor(paused)).toBe("paused");
     expect(statusKeyFor(errBurst)).toBe("error");
     expect(statusKeyFor(done)).toBe("done");
+  });
+});
+
+describe("reselect the detected segments", () => {
+  it("is offered while a sub-line waits for validation, frozen while stepping", () => {
+    expect(controlsFor({ kind: "waiting" }, true).reselect).toEqual({
+      visible: true,
+      enabled: true,
+    });
+    expect(controlsFor({ kind: "stepping" }, true).reselect).toEqual({
+      visible: true,
+      enabled: false,
+    });
+    expect(controlsFor({ kind: "idle" }, true).reselect.visible).toBe(false);
   });
 });

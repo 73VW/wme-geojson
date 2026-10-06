@@ -169,6 +169,21 @@ export const BASE_CSS = `
     flex-direction: column;
     border: 1px solid var(--hairline);
     border-radius: 6px;
+    overflow: hidden;
+  }
+  /* wz-list pads its rows: move the padding into the rows so the hover and
+     the click area span the whole list width. */
+  .wmegj-panel-root wz-list.wmegj-line-list {
+    padding: 0;
+  }
+  .wmegj-line-row {
+    padding: 0 16px;
+  }
+  .wmegj-line-row[clickable] {
+    cursor: pointer;
+  }
+  .wmegj-line-row[clickable]:hover {
+    background: var(--background_variant);
   }
   .wmegj-line-row--loading {
     opacity: 0.6;

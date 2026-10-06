@@ -33,28 +33,30 @@
 
 ## File Structure
 
-| File | Responsibility |
-|---|---|
-| `src/domain/steps.ts` (new) | `StepRef`, `navigableSteps`, `frontierStep`, `neighbour`, `sameIds` |
-| `src/controller/StepReview.ts` (new) | review of one validated sub-line; `reviewControlsFor` |
-| `src/controller/LazyMatchingPipeline.ts` (modify) | drop `back`/`rerunCurrent`; add `rematchCurrent` |
-| `src/state/SourceStore.ts` (modify) | drop `rerunSubLine` |
-| `src/ui/matchingUiState.ts` (modify) | controls table: drop back/reselect/rerun, add rematch |
-| `src/ui/views/StepNavView.ts` (new) | `‹ label ›` bar with caption |
-| `src/ui/views/PanelMenuView.ts` (new) | "⋯" button + menu |
-| `src/ui/panelPosition.ts` (new) | where the floating panel opens |
-| `src/ui/styles.ts` (modify) | panel CSS on tokens |
-| `src/ui/subtabs/MatchingSubTab.ts` (modify) | wire everything, wording per state |
+| File                                              | Responsibility                                                      |
+| ------------------------------------------------- | ------------------------------------------------------------------- |
+| `src/domain/steps.ts` (new)                       | `StepRef`, `navigableSteps`, `frontierStep`, `neighbour`, `sameIds` |
+| `src/controller/StepReview.ts` (new)              | review of one validated sub-line; `reviewControlsFor`               |
+| `src/controller/LazyMatchingPipeline.ts` (modify) | drop `back`/`rerunCurrent`; add `rematchCurrent`                    |
+| `src/state/SourceStore.ts` (modify)               | drop `rerunSubLine`                                                 |
+| `src/ui/matchingUiState.ts` (modify)              | controls table: drop back/reselect/rerun, add rematch               |
+| `src/ui/views/StepNavView.ts` (new)               | `‹ label ›` bar with caption                                        |
+| `src/ui/views/PanelMenuView.ts` (new)             | "⋯" button + menu                                                   |
+| `src/ui/panelPosition.ts` (new)                   | where the floating panel opens                                      |
+| `src/ui/styles.ts` (modify)                       | panel CSS on tokens                                                 |
+| `src/ui/subtabs/MatchingSubTab.ts` (modify)       | wire everything, wording per state                                  |
 
 ---
 
 ### Task 1: Navigable steps
 
 **Files:**
+
 - Create: `src/domain/steps.ts`
 - Test: `src/__tests__/steps.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `interface StepRef { lineIndex: number; subLineIndex: number }`
   - `navigableSteps(source: Source | null, includeFrontier: boolean): StepRef[]` — validated sub-lines in matching order, then the frontier (first unvalidated sub-line) when `includeFrontier`; never anything beyond the frontier.
@@ -244,10 +246,12 @@ git commit -m "feat(domain): navigable matching steps up to the frontier"
 ### Task 2: StepReview controller
 
 **Files:**
+
 - Create: `src/controller/StepReview.ts`
 - Test: `src/__tests__/StepReview.test.ts`
 
 **Interfaces:**
+
 - Consumes: `StepRef`, `sameIds` (Task 1); `SourceStore` (`getSource()`, `validateSubLine(li, si, ids)`); `ButtonView` from `src/ui/matchingUiState.ts`.
 - Produces:
   - `interface ReviewState { step: StepRef; dirty: boolean; busy: boolean }`
@@ -569,10 +573,12 @@ git commit -m "feat(controller): review a validated sub-line without touching th
 ### Task 3: Drop the destructive Back / Rerun / Reselect, add a non-destructive re-match
 
 **Files:**
+
 - Modify: `src/controller/LazyMatchingPipeline.ts`, `src/state/SourceStore.ts`, `src/ui/matchingUiState.ts`
 - Modify tests: `src/__tests__/LazyMatchingPipeline.test.ts`, `src/__tests__/SourceStore.test.ts`, `src/__tests__/matchingUiState.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `LazyMatchingPipeline.rematchCurrent(): Promise<void>` — same window (map center + match) for the cursor's sub-line, result into `setSelection` and `getPendingMatched()`; nothing persisted.
   - `MatchingControlsView` loses `back`, `reselect`, `rerun`, gains `rematch: ButtonView`.
@@ -583,19 +589,19 @@ git commit -m "feat(controller): review a validated sub-line without touching th
 a) `src/__tests__/LazyMatchingPipeline.test.ts`: delete every `it(...)` that calls `pipeline.back()` or `pipeline.rerunCurrent()` (`grep -n "back()\|rerunCurrent()" src/__tests__/LazyMatchingPipeline.test.ts` — three back tests around lines 90-165 and the `rerunCurrent` test around line 240). Then add, reusing the file's existing setup helper (read the top of the file and use the same factory the `stepUntilValidation` tests use — it returns `{ pipeline, store, map, match }` or similar; adapt names to it):
 
 ```ts
-  it("rematchCurrent re-runs the matching on the same sub-line without storing anything", async () => {
-    // Arrange with the file's existing helper: one stepUntilValidation so the
-    // cursor points at an unvalidated sub-line with a pending match.
-    await pipeline.stepUntilValidation();
-    const before = JSON.stringify(store.getSource());
-    const runsBefore = match.runMatch.mock.calls.length;
+it("rematchCurrent re-runs the matching on the same sub-line without storing anything", async () => {
+  // Arrange with the file's existing helper: one stepUntilValidation so the
+  // cursor points at an unvalidated sub-line with a pending match.
+  await pipeline.stepUntilValidation();
+  const before = JSON.stringify(store.getSource());
+  const runsBefore = match.runMatch.mock.calls.length;
 
-    await pipeline.rematchCurrent();
+  await pipeline.rematchCurrent();
 
-    expect(match.runMatch.mock.calls.length).toBe(runsBefore + 1);
-    expect(map.setSelection).toHaveBeenLastCalledWith(pipeline.getPendingMatched());
-    expect(JSON.stringify(store.getSource())).toBe(before);
-  });
+  expect(match.runMatch.mock.calls.length).toBe(runsBefore + 1);
+  expect(map.setSelection).toHaveBeenLastCalledWith(pipeline.getPendingMatched());
+  expect(JSON.stringify(store.getSource())).toBe(before);
+});
 ```
 
 b) `src/__tests__/SourceStore.test.ts`: delete the `rerunSubLine …` test (around line 85).
@@ -603,13 +609,13 @@ b) `src/__tests__/SourceStore.test.ts`: delete the `rerunSubLine …` test (arou
 c) `src/__tests__/matchingUiState.test.ts` lines ~124 and ~132: replace `["validate", "skip", "back", "reselect", "rerun"]` by `["validate", "skip", "rematch"]` in both loops. Add:
 
 ```ts
-  it("has no destructive back / reselect / rerun controls any more", () => {
-    const keys = Object.keys(controlsFor({ kind: "waiting" }, true));
-    expect(keys).not.toContain("back");
-    expect(keys).not.toContain("reselect");
-    expect(keys).not.toContain("rerun");
-    expect(keys).toContain("rematch");
-  });
+it("has no destructive back / reselect / rerun controls any more", () => {
+  const keys = Object.keys(controlsFor({ kind: "waiting" }, true));
+  expect(keys).not.toContain("back");
+  expect(keys).not.toContain("reselect");
+  expect(keys).not.toContain("rerun");
+  expect(keys).toContain("rematch");
+});
 ```
 
 - [ ] **Step 2: Run them to verify they fail**
@@ -643,11 +649,13 @@ a) `src/controller/LazyMatchingPipeline.ts`: delete `back()` and `rerunCurrent()
 b) `src/state/SourceStore.ts`: delete `rerunSubLine` (whole method).
 
 c) `src/ui/matchingUiState.ts`:
+
 - `MatchingControlsView`: remove `back`, `reselect`, `rerun`; add `rematch: ButtonView;` after `skip`.
 - `ALL_HIDDEN`: same edit (`rematch: HIDDEN`).
 - `controlsFor`: `stepping` → `validate`, `skip`, `rematch`, `restart` all `SHOWN_DISABLED`; `waiting` → `validate`, `skip`, `rematch`, `restart` all `SHOWN`.
 
 d) `src/ui/subtabs/MatchingSubTab.ts` (only what stops compiling here; the panel is rebuilt in Task 6):
+
 - delete `onBackMatchingClick`, `onReselectMatchedClick`; rename `onRerunCurrentRowClick` to `onRematchClick` with body:
 
 ```ts
@@ -685,11 +693,13 @@ git commit -m "refactor(matching): non-destructive re-match replaces Back / Reru
 ### Task 4: Step navigation bar and "⋯" menu views
 
 **Files:**
+
 - Create: `src/ui/views/StepNavView.ts`, `src/ui/views/PanelMenuView.ts`
 - Modify: `src/ui/styles.ts`, both locales
 - Test: `src/__tests__/StepNavView.test.ts`, `src/__tests__/PanelMenuView.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `interface StepNavState { label: string; caption: string; validated: boolean; canPrev: boolean; canNext: boolean }`
   - `class StepNavView { root; constructor(props: { onPrev(): void; onNext(): void }); setState(state: StepNavState): void }`
@@ -930,74 +940,74 @@ export class PanelMenuView {
 CSS (append to `BASE_CSS`):
 
 ```css
-  .wmegj-step-nav {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px;
-    border-radius: 8px;
-    background: var(--surface_default);
-  }
-  .wmegj-step-nav-text {
-    flex: 1 1 auto;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-  }
-  .wmegj-step-nav-label {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--content_default);
-  }
-  .wmegj-step-nav.is-validated .wmegj-step-nav-label::after {
-    content: " ✓";
-    color: var(--safe_variant);
-  }
-  .wmegj-menu {
-    position: relative;
-  }
-  .wmegj-menu-toggle {
-    font-size: 18px;
-    line-height: 1;
-  }
-  .wmegj-menu-list {
-    position: absolute;
-    right: 0;
-    top: calc(100% + 4px);
-    z-index: 2;
-    min-width: 200px;
-    padding: 4px 0;
-    border-radius: 8px;
-    background: var(--background_default);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-    display: flex;
-    flex-direction: column;
-  }
-  .wmegj-menu-list[hidden] {
-    display: none;
-  }
-  .wmegj-menu-item {
-    padding: 8px 16px;
-    border: none;
-    background: none;
-    color: var(--content_p1);
-    font: inherit;
-    font-size: 14px;
-    text-align: left;
-    cursor: pointer;
-  }
-  .wmegj-menu-item:hover:not(:disabled) {
-    background: var(--background_variant);
-  }
-  .wmegj-menu-item.is-danger {
-    color: var(--alarming_variant);
-  }
-  .wmegj-menu-item:disabled {
-    color: var(--hairline_strong);
-    cursor: default;
-  }
+.wmegj-step-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--surface_default);
+}
+.wmegj-step-nav-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.wmegj-step-nav-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--content_default);
+}
+.wmegj-step-nav.is-validated .wmegj-step-nav-label::after {
+  content: " ✓";
+  color: var(--safe_variant);
+}
+.wmegj-menu {
+  position: relative;
+}
+.wmegj-menu-toggle {
+  font-size: 18px;
+  line-height: 1;
+}
+.wmegj-menu-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 2;
+  min-width: 200px;
+  padding: 4px 0;
+  border-radius: 8px;
+  background: var(--background_default);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+}
+.wmegj-menu-list[hidden] {
+  display: none;
+}
+.wmegj-menu-item {
+  padding: 8px 16px;
+  border: none;
+  background: none;
+  color: var(--content_p1);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.wmegj-menu-item:hover:not(:disabled) {
+  background: var(--background_variant);
+}
+.wmegj-menu-item.is-danger {
+  color: var(--alarming_variant);
+}
+.wmegj-menu-item:disabled {
+  color: var(--hairline_strong);
+  cursor: default;
+}
 ```
 
 - [ ] **Step 4: Run tests**
@@ -1017,11 +1027,13 @@ git commit -m "feat(ui): step navigation bar and ⋯ menu views"
 ### Task 5: Panel position and WME card styling
 
 **Files:**
+
 - Create: `src/ui/panelPosition.ts`
 - Modify: `src/ui/styles.ts`, `src/ui/subtabs/MatchingSubTab.ts` (`injectStyles` guided rules, `restoreGuidedPanelLayout`, `openMatchingPanel`)
 - Test: `src/__tests__/panelPosition.test.ts`, `src/__tests__/styles.test.ts`
 
 **Interfaces:**
+
 - Produces: `initialPanelPosition(input: { stored: { left: number; top: number } | null; sidebarRight: number; viewport: { width: number; height: number }; panel: { width: number; height: number } }): { left: number; top: number }`
 
 - [ ] **Step 1: Write the failing tests**
@@ -1070,10 +1082,12 @@ describe("initialPanelPosition", () => {
 Append to `src/__tests__/styles.test.ts` inside the `describe`:
 
 ```ts
-  it("styles the matching panel as a WME card", () => {
-    expect(BASE_CSS).toMatch(/\.wmegj-guided-overlay \{[^}]*background: var\(--background_default\);/);
-    expect(BASE_CSS).toMatch(/\.wmegj-guided-overlay \{[^}]*box-shadow:/);
-  });
+it("styles the matching panel as a WME card", () => {
+  expect(BASE_CSS).toMatch(
+    /\.wmegj-guided-overlay \{[^}]*background: var\(--background_default\);/,
+  );
+  expect(BASE_CSS).toMatch(/\.wmegj-guided-overlay \{[^}]*box-shadow:/);
+});
 ```
 
 - [ ] **Step 2: Run them to verify they fail**
@@ -1110,161 +1124,164 @@ export function initialPanelPosition(input: {
 ```
 
 In `MatchingSubTab`:
+
 - `restoreGuidedPanelLayout(panel)`: keep only the collapsed-flag restore (`this.guidedCollapsed = …`); drop the position part.
 - `openMatchingPanel()`: after `this.matchingPanelOpen = true;` and before `renderPhase`, position the panel:
 
 ```ts
-    const panel = this.guidedMatchingRow;
-    if (panel) {
-      let stored: { left: number; top: number } | null = null;
-      try {
-        const raw = localStorage.getItem(MatchingSubTab.PANEL_POSITION_KEY);
-        const parsed = raw ? (JSON.parse(raw) as { left?: unknown; top?: unknown }) : null;
-        if (parsed && typeof parsed.left === "number" && typeof parsed.top === "number") {
-          stored = { left: parsed.left, top: parsed.top };
-        }
-      } catch {
-        // Ignore malformed or unavailable persisted layout.
-      }
-      const position = initialPanelPosition({
-        stored,
-        sidebarRight: this.tabPane?.getBoundingClientRect().right ?? 0,
-        viewport: { width: window.innerWidth, height: window.innerHeight },
-        panel: { width: panel.offsetWidth || 360, height: panel.offsetHeight || 400 },
-      });
-      panel.style.left = `${position.left}px`;
-      panel.style.top = `${position.top}px`;
-      panel.style.right = "auto";
-      panel.style.bottom = "auto";
+const panel = this.guidedMatchingRow;
+if (panel) {
+  let stored: { left: number; top: number } | null = null;
+  try {
+    const raw = localStorage.getItem(MatchingSubTab.PANEL_POSITION_KEY);
+    const parsed = raw ? (JSON.parse(raw) as { left?: unknown; top?: unknown }) : null;
+    if (parsed && typeof parsed.left === "number" && typeof parsed.top === "number") {
+      stored = { left: parsed.left, top: parsed.top };
     }
+  } catch {
+    // Ignore malformed or unavailable persisted layout.
+  }
+  const position = initialPanelPosition({
+    stored,
+    sidebarRight: this.tabPane?.getBoundingClientRect().right ?? 0,
+    viewport: { width: window.innerWidth, height: window.innerHeight },
+    panel: { width: panel.offsetWidth || 360, height: panel.offsetHeight || 400 },
+  });
+  panel.style.left = `${position.left}px`;
+  panel.style.top = `${position.top}px`;
+  panel.style.right = "auto";
+  panel.style.bottom = "auto";
+}
 ```
 
-  Import `initialPanelPosition` from `../panelPosition`. Every path that shows the panel goes through `openMatchingPanel()` (sidebar step 1 button); `onStartMatchingClick` / `onStartBurstClick` set `matchingPanelOpen = true` directly — replace those two lines by `this.openMatchingPanel();`.
+Import `initialPanelPosition` from `../panelPosition`. Every path that shows the panel goes through `openMatchingPanel()` (sidebar step 1 button); `onStartMatchingClick` / `onStartBurstClick` set `matchingPanelOpen = true` directly — replace those two lines by `this.openMatchingPanel();`.
 
 - Move the guided-panel CSS out of `MatchingSubTab.injectStyles` into `BASE_CSS`, rewritten on tokens (delete `injectStyles` and its call in `buildRoot` once empty; `BASE_CSS` is injected by `MatchPanel.mount`). Replace **all** `.wmegj-guided-*` rules by:
 
 ```css
-  .wmegj-guided-overlay {
-    position: fixed;
-    z-index: 1000;
-    display: flex;
-    flex-direction: column;
-    width: min(360px, calc(100vw - 24px));
-    max-height: calc(100vh - 88px);
-    border-radius: 8px;
-    background: var(--background_default);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2), 0 0 1px rgba(0, 0, 0, 0.2);
-    color: var(--content_p1);
-    font-size: 14px;
-    overflow: hidden;
-  }
-  .wmegj-guided-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 12px 8px 8px 16px;
-    cursor: move;
-    user-select: none;
-  }
-  .wmegj-guided-title-wrap {
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-  .wmegj-guided-title {
-    font-size: 16px;
-    font-weight: 500;
-    color: var(--content_default);
-  }
-  .wmegj-guided-status {
-    font-size: 12px;
-    color: var(--content_p3);
-  }
-  .wmegj-guided-header-actions {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-  }
-  .wmegj-guided-icon-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    border: none;
-    border-radius: 50%;
-    background: transparent;
-    color: var(--content_p2);
-    cursor: pointer;
-  }
-  .wmegj-guided-icon-button:hover {
-    background: var(--surface_default);
-  }
-  .wmegj-guided-body {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    padding: 0 16px 16px;
-    overflow-y: auto;
-  }
-  .wmegj-guided-tabpane {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-  .wmegj-guided-row {
-    margin: 0;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--content_default);
-  }
-  .wmegj-guided-count,
-  .wmegj-guided-instruction,
-  .wmegj-guided-meta,
-  .wmegj-guided-feedback {
-    margin: 0;
-    font-size: 13px;
-    color: var(--content_p2);
-  }
-  .wmegj-guided-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  .wmegj-guided-actions > * {
-    flex: 1 1 auto;
-  }
-  .wmegj-guided-loader {
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: var(--content_p2);
-  }
-  .wmegj-guided-spinner {
-    width: 16px;
-    height: 16px;
-    border: 2px solid var(--hairline);
-    border-top-color: var(--primary);
-    border-radius: 50%;
-    animation: wmegj-spin 0.7s linear infinite;
-  }
-  .wmegj-guided-debug-title {
-    margin: 0;
-    font-size: 13px;
-    font-weight: 500;
-  }
-  .wmegj-guided-debug-body {
-    font-size: 12px;
-    color: var(--content_p2);
-    overflow-wrap: anywhere;
-  }
-  .wmegj-guided-steps {
-    margin: 4px 0 0;
-    padding-left: 16px;
-  }
+.wmegj-guided-overlay {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  width: min(360px, calc(100vw - 24px));
+  max-height: calc(100vh - 88px);
+  border-radius: 8px;
+  background: var(--background_default);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.2),
+    0 0 1px rgba(0, 0, 0, 0.2);
+  color: var(--content_p1);
+  font-size: 14px;
+  overflow: hidden;
+}
+.wmegj-guided-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 8px 8px 16px;
+  cursor: move;
+  user-select: none;
+}
+.wmegj-guided-title-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.wmegj-guided-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--content_default);
+}
+.wmegj-guided-status {
+  font-size: 12px;
+  color: var(--content_p3);
+}
+.wmegj-guided-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.wmegj-guided-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--content_p2);
+  cursor: pointer;
+}
+.wmegj-guided-icon-button:hover {
+  background: var(--surface_default);
+}
+.wmegj-guided-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 16px 16px;
+  overflow-y: auto;
+}
+.wmegj-guided-tabpane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.wmegj-guided-row {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--content_default);
+}
+.wmegj-guided-count,
+.wmegj-guided-instruction,
+.wmegj-guided-meta,
+.wmegj-guided-feedback {
+  margin: 0;
+  font-size: 13px;
+  color: var(--content_p2);
+}
+.wmegj-guided-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.wmegj-guided-actions > * {
+  flex: 1 1 auto;
+}
+.wmegj-guided-loader {
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--content_p2);
+}
+.wmegj-guided-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--hairline);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: wmegj-spin 0.7s linear infinite;
+}
+.wmegj-guided-debug-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+.wmegj-guided-debug-body {
+  font-size: 12px;
+  color: var(--content_p2);
+  overflow-wrap: anywhere;
+}
+.wmegj-guided-steps {
+  margin: 4px 0 0;
+  padding-left: 16px;
+}
 ```
 
-  (`@keyframes wmegj-spin` already exists in `BASE_CSS` from batch B. The `@media (max-width: 640px)` block and `wmegj-guided-button--*` / `wmegj-guided-tab*` / `wmegj-guided-secondary-actions` / `wmegj-guided-reset-actions` rules are dropped: buttons use the shared `.wmegj-button` styles, tabs and the reset row disappear in Task 6.)
+(`@keyframes wmegj-spin` already exists in `BASE_CSS` from batch B. The `@media (max-width: 640px)` block and `wmegj-guided-button--*` / `wmegj-guided-tab*` / `wmegj-guided-secondary-actions` / `wmegj-guided-reset-actions` rules are dropped: buttons use the shared `.wmegj-button` styles, tabs and the reset row disappear in Task 6.)
 
 - [ ] **Step 4: Run tests, type-check**
 
@@ -1283,11 +1300,13 @@ git commit -m "feat(ui): matching panel opens next to the sidebar, styled as a W
 ### Task 6: Wire navigation, review and menu into the panel
 
 **Files:**
+
 - Modify: `src/ui/subtabs/MatchingSubTab.ts`, both locales
 - Test: `src/__tests__/matchingPanelText.test.ts` (new, pure helpers exported from a new `src/ui/matchingPanelText.ts`)
 - Create: `src/ui/matchingPanelText.ts`
 
 **Interfaces:**
+
 - Consumes: Tasks 1–5.
 - Produces (pure, in `src/ui/matchingPanelText.ts`):
   - `instructionKey(input: { run: MatchingUiState["kind"]; review: ReviewState | null; hasValidated: boolean }): string` — the i18n key of the panel instruction.
@@ -1324,10 +1343,18 @@ describe("instructionKey", () => {
       "panel.matching.instructions.done",
     );
     expect(
-      instructionKey({ run: "done", review: { step, dirty: false, busy: false }, hasValidated: true }),
+      instructionKey({
+        run: "done",
+        review: { step, dirty: false, busy: false },
+        hasValidated: true,
+      }),
     ).toBe("panel.matching.instructions.review");
     expect(
-      instructionKey({ run: "waiting", review: { step, dirty: true, busy: false }, hasValidated: true }),
+      instructionKey({
+        run: "waiting",
+        review: { step, dirty: true, busy: false },
+        hasValidated: true,
+      }),
     ).toBe("panel.matching.instructions.reviewDirty");
   });
 });
@@ -1389,7 +1416,10 @@ describe("stepNavState", () => {
   });
 
   it("is frozen while disabled", () => {
-    expect(stepNavState(source, step, steps, false)).toMatchObject({ canPrev: false, canNext: false });
+    expect(stepNavState(source, step, steps, false)).toMatchObject({
+      canPrev: false,
+      canNext: false,
+    });
   });
 });
 ```
@@ -1494,6 +1524,7 @@ export function stepNavState(
 ```
 
 Locales (both files):
+
 - FR `panel.matching.nav`: `{ "prev": "Sous-ligne précédente", "next": "Sous-ligne suivante", "label": "Ligne {{line}}/{{lines}} · sous-ligne {{sub}}", "labelOf": "Ligne {{line}}/{{lines}} · sous-ligne {{sub}}/{{subs}}", "segments": "{{count}} segment(s)", "toValidate": "à valider", "summary": "{{count}} sous-ligne(s) validée(s)" }`
 - EN `panel.matching.nav`: `{ "prev": "Previous sub-line", "next": "Next sub-line", "label": "Line {{line}}/{{lines}} · sub-line {{sub}}", "labelOf": "Line {{line}}/{{lines}} · sub-line {{sub}}/{{subs}}", "segments": "{{count}} segment(s)", "toValidate": "to validate", "summary": "{{count}} validated sub-line(s)" }`
 - FR `panel.matching.instructions`: `{ "idle": "Démarrez la correspondance : manuelle pour valider chaque sous-ligne, automatique pour tout enchaîner.", "idleBrowse": "Reprenez la correspondance, ou parcourez les sous-lignes déjà validées avec ‹ ›.", "review": "Sous-ligne validée. Resélectionnez ses segments ou relancez le matching, corrigez la sélection dans WME puis enregistrez.", "reviewDirty": "La sélection a changé. Enregistrez-la pour cette sous-ligne, ou annulez.", "done": "Toutes les sous-lignes sont validées. Appliquez les fermetures depuis la barre latérale, ou parcourez-les avec ‹ ›.", "paused": "En pause. Reprenez, ou parcourez les sous-lignes validées avec ‹ ›.", "error": "Le matching a échoué. Réessayez." }`
@@ -1523,43 +1554,44 @@ a) **Fields and construction.** Add imports (`StepReview`, `reviewControlsFor`, 
   private unsubscribeSelectionChanged: (() => void) | null = null;
 ```
 
-  `review` is created in `buildRoot()` (after `this.buildDOM(root)`):
+`review` is created in `buildRoot()` (after `this.buildDOM(root)`):
 
 ```ts
-    this.review = new StepReview({
-      store: this.sourceStore,
-      map: {
-        setMapCenter: (lon, lat, zoom) => this.buildMapDriver().setMapCenter(lon, lat, zoom),
-        waitIdle: () => waitForMapIdle(this.wmeSDK, { settleDelayMs: 650 }),
-        setSelection: (ids) => this.buildMapDriver().setSelection(ids),
-        getSelection: () => this.readSelectionSegmentIds(),
-      },
-      match: { runMatchFor: (step) => this.runMatchFor(step) },
-      onChange: () => {
-        this.renderSourceState();
-        this.updateGuidedControls();
-      },
-    });
-    try {
-      this.unsubscribeSelectionChanged = this.wmeSDK.Events.on({
-        eventName: "wme-selection-changed",
-        eventHandler: () => this.review?.selectionChanged(this.readSelectionSegmentIds()),
-      });
-    } catch (err) {
-      logger.warn("MatchingSubTab.buildRoot: failed to subscribe to wme-selection-changed", err);
-    }
+this.review = new StepReview({
+  store: this.sourceStore,
+  map: {
+    setMapCenter: (lon, lat, zoom) => this.buildMapDriver().setMapCenter(lon, lat, zoom),
+    waitIdle: () => waitForMapIdle(this.wmeSDK, { settleDelayMs: 650 }),
+    setSelection: (ids) => this.buildMapDriver().setSelection(ids),
+    getSelection: () => this.readSelectionSegmentIds(),
+  },
+  match: { runMatchFor: (step) => this.runMatchFor(step) },
+  onChange: () => {
+    this.renderSourceState();
+    this.updateGuidedControls();
+  },
+});
+try {
+  this.unsubscribeSelectionChanged = this.wmeSDK.Events.on({
+    eventName: "wme-selection-changed",
+    eventHandler: () => this.review?.selectionChanged(this.readSelectionSegmentIds()),
+  });
+} catch (err) {
+  logger.warn("MatchingSubTab.buildRoot: failed to subscribe to wme-selection-changed", err);
+}
 ```
 
-  and `unmount()` calls `this.unsubscribeSelectionChanged?.()` and nulls `review`, `stepNav`, `panelMenu`, the four new buttons.
+and `unmount()` calls `this.unsubscribeSelectionChanged?.()` and nulls `review`, `stepNav`, `panelMenu`, the four new buttons.
 
 b) **Match driver for any step.** Split `buildMatchDriver().runMatch` into a method `runMatchFor(step: StepRef): Promise<number[]>` holding today's body with `lineIndex/subLineIndex` taken from `step` (not from `src.cursor`), and keep `runMatch: async () => { const cursor = this.sourceStore.getSource()?.cursor; return cursor ? this.runMatchFor(cursor) : []; }`. `runMatchFor` must first center on the sub-line view (`this.buildMapDriver().setMapCenter(sub.view.lon, sub.view.lat, sub.view.zoom)` + `await waitForMapIdle(...)`) only when called from the review — the pipeline already centers before `runMatch`. To keep one code path, `StepReview.open()` centers the map (Task 2), so `runMatchFor` does **not** center; the review re-match happens on the view `open()` set.
 
 c) **Header: menu instead of tabs and reset row.** In `buildGuidedMatchingRow`:
+
 - insert the menu before the collapse button:
 
 ```ts
-    this.panelMenu = new PanelMenuView({ label: i18next.t("panel.matching.menu.more") });
-    headerActions.appendChild(this.panelMenu.root);
+this.panelMenu = new PanelMenuView({ label: i18next.t("panel.matching.menu.more") });
+headerActions.appendChild(this.panelMenu.root);
 ```
 
 - delete the tab row (`tabRow`, `guidedTabMatchEl`, `guidedTabDebugEl`, `buildGuidedTab`); the debug pane gets, as its first child, a text button `wzButton({ text: "← " + i18next.t("panel.matching.menu.backToMatching"), variant: "text", onClick: () => this.setGuidedActiveTab("match") })`;
@@ -1567,36 +1599,36 @@ c) **Header: menu instead of tabs and reset row.** In `buildGuidedMatchingRow`:
 - insert the nav bar at the top of `matchPane`, before `headerEl`:
 
 ```ts
-    this.stepNav = new StepNavView({
-      onPrev: () => void this.navigate(-1),
-      onNext: () => void this.navigate(1),
-    });
-    matchPane.appendChild(this.stepNav.root);
+this.stepNav = new StepNavView({
+  onPrev: () => void this.navigate(-1),
+  onNext: () => void this.navigate(1),
+});
+matchPane.appendChild(this.stepNav.root);
 ```
 
 - add the review buttons to `matchActions` (after `guidedRematchBtn`):
 
 ```ts
-    this.guidedSelectMatchedBtn = this.appendGuidedButton(matchActions, {
-      text: i18next.t("panel.matching.review.selectMatched"),
-      variant: "primary",
-      onClick: () => this.review?.selectMatched(),
-    });
-    this.guidedReviewRematchBtn = this.appendGuidedButton(matchActions, {
-      text: i18next.t("panel.matching.rematch"),
-      variant: "secondary",
-      onClick: () => void this.review?.rematch(),
-    });
-    this.guidedSaveBtn = this.appendGuidedButton(matchActions, {
-      text: i18next.t("panel.matching.review.save"),
-      variant: "primary",
-      onClick: () => this.review?.save(),
-    });
-    this.guidedCancelBtn = this.appendGuidedButton(matchActions, {
-      text: i18next.t("panel.matching.review.cancel"),
-      variant: "secondary",
-      onClick: () => this.review?.cancel(),
-    });
+this.guidedSelectMatchedBtn = this.appendGuidedButton(matchActions, {
+  text: i18next.t("panel.matching.review.selectMatched"),
+  variant: "primary",
+  onClick: () => this.review?.selectMatched(),
+});
+this.guidedReviewRematchBtn = this.appendGuidedButton(matchActions, {
+  text: i18next.t("panel.matching.rematch"),
+  variant: "secondary",
+  onClick: () => void this.review?.rematch(),
+});
+this.guidedSaveBtn = this.appendGuidedButton(matchActions, {
+  text: i18next.t("panel.matching.review.save"),
+  variant: "primary",
+  onClick: () => this.review?.save(),
+});
+this.guidedCancelBtn = this.appendGuidedButton(matchActions, {
+  text: i18next.t("panel.matching.review.cancel"),
+  variant: "secondary",
+  onClick: () => this.review?.cancel(),
+});
 ```
 
 - the start-burst button becomes `variant: "secondary"` (one primary per state: manual start is the primary).
@@ -1652,6 +1684,7 @@ d) **Navigation.**
 - `onSelectedLineChangedAsync` and `rebuildSourceWithCsv` and the restart path: call `this.review?.close();` (a line change discards an unsaved review without asking — it is triggered from the sidebar list, outside the panel).
 
 e) **Rendering.**
+
 - `renderSourceState()`: replace `const cursor = src.cursor;` by `const cursor = this.currentStep() ?? src.cursor;` so header, segment count and highlighted slice follow the reviewed sub-line. For a validated sub-line the count already uses `sub.segmentIds.length`.
 - `updateGuidedControls()`:
 
@@ -1716,7 +1749,8 @@ e) **Rendering.**
   }
 ```
 
-  (`ButtonView` is already imported from `../matchingUiState`.) The old instruction writes (`guidedInstructionEl.textContent = …` in `onStartMatchingClick`, `onStartBurstClick`, `resetGuidedSessionState`, `applyTransitionEffects` error branch, `runStep`/burst stall paths) can stay or be removed — `updateGuidedControls()` runs after every `dispatch` and overwrites them; remove the ones that set `validateOrCorrect` / `burstRunning` to avoid two sources of truth, keep the error message one (`stepError` with the message) but move it: in `updateGuidedControls`, when `this.uiState.kind === "error"`, use `i18next.t("panel.matching.stepError", { message: this.uiState.message })` instead of the `instructions.error` key.
+(`ButtonView` is already imported from `../matchingUiState`.) The old instruction writes (`guidedInstructionEl.textContent = …` in `onStartMatchingClick`, `onStartBurstClick`, `resetGuidedSessionState`, `applyTransitionEffects` error branch, `runStep`/burst stall paths) can stay or be removed — `updateGuidedControls()` runs after every `dispatch` and overwrites them; remove the ones that set `validateOrCorrect` / `burstRunning` to avoid two sources of truth, keep the error message one (`stepError` with the message) but move it: in `updateGuidedControls`, when `this.uiState.kind === "error"`, use `i18next.t("panel.matching.stepError", { message: this.uiState.message })` instead of the `instructions.error` key.
+
 - `renderSourceState()` is called on every source change; also call `this.updateGuidedControls()` at its end so the nav bar follows validations.
 
 f) Delete the now-unused `panel.matching.tabs` keys and `setGuidedActiveTab`'s tab-button styling code (keep the method: it still toggles `guidedMatchPaneEl` / `guidedDebugPaneEl`).

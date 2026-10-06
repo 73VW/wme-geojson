@@ -165,6 +165,7 @@ export class MatchingSubTab {
   private guidedValidateBtn: HTMLElement | null = null;
   private guidedSkipBtn: HTMLElement | null = null;
   private guidedRematchBtn: HTMLElement | null = null;
+  private guidedReselectBtn: HTMLElement | null = null;
   private guidedDoneCloseBtn: HTMLElement | null = null;
   private rematchRunning = false;
   /** WME selection on the frontier when the operator stepped back into a review. */
@@ -229,7 +230,11 @@ export class MatchingSubTab {
     try {
       this.unsubscribeSelectionChanged = this.wmeSDK.Events.on({
         eventName: "wme-selection-changed",
-        eventHandler: () => this.review?.selectionChanged(this.readSelectionSegmentIds()),
+        eventHandler: () => {
+          this.review?.selectionChanged(this.readSelectionSegmentIds());
+          // The "n segments identifiés" caption follows the operator's corrections.
+          if (!this.review?.state && this.uiState.kind === "waiting") this.updateGuidedControls();
+        },
       });
     } catch (err) {
       logger.warn("MatchingSubTab.buildRoot: failed to subscribe to wme-selection-changed", err);
@@ -464,6 +469,7 @@ export class MatchingSubTab {
     this.guidedValidateBtn = null;
     this.guidedSkipBtn = null;
     this.guidedRematchBtn = null;
+    this.guidedReselectBtn = null;
     this.guidedDoneCloseBtn = null;
     this.review = null;
     this.stepNav = null;
@@ -849,6 +855,13 @@ export class MatchingSubTab {
       },
     });
     this.guidedRematchBtn.classList.add("wmegj-guided-button--rematch");
+    // A stray click on the map clears the WME selection: put the detected segments back.
+    this.guidedReselectBtn = this.appendGuidedButton(matchActions, {
+      text: i18next.t("panel.matching.reselectDetected"),
+      variant: "secondary",
+      onClick: () =>
+        this.buildMapDriver().setSelection(this.lazyPipeline?.getPendingMatched() ?? []),
+    });
 
     this.guidedSelectMatchedBtn = this.appendGuidedButton(matchActions, {
       text: i18next.t("panel.matching.review.selectMatched"),
@@ -1543,6 +1556,7 @@ export class MatchingSubTab {
           validate: hidden,
           skip: hidden,
           rematch: hidden,
+          reselect: hidden,
           resume: hidden,
           retry: hidden,
           doneClose: hidden,
@@ -1556,6 +1570,7 @@ export class MatchingSubTab {
     this.applyButtonView(this.guidedValidateBtn, c.validate);
     this.applyButtonView(this.guidedSkipBtn, c.skip);
     this.applyButtonView(this.guidedRematchBtn, c.rematch);
+    this.applyButtonView(this.guidedReselectBtn, c.reselect);
     this.applyButtonView(this.guidedPauseBtn, c.pause);
     this.applyButtonView(this.guidedResumeBtn, c.resume);
     this.applyButtonView(this.guidedRetryBtn, c.retry);
@@ -1577,9 +1592,8 @@ export class MatchingSubTab {
           steps,
           navEnabled(this.uiState.kind, reviewState, this.rematchRunning),
           this.exitAtEnd(),
-          this.uiState.kind === "waiting"
-            ? (this.lazyPipeline?.getPendingMatched().length ?? null)
-            : null,
+          // Segments identified for this sub-line: the WME selection, corrections included.
+          this.uiState.kind === "waiting" ? this.readSelectionSegmentIds().length : null,
         ),
       );
     }
