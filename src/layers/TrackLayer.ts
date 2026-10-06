@@ -91,6 +91,8 @@ export class TrackLayer {
   // redraw and re-emitted last so it stays visually above the base lines.
   private highlightedSlice: MultiLineString | null = null;
   private colorMode: TrackColorMode = "single";
+  /** Ids of the slice + label features currently on the layer. */
+  private overlayIds: Array<string | number> = [];
 
   constructor(private readonly wmeSDK: WmeSDK) {}
 
@@ -133,7 +135,8 @@ export class TrackLayer {
     });
 
     // Respect the default-hidden labels contract from the first render.
-    this.drawFeatures(track, this.filterLabels());
+    this.overlayIds = [];
+    this.drawFeatures(track);
   }
 
   /**
@@ -195,7 +198,11 @@ export class TrackLayer {
    */
   setHighlightedSlice(geometry: MultiLineString | null): void {
     this.highlightedSlice = geometry;
-    this.redraw();
+    if (!this.currentTrack) return;
+    // Called on every matching step: swap only the overlay (slice + labels,
+    // which must stay above it) instead of re-sending the whole base track.
+    this.removeOverlay();
+    this.addOverlay();
   }
 
   /**
@@ -244,15 +251,15 @@ export class TrackLayer {
   // Private
   // ---------------------------------------------------------------------------
 
-  private drawFeatures(track: NormalizedTrack, labels: DistanceLabel[]): void {
+  private drawFeatures(track: NormalizedTrack): void {
     const baseId = track.trackId !== null ? String(track.trackId) : `track-${Date.now()}`;
 
-    this.addFeatures([
-      ...track.geometry.coordinates.map((lineCoords, index) =>
+    this.addFeatures(
+      track.geometry.coordinates.map((lineCoords, index) =>
         this.lineFeature(`${baseId}-line-${index}`, lineCoords, index),
       ),
-      ...labels.map(labelFeature),
-    ]);
+    );
+    this.addOverlay();
   }
 
   /**
@@ -274,11 +281,25 @@ export class TrackLayer {
     if (!this.currentTrack) return;
 
     this.wmeSDK.Map.removeAllFeaturesFromLayer({ layerName: TrackLayer.LAYER_NAME });
-    this.addFeatures([
-      ...this.trackFeaturesInRange(this.currentRangeLo, this.currentRangeHi),
-      ...this.highlightedSliceFeatures(),
-      ...this.filterLabels().map(labelFeature),
-    ]);
+    this.overlayIds = [];
+    this.addFeatures(this.trackFeaturesInRange(this.currentRangeLo, this.currentRangeHi));
+    this.addOverlay();
+  }
+
+  /** Slice + labels, added after the base track so they draw above it. */
+  private addOverlay(): void {
+    const overlay = [...this.highlightedSliceFeatures(), ...this.filterLabels().map(labelFeature)];
+    this.overlayIds = overlay.map((feature) => feature.id);
+    this.addFeatures(overlay);
+  }
+
+  private removeOverlay(): void {
+    if (this.overlayIds.length === 0) return;
+    this.wmeSDK.Map.removeFeaturesFromLayer({
+      layerName: TrackLayer.LAYER_NAME,
+      featureIds: this.overlayIds,
+    });
+    this.overlayIds = [];
   }
 
   /**

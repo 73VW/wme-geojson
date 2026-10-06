@@ -4,6 +4,7 @@ import { TrackLayer } from "../layers/TrackLayer";
 import type { NormalizedTrack } from "../geojson/types";
 
 interface AddedFeature {
+  id?: unknown;
   geometryType: string;
   coordinates?: unknown;
   kind: unknown;
@@ -19,12 +20,23 @@ function makeSdkMock(features: AddedFeature[]) {
       removeAllFeaturesFromLayer: vi.fn(() => {
         features.length = 0;
       }),
+      removeFeaturesFromLayer: vi.fn((args: { featureIds: unknown[] }) => {
+        const ids = new Set(args.featureIds);
+        const kept = features.filter((f) => !ids.has(f.id));
+        features.length = 0;
+        features.push(...kept);
+      }),
       addFeaturesToLayer: vi.fn(
         (args: {
-          features: { geometry: { type: string }; properties?: Record<string, unknown> }[];
+          features: {
+            id?: unknown;
+            geometry: { type: string };
+            properties?: Record<string, unknown>;
+          }[];
         }) => {
           for (const feature of args.features) {
             features.push({
+              id: feature.id,
               geometryType: feature.geometry.type,
               coordinates: (feature.geometry as { coordinates?: unknown }).coordinates,
               kind: feature.properties?.kind,
@@ -175,7 +187,7 @@ describe("TrackLayer label visibility", () => {
 });
 
 describe("TrackLayer SDK batching", () => {
-  it("adds track, slice and labels in a single SDK call per redraw", () => {
+  it("redraws the base track, then the slice and labels above it", () => {
     const features: AddedFeature[] = [];
     const sdk = makeSdkMock(features);
     const layer = new TrackLayer(sdk);
@@ -187,10 +199,35 @@ describe("TrackLayer SDK batching", () => {
 
     layer.setVisibleRange(0, layer.getTotalKm());
 
-    expect(sdk.Map.addFeaturesToLayer).toHaveBeenCalledTimes(1);
+    expect(sdk.Map.addFeaturesToLayer).toHaveBeenCalledTimes(2);
     const kinds = features.map((f) => f.kind);
     expect(kinds.slice(0, 2)).toEqual(["line", "slice"]);
     expect(kinds.length).toBeGreaterThan(2);
     expect(kinds.slice(2).every((kind) => kind === "label")).toBe(true);
+  });
+
+  it("swaps only the slice and labels when the highlight changes", () => {
+    const features: AddedFeature[] = [];
+    const sdk = makeSdkMock(features);
+    const layer = new TrackLayer(sdk);
+
+    layer.draw(makeTrack());
+    layer.setVisibleDistances(null);
+    const labelCount = features.filter((f) => f.kind === "label").length;
+    vi.mocked(sdk.Map.removeAllFeaturesFromLayer).mockClear();
+    vi.mocked(sdk.Map.addFeaturesToLayer).mockClear();
+
+    layer.setHighlightedSlice(makeTrack().geometry);
+    layer.setHighlightedSlice(makeTrack().geometry);
+
+    expect(sdk.Map.removeAllFeaturesFromLayer).not.toHaveBeenCalled();
+    const added = vi
+      .mocked(sdk.Map.addFeaturesToLayer)
+      .mock.calls.flatMap(([args]) => args.features.map((f) => f.properties?.kind));
+    expect(added).not.toContain("line");
+    const kinds = features.map((f) => f.kind);
+    expect(kinds.filter((k) => k === "line")).toHaveLength(1);
+    expect(kinds.filter((k) => k === "slice")).toHaveLength(1);
+    expect(kinds.filter((k) => k === "label")).toHaveLength(labelCount);
   });
 });
